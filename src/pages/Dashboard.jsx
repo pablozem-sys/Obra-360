@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import {
   Building2, TrendingUp, TrendingDown, DollarSign,
-  AlertTriangle, Plus, ArrowRight, Wallet, Clock
+  AlertTriangle, Plus, ArrowRight, Wallet, Clock, Users
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -9,8 +9,10 @@ import {
 } from 'recharts'
 import StatCard from '../components/ui/StatCard'
 import Badge from '../components/ui/Badge'
+import { useAuth } from '../context/AuthContext'
 import {
-  obras, gastos, ingresos, cuentasPagar, cuentasCobrar, flujoCajaData
+  obras, gastos, ingresos, cuentasPagar, cuentasCobrar, flujoCajaData,
+  registrosAsistencia
 } from '../data/mockData'
 import {
   formatCLP, calcGastosObra, calcIngresosObra,
@@ -43,13 +45,17 @@ const CBarTooltip = ({ active, payload, label }) => {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { can } = useAuth()
 
   const totalIngresos = ingresos.reduce((s, i) => s + i.monto, 0)
   const totalGastos   = gastos.reduce((s, g) => s + g.monto, 0)
-  const margen        = totalIngresos > 0 ? ((totalIngresos - totalGastos) / totalIngresos * 100).toFixed(1) : 0
+  const totalManoObra = registrosAsistencia.filter(r => r.costoTotal).reduce((s, r) => s + r.costoTotal, 0)
+  const totalGastosReal = totalGastos + totalManoObra
+  const margen        = totalIngresos > 0 ? ((totalIngresos - totalGastosReal) / totalIngresos * 100).toFixed(1) : 0
   const obrasActivas  = obras.filter(o => o.estado === 'en_ejecucion')
   const cxpPendiente  = cuentasPagar.filter(c => c.estado !== 'pagado').reduce((s, c) => s + c.monto, 0)
   const cxcPendiente  = cuentasCobrar.filter(c => c.estado !== 'cobrado').reduce((s, c) => s + c.saldoPendiente, 0)
+  const enObraAhora   = registrosAsistencia.filter(r => !r.salida).length
 
   const alertas = obras.filter(o => {
     const g = calcGastosObra(gastos, o.id)
@@ -124,12 +130,19 @@ export default function Dashboard() {
 
       {/* ── Stats grid ───────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <StatCard icon={Building2}    label="Obras Activas"    value={String(obrasActivas.length)}  sub={`${obras.length} proyectos en total`}       accent="blue" />
-        <StatCard icon={TrendingUp}   label="Ingresos"         value={formatCLP(totalIngresos)}      sub="Cobrado hasta hoy"                         accent="emerald" trend={12} />
-        <StatCard icon={TrendingDown} label="Gastos"           value={formatCLP(totalGastos)}        sub="Acumulado todas las obras"                 accent="red" />
-        <StatCard icon={DollarSign}   label="Margen Bruto"     value={`${margen}%`}                  sub={formatCLP(totalIngresos - totalGastos)}    accent={parseFloat(margen) >= 20 ? 'emerald' : 'amber'} />
-        <StatCard icon={Clock}        label="Cuentas x Pagar"  value={formatCLP(cxpPendiente)}       sub="Pendientes + vencidas"                     accent="amber" />
-        <StatCard icon={Wallet}       label="Cuentas x Cobrar" value={formatCLP(cxcPendiente)}       sub="Saldo por cobrar"                          accent="violet" />
+        <StatCard icon={Building2}    label="Obras Activas"    value={String(obrasActivas.length)}     sub={`${obras.length} proyectos en total`}                accent="blue" />
+        <StatCard icon={Users}        label="En obra ahora"    value={String(enObraAhora)}              sub="Trabajadores con entrada activa"                     accent="emerald" />
+        <StatCard icon={TrendingDown} label="Gastos + MO"      value={formatCLP(totalGastosReal)}       sub={`MO: ${formatCLP(totalManoObra)}`}                   accent="red" />
+        {can('verIngresos') && (
+          <StatCard icon={TrendingUp} label="Ingresos"         value={formatCLP(totalIngresos)}         sub="Cobrado hasta hoy"                                   accent="emerald" trend={12} />
+        )}
+        {can('verMargen') && (
+          <StatCard icon={DollarSign} label="Margen Bruto"     value={`${margen}%`}                     sub={formatCLP(totalIngresos - totalGastosReal)}          accent={parseFloat(margen) >= 20 ? 'emerald' : 'amber'} />
+        )}
+        <StatCard icon={Clock}        label="Cuentas x Pagar"  value={formatCLP(cxpPendiente)}          sub="Pendientes + vencidas"                               accent="amber" />
+        {can('verCxC') && (
+          <StatCard icon={Wallet}     label="Cuentas x Cobrar" value={formatCLP(cxcPendiente)}          sub="Saldo por cobrar"                                    accent="violet" />
+        )}
       </div>
 
       {/* ── Charts ───────────────────────────────── */}

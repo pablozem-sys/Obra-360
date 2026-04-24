@@ -167,3 +167,50 @@ export const currentUser = {
   rol: 'administrador',
   avatar: 'PT',
 }
+
+export const trabajadores = [
+  { id: 't1', nombre: 'Jorge Alvarado', avatar: 'JA', valorHora: 5000 },
+  { id: 't2', nombre: 'Luis González',  avatar: 'LG', valorHora: 4500 },
+  { id: 't3', nombre: 'Carlos Díaz',    avatar: 'CD', valorHora: 5500 },
+  { id: 't4', nombre: 'Mario Soto',     avatar: 'MS', valorHora: 4800 },
+  { id: 't5', nombre: 'Rodrigo Muñoz',  avatar: 'RM', valorHora: 4200 },
+]
+
+export const registrosAsistencia = [
+  {
+    id: 'a1', trabajadorId: 't1', obraId: '1', fecha: '2024-04-22',
+    entrada: '2024-04-22T08:15:00', lat_entrada: -33.4189, lng_entrada: -70.5785,
+    salida:  '2024-04-22T17:30:00', lat_salida:  -33.4189, lng_salida:  -70.5785,
+    horasTrabajadas: 9.25, valorHora: 5000, costoTotal: 46250,
+  },
+  {
+    id: 'a2', trabajadorId: 't2', obraId: '1', fecha: '2024-04-22',
+    entrada: '2024-04-22T08:30:00', lat_entrada: -33.419,  lng_entrada: -70.5784,
+    salida:  '2024-04-22T17:00:00', lat_salida:  -33.419,  lng_salida:  -70.5784,
+    horasTrabajadas: 8.5,  valorHora: 4500, costoTotal: 38250,
+  },
+  {
+    id: 'a3', trabajadorId: 't3', obraId: '3', fecha: '2024-04-22',
+    entrada: '2024-04-22T07:45:00', lat_entrada: -33.35,   lng_entrada: -70.51,
+    salida:  '2024-04-22T16:45:00', lat_salida:  -33.35,   lng_salida:  -70.51,
+    horasTrabajadas: 9.0,  valorHora: 5500, costoTotal: 49500,
+  },
+  {
+    id: 'a4', trabajadorId: 't1', obraId: '1', fecha: '2024-04-23',
+    entrada: '2024-04-23T08:00:00', lat_entrada: -33.4189, lng_entrada: -70.5785,
+    salida:  '2024-04-23T17:45:00', lat_salida:  -33.4189, lng_salida:  -70.5785,
+    horasTrabajadas: 9.75, valorHora: 5000, costoTotal: 48750,
+  },
+  {
+    id: 'a5', trabajadorId: 't2', obraId: '3', fecha: '2024-04-23',
+    entrada: '2024-04-23T08:20:00', lat_entrada: -33.3502, lng_entrada: -70.5098,
+    salida:  '2024-04-23T17:20:00', lat_salida:  -33.3502, lng_salida:  -70.5098,
+    horasTrabajadas: 9.0,  valorHora: 4500, costoTotal: 40500,
+  },
+  {
+    id: 'a6', trabajadorId: 't4', obraId: '1', fecha: '2024-04-23',
+    entrada: '2024-04-23T08:10:00', lat_entrada: -33.4189, lng_entrada: -70.5785,
+    salida:  null, lat_salida: null, lng_salida: null,
+    horasTrabajadas: null, valorHora: 4800, costoTotal: null,
+  },
+]

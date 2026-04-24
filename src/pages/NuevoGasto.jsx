@@ -7,7 +7,19 @@ import {
 import { obras } from '../data/mockData'
 import { CATEGORIAS_GASTO, TIPOS_OBRA, formatCLP } from '../lib/helpers'
 
-const CATEGORIAS  = Object.entries(CATEGORIAS_GASTO).map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
+// Excluir mano_obra (auto) y legacy
+const CATEGORIAS_GRUPOS = Object.entries(CATEGORIAS_GASTO)
+  .filter(([, v]) => !v.auto && v.grupo !== undefined)
+  .reduce((acc, [k, v]) => {
+    const g = v.grupo || 'Otros'
+    if (!acc[g]) acc[g] = []
+    acc[g].push({ value: k, label: v.label, color: v.color })
+    return acc
+  }, {})
+
+const CATEGORIAS = Object.entries(CATEGORIAS_GASTO)
+  .filter(([, v]) => !v.auto)
+  .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
 const MEDIOS_PAGO = ['transferencia', 'efectivo', 'tarjeta', 'cheque']
 
 export default function NuevoGasto() {
@@ -77,7 +89,7 @@ export default function NuevoGasto() {
         )}
         <div className="flex gap-3 flex-col sm:flex-row w-full max-w-xs">
           <button onClick={reset} className="btn-primary justify-center flex-1">Subir otro gasto</button>
-          <button onClick={() => navigate('/')} className="btn-secondary justify-center flex-1">Dashboard</button>
+          <button onClick={() => navigate('/dashboard')} className="btn-secondary justify-center flex-1">Dashboard</button>
         </div>
       </div>
     )
@@ -226,31 +238,42 @@ export default function NuevoGasto() {
             {/* Categoría */}
             <div>
               <label className="label">Categoría</label>
-              <div className="grid grid-cols-2 gap-2">
-                {CATEGORIAS.map(c => {
-                  const active = form.categoria === c.value
-                  return (
-                    <button
-                      key={c.value}
-                      onClick={() => set('categoria', c.value)}
-                      className="p-3 rounded-xl text-left transition-all duration-150"
-                      style={{
-                        background: active ? 'var(--bg-elevated)' : 'var(--bg-surface)',
-                        border: `1px solid ${active ? 'var(--border-light)' : 'var(--border)'}`,
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ background: c.color, boxShadow: active ? `0 0 8px ${c.color}` : 'none' }}
-                        />
-                        <span className="text-[12px] font-medium" style={{ color: active ? 'var(--text)' : 'var(--muted)' }}>
-                          {c.label}
-                        </span>
-                      </div>
-                    </button>
-                  )
-                })}
+              <div className="space-y-3 mt-2">
+                {Object.entries(CATEGORIAS_GRUPOS).map(([grupo, cats]) => (
+                  <div key={grupo}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest mb-2 px-0.5"
+                      style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>
+                      {grupo}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {cats.map(c => {
+                        const active = form.categoria === c.value
+                        return (
+                          <button
+                            key={c.value}
+                            onClick={() => set('categoria', c.value)}
+                            className="p-3 rounded-xl text-left transition-all duration-150"
+                            style={{
+                              background: active ? 'var(--bg-elevated)' : 'var(--bg-surface)',
+                              border: `1px solid ${active ? 'var(--border-light)' : 'var(--border)'}`,
+                              boxShadow: active ? `0 0 12px rgba(255,149,0,0.08)` : 'none',
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ background: c.color, boxShadow: active ? `0 0 8px ${c.color}` : 'none' }}
+                              />
+                              <span className="text-[12px] font-medium" style={{ color: active ? 'var(--text)' : 'var(--muted)' }}>
+                                {c.label}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
