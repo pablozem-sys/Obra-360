@@ -77,9 +77,12 @@ export default function Dashboard() {
       {/* ── Hero header ─────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>
-            Control Obras 360°
-          </p>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="amber-dot" />
+            <p style={{ fontFamily: 'DM Mono', fontSize: 10, letterSpacing: '0.15em', color: 'var(--muted)', textTransform: 'uppercase' }}>
+              Control Obras 360° // en vivo
+            </p>
+          </div>
           <h1 className="font-display font-bold text-[28px] leading-none" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>
             Dashboard
           </h1>
@@ -96,7 +99,7 @@ export default function Dashboard() {
       {/* ── Alertas ──────────────────────────────── */}
       {alertas.length > 0 && (
         <div
-          className="rounded-2xl p-4"
+          className="stripe-alert rounded-2xl p-4"
           style={{ background: 'rgba(255,69,96,0.04)', border: '1px solid rgba(255,69,96,0.2)' }}
         >
           <div className="flex items-center gap-2 mb-3">
@@ -128,10 +131,17 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Section 01 ───────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>01</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Indicadores</span>
+      </div>
+
       {/* ── Stats grid ───────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <StatCard icon={Building2}    label="Obras Activas"    value={String(obrasActivas.length)}     sub={`${obras.length} proyectos en total`}                accent="blue" />
-        <StatCard icon={Users}        label="En obra ahora"    value={String(enObraAhora)}              sub="Trabajadores con entrada activa"                     accent="emerald" />
+        <StatCard icon={Users}        label="En obra ahora"    value={String(enObraAhora)}              sub="Trabajadores con entrada activa"                     accent="emerald" live />
         <StatCard icon={TrendingDown} label="Gastos + MO"      value={formatCLP(totalGastosReal)}       sub={`MO: ${formatCLP(totalManoObra)}`}                   accent="red" />
         {can('verIngresos') && (
           <StatCard icon={TrendingUp} label="Ingresos"         value={formatCLP(totalIngresos)}         sub="Cobrado hasta hoy"                                   accent="emerald" trend={12} />
@@ -143,6 +153,13 @@ export default function Dashboard() {
         {can('verCxC') && (
           <StatCard icon={Wallet}     label="Cuentas x Cobrar" value={formatCLP(cxcPendiente)}          sub="Saldo por cobrar"                                    accent="violet" />
         )}
+      </div>
+
+      {/* ── Section 02 ───────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>02</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Financiero</span>
       </div>
 
       {/* ── Charts ───────────────────────────────── */}
@@ -220,6 +237,13 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── Section 03 ───────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>03</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Obras en ejecución</span>
+      </div>
+
       {/* ── Obras activas ────────────────────────── */}
       <div className="card p-5">
         <div className="flex items-center justify-between mb-5">
@@ -294,6 +318,13 @@ export default function Dashboard() {
             )
           })}
         </div>
+      </div>
+
+      {/* ── Section 04 ───────────────────────────── */}
+      <div className="flex items-center gap-3">
+        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>04</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Últimos gastos</span>
       </div>
 
       {/* ── Últimos gastos ───────────────────────── */}

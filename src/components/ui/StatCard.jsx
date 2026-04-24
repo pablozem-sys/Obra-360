@@ -1,4 +1,4 @@
-export default function StatCard({ icon: Icon, label, value, sub, accent, trend }) {
+export default function StatCard({ icon: Icon, label, value, sub, accent, trend, live }) {
   const themes = {
     amber:   { text: 'text-amber',  bg: 'bg-amber-dim',  border: 'border-amber',  glow: 'glow-amber' },
     emerald: { text: 'text-green',  bg: 'bg-green-dim',  border: 'border-green',  glow: 'glow-green' },
@@ -39,7 +39,12 @@ export default function StatCard({ icon: Icon, label, value, sub, accent, trend 
 
       {/* Sub + trend */}
       <div className="flex items-center justify-between mt-1">
-        {sub && <p className="text-[11px] text-[var(--muted)]">{sub}</p>}
+        {sub && (
+          <div className="flex items-center gap-1.5">
+            {live && <span className="live-dot" />}
+            <p className="text-[11px] text-[var(--muted)]">{sub}</p>
+          </div>
+        )}
         {trend != null && (
           <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-lg ml-auto ${
             trend >= 0 ? 'bg-green-dim text-green border border-green' : 'bg-red-dim text-red border border-red'
