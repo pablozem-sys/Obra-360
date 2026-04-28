@@ -637,10 +637,11 @@ export default function ControlAsistencia() {
                         <div className="flex justify-center py-4">
                           <Loader2 size={18} className="animate-spin" style={{ color: 'var(--amber)' }} />
                         </div>
-                      ) : obrasActivas.length === 0 ? (
-                        <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>No hay obras activas</p>
                       ) : (
                         <div className="space-y-2">
+                          {obrasActivas.length === 0 && newObraWorker !== w.id && (
+                            <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>No hay obras activas. Crea una abajo.</p>
+                          )}
                           {obrasActivas.map(o => {
                             const assigned = workerObras[w.id]?.has(o.id) ?? false
                             const toggling = obrasToggling[`${w.id}-${o.id}`]
