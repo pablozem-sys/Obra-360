@@ -217,7 +217,7 @@ export default function AccesoTrabajador() {
           className="font-display text-[11px] font-bold uppercase tracking-widest mb-2"
           style={{ color: 'var(--muted)' }}
         >
-          Control Obras 360°
+          VAION
         </p>
         <h1
           className="font-display font-bold leading-tight"

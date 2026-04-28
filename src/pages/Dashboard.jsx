@@ -80,7 +80,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-2">
             <span className="amber-dot" />
             <p style={{ fontFamily: 'DM Mono', fontSize: 10, letterSpacing: '0.15em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-              Control Obras 360° // en vivo
+              VAION // en vivo
             </p>
           </div>
           <h1 className="font-display font-bold text-[28px] leading-none" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>

@@ -249,7 +249,7 @@ export default function Asistencia() {
       <div className="flex items-center justify-between mb-10">
         <div>
           <p className="font-display text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
-            Control Obras 360°
+            VAION
           </p>
           <p className="font-semibold text-lg mt-0.5" style={{ color: 'var(--text)' }}>{user?.nombre}</p>
         </div>
