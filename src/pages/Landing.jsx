@@ -24,13 +24,13 @@ export default function Landing() {
         }}
       />
 
-      {/* Giant 360° watermark */}
+      {/* Giant VAION watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
         <span
           style={{
             fontFamily: 'Unbounded, sans-serif',
             fontWeight: 900,
-            fontSize: 'clamp(200px, 52vw, 420px)',
+            fontSize: 'clamp(120px, 35vw, 280px)',
             color: 'transparent',
             WebkitTextStroke: '1px rgba(255,149,0,0.045)',
             letterSpacing: '-0.06em',
@@ -39,7 +39,7 @@ export default function Landing() {
             marginTop: 20,
           }}
         >
-          360
+          VAION
         </span>
       </div>
 
@@ -73,16 +73,15 @@ export default function Landing() {
             style={{
               fontFamily: 'Unbounded, sans-serif',
               fontWeight: 900,
-              fontSize: 'clamp(32px, 9vw, 42px)',
+              fontSize: 'clamp(38px, 11vw, 52px)',
               letterSpacing: '-0.05em',
               lineHeight: 0.88,
               textAlign: 'center',
-              color: 'var(--text)',
+              color: 'var(--amber)',
+              textShadow: '0 0 40px rgba(255,149,0,0.35)',
             }}
           >
-            CONTROL<br />
-            <span style={{ color: 'var(--amber)', textShadow: '0 0 40px rgba(255,149,0,0.35)' }}>OBRAS</span>
-            <span style={{ color: 'var(--subtle)' }}> 360°</span>
+            VAION
           </h1>
         </div>
 
