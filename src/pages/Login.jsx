@@ -47,32 +47,32 @@ export default function Login() {
 
         {/* Terminal header */}
         <div className="mb-8">
+          <h1
+            style={{
+              fontFamily: 'Unbounded, sans-serif',
+              fontWeight: 900,
+              fontSize: 36,
+              letterSpacing: '-0.05em',
+              color: 'var(--amber)',
+              lineHeight: 1,
+              marginBottom: 10,
+            }}
+          >
+            VAION
+          </h1>
           <p
             className="cursor-blink"
             style={{
               fontFamily: 'DM Mono, monospace',
               fontSize: 11,
               letterSpacing: '0.12em',
-              color: 'var(--amber)',
+              color: 'var(--muted)',
               marginBottom: 10,
               textTransform: 'uppercase',
             }}
           >
-            // acceso al sistema
+            // acceso administrativo
           </p>
-          <h1
-            style={{
-              fontFamily: 'Unbounded, sans-serif',
-              fontWeight: 800,
-              fontSize: 26,
-              letterSpacing: '-0.04em',
-              color: 'var(--text)',
-              lineHeight: 1.05,
-              marginBottom: 7,
-            }}
-          >
-            Ingreso<br />administrativo
-          </h1>
           <p style={{ fontFamily: 'Instrument Sans, sans-serif', fontSize: 13, color: 'var(--muted)' }}>
             Ingresa tus credenciales para continuar
           </p>
