@@ -205,13 +205,18 @@ export async function getProjectsList() {
 export async function getAttendance({ fecha, projectId } = {}) {
   let q = supabase
     .from('attendance')
-    .select('*, workers(nombre, avatar), projects(nombre)')
+    .select(`
+      id, worker_id, project_id, fecha, entrada, salida,
+      horas_trabajadas, valor_hora, costo_total,
+      workers ( nombre, avatar ),
+      projects ( nombre )
+    `)
     .order('entrada', { ascending: false })
   if (fecha)      q = q.eq('fecha', fecha)
   if (projectId)  q = q.eq('project_id', projectId)
   const { data, error } = await q
   if (error) throw error
-  return data
+  return data ?? []
 }
 export async function getTodayOpenAttendance(workerId) {
   const today = new Date().toISOString().split('T')[0]

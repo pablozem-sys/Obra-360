@@ -74,12 +74,14 @@ export default function ControlAsistencia() {
   }
 
   useEffect(() => {
-    Promise.all([
+    const timeout = setTimeout(() => setLoading(false), 8000)
+    Promise.allSettled([
       loadRegistros(),
       loadWorkers(),
       getProjectsList().then(setProjects).catch(() => setProjects([])),
       getObrasActivas().then(setObrasActivas).catch(() => setObrasActivas([])),
-    ]).finally(() => setLoading(false))
+    ]).finally(() => { clearTimeout(timeout); setLoading(false) })
+    return () => clearTimeout(timeout)
   }, [])
 
   useEffect(() => {
