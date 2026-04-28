@@ -37,14 +37,27 @@ export const PERMISOS = {
   },
 }
 
-async function fetchUserProfile(userId) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, nombre, email, rol, avatar')
-    .eq('id', userId)
-    .single()
-  if (error) return null
-  return data
+async function fetchUserProfile(userId, authUser) {
+  try {
+    const { data } = await supabase
+      .from('users')
+      .select('id, nombre, email, rol, avatar')
+      .eq('id', userId)
+      .single()
+    if (data) return data
+  } catch { /* fallback below */ }
+
+  // Si no hay perfil en la tabla users todavía, usar datos básicos del auth
+  if (authUser) {
+    return {
+      id: authUser.id,
+      email: authUser.email,
+      nombre: authUser.user_metadata?.nombre ?? authUser.email.split('@')[0],
+      rol: authUser.user_metadata?.rol ?? 'dueno',
+      avatar: authUser.user_metadata?.avatar ?? authUser.email.slice(0, 2).toUpperCase(),
+    }
+  }
+  return null
 }
 
 export function AuthProvider({ children }) {
@@ -54,7 +67,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (s) {
-        const profile = await fetchUserProfile(s.user.id)
+        const profile = await fetchUserProfile(s.user.id, s.user)
         setSession({ user: profile })
       }
       setLoading(false)
@@ -62,7 +75,7 @@ export function AuthProvider({ children }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (s && event !== 'INITIAL_SESSION') {
-        const profile = await fetchUserProfile(s.user.id)
+        const profile = await fetchUserProfile(s.user.id, s.user)
         setSession({ user: profile })
       } else if (event === 'SIGNED_OUT') {
         setSession(null)
@@ -73,20 +86,22 @@ export function AuthProvider({ children }) {
   }, [])
 
   const loginAdmin = async (email, password) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
+    // Setear sesión inmediatamente sin esperar onAuthStateChange
+    const profile = await fetchUserProfile(data.user.id, data.user)
+    setSession({ user: profile })
   }
 
   const loginTrabajador = (trabajador) => {
     setSession({ user: { ...trabajador, rol: 'trabajador' } })
   }
 
-  const logout = async () => {
-    if (session?.user?.rol === 'trabajador') {
-      setSession(null)
-    } else {
-      await supabase.auth.signOut()
-      setSession(null)
+  const logout = () => {
+    // Limpiar sesión inmediatamente — no esperar a Supabase
+    setSession(null)
+    if (session?.user?.rol !== 'trabajador') {
+      supabase.auth.signOut().catch(() => {})
     }
   }
 
