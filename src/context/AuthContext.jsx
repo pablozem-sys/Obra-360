@@ -65,7 +65,11 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+    const timeout = setTimeout(() => setLoading(false), 5000)
+    const sessionPromise = supabase.auth.getSession()
+    const fallback = new Promise(r => setTimeout(() => r({ data: { session: null } }), 4000))
+    Promise.race([sessionPromise, fallback]).then(async ({ data: { session: s } }) => {
+      clearTimeout(timeout)
       if (s) {
         const profile = await fetchUserProfile(s.user.id, s.user)
         setSession({ user: profile })
@@ -98,9 +102,14 @@ export function AuthProvider({ children }) {
   }
 
   const logout = () => {
-    // Limpiar sesión inmediatamente — no esperar a Supabase
     setSession(null)
     if (session?.user?.rol !== 'trabajador') {
+      // Limpiar localStorage inmediatamente para evitar sesión corrupta
+      try {
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('sb-'))
+          .forEach(k => localStorage.removeItem(k))
+      } catch { /* silent */ }
       supabase.auth.signOut().catch(() => {})
     }
   }
