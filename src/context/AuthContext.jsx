@@ -1,4 +1,5 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
@@ -36,36 +37,75 @@ export const PERMISOS = {
   },
 }
 
-const MOCK_USERS = {
-  dueno:         { id: '1', nombre: 'Pedro Torres',   rol: 'dueno',         avatar: 'PT', email: 'pedro@obra360.cl' },
-  administrativo:{ id: '2', nombre: 'María González', rol: 'administrativo', avatar: 'MG', email: 'maria@obra360.cl' },
+async function fetchUserProfile(userId) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, nombre, email, rol, avatar')
+    .eq('id', userId)
+    .single()
+  if (error) return null
+  return data
 }
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  const loginAdmin = (rol) => {
-    setSession({ user: MOCK_USERS[rol] })
-    return true
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      if (s) {
+        const profile = await fetchUserProfile(s.user.id)
+        setSession({ user: profile })
+      }
+      setLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
+      if (s && event !== 'INITIAL_SESSION') {
+        const profile = await fetchUserProfile(s.user.id)
+        setSession({ user: profile })
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const loginAdmin = async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
   }
 
   const loginTrabajador = (trabajador) => {
     setSession({ user: { ...trabajador, rol: 'trabajador' } })
   }
 
-  const logout = () => setSession(null)
+  const logout = async () => {
+    if (session?.user?.rol === 'trabajador') {
+      setSession(null)
+    } else {
+      await supabase.auth.signOut()
+      setSession(null)
+    }
+  }
 
   const can = (permiso) => {
     if (!session?.user) return false
     return PERMISOS[session.user.rol]?.[permiso] ?? false
   }
 
-  const rol = session?.user?.rol ?? null
-  const user = session?.user ?? null
-  const isAuth = !!session
-
   return (
-    <AuthContext.Provider value={{ user, rol, isAuth, loginAdmin, loginTrabajador, logout, can }}>
+    <AuthContext.Provider value={{
+      user: session?.user ?? null,
+      rol: session?.user?.rol ?? null,
+      isAuth: !!session,
+      loading,
+      loginAdmin,
+      loginTrabajador,
+      logout,
+      can,
+    }}>
       {children}
     </AuthContext.Provider>
   )

@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Replace with your Supabase project credentials
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'your-anon-key'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
@@ -83,6 +82,169 @@ export async function getCuentasCobrar() {
 export async function logGeolocalizacion(entry) {
   const { error } = await supabase.from('geolocation_logs').insert([entry])
   if (error) throw error
+}
+
+// ── Projects (active only, for attendance) ────────────────────
+export async function getObrasActivas() {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, nombre, direccion')
+    .eq('estado', 'en_ejecucion')
+    .order('nombre')
+  if (error) throw error
+  return data
+}
+
+// ── Workers ───────────────────────────────────────────────────
+export async function getWorkers() {
+  const { data, error } = await supabase
+    .from('workers')
+    .select('*')
+    .eq('activo', true)
+    .order('nombre')
+  if (error) throw error
+  return data
+}
+
+export async function getAllWorkers() {
+  const { data, error } = await supabase
+    .from('workers')
+    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .order('nombre')
+  if (error) throw error
+  return data
+}
+
+export async function createWorker(worker) {
+  const { data, error } = await supabase
+    .from('workers')
+    .insert([worker])
+    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateWorker(id, updates) {
+  const { data, error } = await supabase
+    .from('workers')
+    .update(updates)
+    .eq('id', id)
+    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// Kiosco público: solo nombre + avatar, sin valor_hora ni PIN
+export async function getPublicWorkers() {
+  const { data, error } = await supabase.rpc('get_public_workers')
+  if (error) throw error
+  return data ?? []
+}
+
+// Verifica PIN server-side y devuelve datos del trabajador (incl. valor_hora) si es correcto
+export async function verifyWorkerPin(workerId, pin) {
+  const { data, error } = await supabase.rpc('verify_worker_pin', {
+    p_worker_id: workerId,
+    p_pin: pin,
+  })
+  if (error) throw error
+  return data?.[0] ?? null  // null = PIN incorrecto
+}
+
+// ── Projects (simple list for selects) ───────────────────────
+export async function getProjectsList() {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, nombre')
+    .order('nombre')
+  if (error) throw error
+  return data
+}
+
+// ── Attendance ────────────────────────────────────────────────
+export async function getAttendance({ fecha, projectId } = {}) {
+  let q = supabase
+    .from('attendance')
+    .select('*, workers(nombre, avatar), projects(nombre)')
+    .order('entrada', { ascending: false })
+  if (fecha)      q = q.eq('fecha', fecha)
+  if (projectId)  q = q.eq('project_id', projectId)
+  const { data, error } = await q
+  if (error) throw error
+  return data
+}
+export async function getTodayOpenAttendance(workerId) {
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('worker_id', workerId)
+    .eq('fecha', today)
+    .is('salida', null)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function registrarEntrada(workerId, projectId, geo, valorHora) {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('attendance')
+    .insert([{
+      worker_id: workerId,
+      project_id: projectId,
+      fecha: now.split('T')[0],
+      entrada: now,
+      lat_entrada: geo.lat,
+      lng_entrada: geo.lng,
+      valor_hora: valorHora,
+    }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
+  const now = new Date().toISOString()
+  const horasTrabajadas = Math.round(((new Date(now) - new Date(entrada)) / 3600000) * 100) / 100
+  const { data, error } = await supabase
+    .from('attendance')
+    .update({
+      salida: now,
+      lat_salida: geo.lat,
+      lng_salida: geo.lng,
+      horas_trabajadas: horasTrabajadas,
+      costo_total: Math.round(horasTrabajadas * valorHora),
+    })
+    .eq('id', attendanceId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getAttendanceByProject(projectId) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*, workers(nombre, avatar, valor_hora)')
+    .eq('project_id', projectId)
+    .order('entrada', { ascending: false })
+  if (error) throw error
+  return data
+}
+
+export async function getAllTodayAttendance() {
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*, workers(nombre, avatar), projects(nombre)')
+    .eq('fecha', today)
+    .order('entrada', { ascending: false })
+  if (error) throw error
+  return data
 }
 
 /*

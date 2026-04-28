@@ -21,7 +21,8 @@ import ControlAsistencia from './pages/ControlAsistencia'
 
 // Protege rutas admin — redirige al landing si no hay sesión
 function ProtectedRoute({ children, roles }) {
-  const { isAuth, rol } = useAuth()
+  const { isAuth, rol, loading } = useAuth()
+  if (loading) return null
   if (!isAuth) return <Navigate to="/" replace />
   if (roles && !roles.includes(rol)) return <Navigate to="/dashboard" replace />
   return children

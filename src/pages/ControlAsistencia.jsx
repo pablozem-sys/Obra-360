@@ -1,7 +1,13 @@
-import { useState } from 'react'
-import { Users, Clock, DollarSign, Calendar, MapPin } from 'lucide-react'
-import { registrosAsistencia, trabajadores, obras } from '../data/mockData'
+import { useState, useEffect, useCallback } from 'react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, Pencil, Eye, EyeOff } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
+import {
+  getAllWorkers,
+  createWorker,
+  updateWorker,
+  getAttendance,
+  getProjectsList,
+} from '../lib/supabase'
 
 function formatHora(iso) {
   if (!iso) return '—'
@@ -13,27 +19,133 @@ function formatFecha(iso) {
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
 }
 
+function initials(nombre = '') {
+  return nombre.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase()
+}
+
+const HOY = new Date().toISOString().split('T')[0]
+
 export default function ControlAsistencia() {
+  const [tab, setTab]               = useState('registros') // registros | trabajadores
+  const [registros, setRegistros]   = useState([])
+  const [workers, setWorkers]       = useState([])
+  const [projects, setProjects]     = useState([])
+  const [loading, setLoading]       = useState(true)
   const [filtroObra, setFiltroObra] = useState('all')
-  const [filtroFecha, setFiltroFecha] = useState('')
+  const [filtroFecha, setFiltroFecha] = useState(HOY)
 
-  const filtered = registrosAsistencia.filter(r => {
-    const matchObra  = filtroObra === 'all' || r.obraId === filtroObra
-    const matchFecha = !filtroFecha || r.fecha === filtroFecha
-    return matchObra && matchFecha
-  })
+  // Nuevo trabajador
+  const [showForm, setShowForm]     = useState(false)
+  const [formNombre, setFormNombre] = useState('')
+  const [formValor, setFormValor]   = useState('5000')
+  const [formPin, setFormPin]       = useState('')
+  const [saving, setSaving]         = useState(false)
+  const [formError, setFormError]   = useState('')
 
-  const totalHoras = filtered.filter(r => r.horasTrabajadas).reduce((s, r) => s + r.horasTrabajadas, 0)
-  const totalCosto = filtered.filter(r => r.costoTotal).reduce((s, r) => s + r.costoTotal, 0)
-  const enObra     = registrosAsistencia.filter(r => !r.salida).length
+  // PIN inline edit por worker
+  const [editingPin, setEditingPin]   = useState(null)  // worker id
+  const [pinValue, setPinValue]       = useState('')
+  const [pinSaving, setPinSaving]     = useState(false)
+  const [showPins, setShowPins]       = useState({})    // { [workerId]: bool }
 
-  // Costo por obra (para mostrar impacto en EERR)
-  const costoPorObra = obras.map(o => {
-    const regs  = registrosAsistencia.filter(r => r.obraId === o.id && r.costoTotal)
-    const costo = regs.reduce((s, r) => s + r.costoTotal, 0)
-    const horas = regs.reduce((s, r) => s + (r.horasTrabajadas || 0), 0)
-    return { ...o, costoManoObra: costo, horasTotales: horas, nRegistros: regs.length }
-  }).filter(o => o.costoManoObra > 0)
+  const loadRegistros = useCallback(async () => {
+    try {
+      const data = await getAttendance({
+        fecha: filtroFecha || undefined,
+        projectId: filtroObra !== 'all' ? filtroObra : undefined,
+      })
+      setRegistros(data)
+    } catch { setRegistros([]) }
+  }, [filtroFecha, filtroObra])
+
+  const loadWorkers = async () => {
+    try { setWorkers(await getAllWorkers()) }
+    catch { setWorkers([]) }
+  }
+
+  useEffect(() => {
+    Promise.all([
+      loadRegistros(),
+      loadWorkers(),
+      getProjectsList().then(setProjects).catch(() => setProjects([])),
+    ]).finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (!loading) loadRegistros()
+  }, [filtroFecha, filtroObra])
+
+  // Summary stats
+  const enObra     = registros.filter(r => !r.salida).length
+  const totalHoras = registros.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0)
+  const totalCosto = registros.reduce((s, r) => s + (r.costo_total ?? 0), 0)
+
+  // Costo por proyecto
+  const costoPorObra = projects
+    .map(p => {
+      const regs  = registros.filter(r => r.project_id === p.id && r.costo_total)
+      const costo = regs.reduce((s, r) => s + r.costo_total, 0)
+      const horas = regs.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0)
+      return { ...p, costoManoObra: costo, horasTotales: horas, nRegistros: regs.length }
+    })
+    .filter(p => p.costoManoObra > 0)
+
+  const handleGuardarWorker = async () => {
+    if (!formNombre.trim()) { setFormError('Ingresa un nombre'); return }
+    const valor = parseInt(formValor)
+    if (!valor || valor < 1000) { setFormError('Valor/hora mínimo $1.000'); return }
+    if (formPin && !/^\d{4}$/.test(formPin)) { setFormError('PIN debe ser exactamente 4 dígitos'); return }
+    setSaving(true)
+    setFormError('')
+    try {
+      const nuevo = await createWorker({
+        nombre:     formNombre.trim(),
+        avatar:     initials(formNombre.trim()),
+        valor_hora: valor,
+        pin:        formPin || null,
+        activo:     true,
+      })
+      setWorkers(prev => [...prev, nuevo].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setFormNombre('')
+      setFormValor('5000')
+      setFormPin('')
+      setShowForm(false)
+    } catch (err) {
+      setFormError(err.message || 'Error al guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleGuardarPin = async (worker) => {
+    if (!/^\d{4}$/.test(pinValue)) return
+    setPinSaving(true)
+    try {
+      const updated = await updateWorker(worker.id, { pin: pinValue })
+      setWorkers(prev => prev.map(w => w.id === worker.id ? { ...w, ...updated } : w))
+      setEditingPin(null)
+      setPinValue('')
+    } catch { /* silent */ }
+    finally { setPinSaving(false) }
+  }
+
+  const handleToggleActivo = async (worker) => {
+    const optimistic = workers.map(w => w.id === worker.id ? { ...w, activo: !w.activo } : w)
+    setWorkers(optimistic)
+    try {
+      await updateWorker(worker.id, { activo: !worker.activo })
+    } catch {
+      setWorkers(workers) // revert
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -72,133 +184,393 @@ export default function ControlAsistencia() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <select
-          className="select flex-1 min-w-[140px] max-w-[200px]"
-          value={filtroObra}
-          onChange={e => setFiltroObra(e.target.value)}
-        >
-          <option value="all">Todas las obras</option>
-          {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
-        </select>
-        <input
-          type="date"
-          className="input flex-1 min-w-[140px] max-w-[180px]"
-          value={filtroFecha}
-          onChange={e => setFiltroFecha(e.target.value)}
-        />
-        {filtroFecha && (
-          <button onClick={() => setFiltroFecha('')} className="btn-ghost text-sm" style={{ color: 'var(--muted)' }}>
-            Limpiar
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+        {[
+          { key: 'registros',    label: 'Registros' },
+          { key: 'trabajadores', label: 'Trabajadores' },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className="px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+            style={{
+              background:   tab === t.key ? 'var(--amber)' : 'transparent',
+              color:        tab === t.key ? '#000' : 'var(--muted)',
+              fontFamily:   'Instrument Sans, sans-serif',
+            }}
+          >
+            {t.label}
           </button>
-        )}
+        ))}
       </div>
 
-      {/* Records table */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <h2 className="section-title">Registros ({filtered.length})</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[580px]">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => {
-                const trab = trabajadores.find(t => t.id === r.trabajadorId)
-                const obra = obras.find(o => o.id === r.obraId)
-                const abierto = !r.salida
-                return (
-                  <tr key={r.id} className="table-row">
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                          style={{ background: 'var(--amber)', color: '#000' }}
-                        >
-                          {trab?.avatar}
-                        </div>
-                        <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{trab?.nombre}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{obra?.nombre}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      {abierto ? (
-                        <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
-                          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
-                          EN OBRA
-                        </span>
-                      ) : (
-                        <span className="num text-[13px] font-medium" style={{ color: 'var(--red)' }}>{formatHora(r.salida)}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--amber)' }}>
-                        {r.horasTrabajadas != null ? `${r.horasTrabajadas}h` : '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--green)' }}>
-                        {r.costoTotal != null ? formatCLP(r.costoTotal) : '—'}
-                      </span>
-                    </td>
+      {/* ── TAB: REGISTROS ─────────────────────────────────────── */}
+      {tab === 'registros' && (
+        <>
+          {/* Filters */}
+          <div className="flex gap-3 flex-wrap">
+            <select
+              className="select flex-1 min-w-[140px] max-w-[200px]"
+              value={filtroObra}
+              onChange={e => setFiltroObra(e.target.value)}
+            >
+              <option value="all">Todas las obras</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            <input
+              type="date"
+              className="input flex-1 min-w-[140px] max-w-[180px]"
+              value={filtroFecha}
+              onChange={e => setFiltroFecha(e.target.value)}
+            />
+            {filtroFecha && (
+              <button onClick={() => setFiltroFecha('')} className="btn-ghost text-sm" style={{ color: 'var(--muted)' }}>
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {/* Records table */}
+          <div className="card overflow-hidden">
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h2 className="section-title">Registros ({registros.length})</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[580px]">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                )
-              })}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
-                    Sin registros para este filtro
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+                <tbody>
+                  {registros.map(r => {
+                    const abierto = !r.salida
+                    return (
+                      <tr key={r.id} className="table-row">
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                              style={{ background: 'var(--amber)', color: '#000' }}
+                            >
+                              {r.workers?.avatar}
+                            </div>
+                            <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{r.workers?.nombre}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {abierto ? (
+                            <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
+                              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
+                              EN OBRA
+                            </span>
+                          ) : (
+                            <span className="num text-[13px] font-medium" style={{ color: 'var(--red)' }}>{formatHora(r.salida)}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--amber)' }}>
+                            {r.horas_trabajadas != null ? `${r.horas_trabajadas}h` : '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--green)' }}>
+                            {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {registros.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
+                        Sin registros para este filtro
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      {/* Costo por obra */}
-      {costoPorObra.length > 0 && (
-        <div className="card p-5">
-          <h2 className="section-title mb-4">Mano de Obra por Obra</h2>
-          <p className="text-[12px] mb-4" style={{ color: 'var(--muted)' }}>
-            Estos costos se suman automáticamente a los egresos y EERR de cada obra.
-          </p>
-          <div className="space-y-3">
-            {costoPorObra.map(o => (
-              <div
-                key={o.id}
-                className="flex items-center justify-between px-4 py-3 rounded-xl"
-                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-              >
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{o.nombre}</p>
-                  <p className="text-[11px] num" style={{ color: 'var(--muted)' }}>
-                    {o.horasTotales.toFixed(1)} hrs · {o.nRegistros} turnos
+          {/* Costo por obra */}
+          {costoPorObra.length > 0 && (
+            <div className="card p-5">
+              <h2 className="section-title mb-4">Mano de Obra por Obra</h2>
+              <p className="text-[12px] mb-4" style={{ color: 'var(--muted)' }}>
+                Costos calculados automáticamente desde asistencia.
+              </p>
+              <div className="space-y-3">
+                {costoPorObra.map(p => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between px-4 py-3 rounded-xl"
+                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                  >
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{p.nombre}</p>
+                      <p className="text-[11px] num" style={{ color: 'var(--muted)' }}>
+                        {p.horasTotales.toFixed(1)} hrs · {p.nRegistros} turnos
+                      </p>
+                    </div>
+                    <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
+                      {formatCLP(p.costoManoObra)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── TAB: TRABAJADORES ──────────────────────────────────── */}
+      {tab === 'trabajadores' && (
+        <div className="card overflow-hidden">
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
+            <div>
+              <h2 className="section-title">Trabajadores ({workers.length})</h2>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                Solo los activos aparecen en el kiosco de asistencia
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowForm(f => !f); setFormError('') }}
+              className="btn-primary gap-1.5 text-xs"
+              style={{ padding: '8px 14px' }}
+            >
+              {showForm ? <X size={13} /> : <Plus size={13} />}
+              {showForm ? 'Cancelar' : 'Nuevo'}
+            </button>
+          </div>
+
+          {/* Nuevo trabajador form */}
+          {showForm && (
+            <div
+              className="px-5 py-4 space-y-3"
+              style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}
+            >
+              <p style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+                // nuevo trabajador
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="label">Nombre completo</label>
+                  <input
+                    className="input"
+                    placeholder="Ej: Jorge Alvarado"
+                    value={formNombre}
+                    onChange={e => { setFormNombre(e.target.value); setFormError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleGuardarWorker()}
+                    autoFocus
+                  />
+                </div>
+                <div className="w-36">
+                  <label className="label">Valor hora ($)</label>
+                  <input
+                    className="input num"
+                    type="number"
+                    placeholder="5000"
+                    value={formValor}
+                    onChange={e => { setFormValor(e.target.value); setFormError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleGuardarWorker()}
+                  />
+                </div>
+                <div className="w-28">
+                  <label className="label">PIN (4 dígitos)</label>
+                  <input
+                    className="input num"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="••••"
+                    value={formPin}
+                    onChange={e => { setFormPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setFormError('') }}
+                    onKeyDown={e => e.key === 'Enter' && handleGuardarWorker()}
+                  />
+                </div>
+              </div>
+              {formError && (
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={12} style={{ color: 'var(--red)' }} />
+                  <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)', letterSpacing: '0.06em' }}>
+                    {formError.toUpperCase()}
                   </p>
                 </div>
-                <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
-                  {formatCLP(o.costoManoObra)}
-                </p>
-              </div>
-            ))}
-          </div>
+              )}
+              <button
+                onClick={handleGuardarWorker}
+                disabled={saving}
+                className="btn-primary gap-1.5 text-xs disabled:opacity-50"
+                style={{ padding: '9px 16px' }}
+              >
+                {saving
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <Check size={13} />
+                }
+                {saving ? 'Guardando...' : 'Guardar trabajador'}
+              </button>
+            </div>
+          )}
+
+          {/* Workers list */}
+          {workers.length === 0 ? (
+            <div className="py-14 text-center">
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay trabajadores registrados</p>
+              <p className="text-[12px] mt-1" style={{ color: 'var(--subtle)' }}>Agrega el primero con el botón "Nuevo"</p>
+            </div>
+          ) : (
+            <div>
+              {workers.map(w => (
+                <div
+                  key={w.id}
+                  style={{
+                    borderBottom: '1px solid var(--border)',
+                    opacity: w.activo ? 1 : 0.5,
+                  }}
+                >
+                  {/* Fila principal */}
+                  <div className="flex items-center gap-3 px-5 py-4">
+                    {/* Avatar */}
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-display font-bold text-sm"
+                      style={{
+                        background: w.activo ? 'var(--amber)' : 'var(--bg-elevated)',
+                        color:      w.activo ? '#000' : 'var(--subtle)',
+                        border:     w.activo ? 'none' : '1px solid var(--border)',
+                      }}
+                    >
+                      {w.avatar}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{w.nombre}</p>
+                      <p className="text-[12px] num" style={{ color: 'var(--muted)' }}>
+                        {formatCLP(w.valor_hora)}/hora
+                      </p>
+                    </div>
+
+                    {/* PIN badge */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {w.pin ? (
+                        <>
+                          <span
+                            className="num text-[13px] tracking-widest"
+                            style={{ color: showPins[w.id] ? 'var(--text)' : 'var(--subtle)' }}
+                          >
+                            {showPins[w.id] ? w.pin : '••••'}
+                          </span>
+                          <button
+                            onClick={() => setShowPins(s => ({ ...s, [w.id]: !s[w.id] }))}
+                            className="p-1 rounded transition-opacity hover:opacity-70"
+                            title="Ver/ocultar PIN"
+                          >
+                            {showPins[w.id]
+                              ? <EyeOff size={13} style={{ color: 'var(--subtle)' }} />
+                              : <Eye    size={13} style={{ color: 'var(--subtle)' }} />
+                            }
+                          </button>
+                        </>
+                      ) : (
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-md font-semibold"
+                          style={{
+                            fontFamily: 'Unbounded',
+                            background: 'rgba(255,69,96,0.1)',
+                            color: 'var(--red)',
+                            border: '1px solid rgba(255,69,96,0.2)',
+                          }}
+                        >
+                          SIN PIN
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          setEditingPin(editingPin === w.id ? null : w.id)
+                          setPinValue('')
+                        }}
+                        className="p-1 rounded transition-opacity hover:opacity-70"
+                        title="Cambiar PIN"
+                      >
+                        <Pencil size={13} style={{ color: 'var(--subtle)' }} />
+                      </button>
+                    </div>
+
+                    {/* Toggle activo */}
+                    <button
+                      onClick={() => handleToggleActivo(w)}
+                      className="flex-shrink-0 transition-opacity hover:opacity-80"
+                      title={w.activo ? 'Desactivar' : 'Activar'}
+                    >
+                      {w.activo
+                        ? <ToggleRight size={26} style={{ color: 'var(--green)' }} />
+                        : <ToggleLeft  size={26} style={{ color: 'var(--subtle)' }} />
+                      }
+                    </button>
+                  </div>
+
+                  {/* PIN editor inline */}
+                  {editingPin === w.id && (
+                    <div
+                      className="flex items-center gap-3 px-5 pb-4"
+                      style={{ marginTop: -4 }}
+                    >
+                      <span style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0 }}>
+                        Nuevo PIN →
+                      </span>
+                      <input
+                        className="input num w-28 text-center"
+                        type="password"
+                        inputMode="numeric"
+                        maxLength={4}
+                        placeholder="••••"
+                        value={pinValue}
+                        onChange={e => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        onKeyDown={e => { if (e.key === 'Enter') handleGuardarPin(w) }}
+                        autoFocus
+                        style={{ fontSize: 18, letterSpacing: '0.2em', padding: '8px 12px' }}
+                      />
+                      <button
+                        onClick={() => handleGuardarPin(w)}
+                        disabled={pinValue.length !== 4 || pinSaving}
+                        className="btn-primary gap-1 text-xs disabled:opacity-40"
+                        style={{ padding: '8px 12px', flexShrink: 0 }}
+                      >
+                        {pinSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                        Guardar
+                      </button>
+                      <button
+                        onClick={() => { setEditingPin(null); setPinValue('') }}
+                        className="btn-ghost text-xs"
+                        style={{ color: 'var(--muted)', flexShrink: 0 }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
