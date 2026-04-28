@@ -6,9 +6,8 @@ import {
   getTodayOpenAttendance,
   registrarEntrada,
   registrarSalida,
-  getObrasActivas,
+  getWorkerObras,
 } from '../lib/supabase'
-import { obras as obrasMock } from '../data/mockData'
 
 function useClock() {
   const [time, setTime] = useState(new Date())
@@ -46,7 +45,7 @@ export default function Asistencia() {
     if (!user?.id) return
     Promise.all([
       getTodayOpenAttendance(user.id).catch(() => null),
-      getObrasActivas().catch(() => obrasMock.filter(o => o.estado === 'en_ejecucion')),
+      getWorkerObras(user.id).catch(() => []),
     ]).then(([registro, obrasData]) => {
       setRegistroAbierto(registro ?? null)
       setObras(obrasData)

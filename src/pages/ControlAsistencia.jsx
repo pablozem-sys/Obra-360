@@ -7,6 +7,9 @@ import {
   updateWorker,
   getAttendance,
   getProjectsList,
+  getObrasActivas,
+  getWorkerProjectIds,
+  toggleWorkerProject,
 } from '../lib/supabase'
 
 function formatHora(iso) {
@@ -43,10 +46,17 @@ export default function ControlAsistencia() {
   const [formError, setFormError]   = useState('')
 
   // PIN inline edit por worker
-  const [editingPin, setEditingPin]   = useState(null)  // worker id
+  const [editingPin, setEditingPin]   = useState(null)
   const [pinValue, setPinValue]       = useState('')
   const [pinSaving, setPinSaving]     = useState(false)
-  const [showPins, setShowPins]       = useState({})    // { [workerId]: bool }
+  const [showPins, setShowPins]       = useState({})
+
+  // Obras asignadas por worker
+  const [obrasActivas, setObrasActivas]       = useState([])
+  const [expandedObras, setExpandedObras]     = useState(null)  // worker id
+  const [workerObras, setWorkerObras]         = useState({})    // { [workerId]: Set<projectId> }
+  const [obrasLoading, setObrasLoading]       = useState(false)
+  const [obrasToggling, setObrasToggling]     = useState({})
 
   const loadRegistros = useCallback(async () => {
     try {
@@ -68,6 +78,7 @@ export default function ControlAsistencia() {
       loadRegistros(),
       loadWorkers(),
       getProjectsList().then(setProjects).catch(() => setProjects([])),
+      getObrasActivas().then(setObrasActivas).catch(() => setObrasActivas([])),
     ]).finally(() => setLoading(false))
   }, [])
 
@@ -115,6 +126,42 @@ export default function ControlAsistencia() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleExpandObras = async (worker) => {
+    if (expandedObras === worker.id) { setExpandedObras(null); return }
+    setExpandedObras(worker.id)
+    if (workerObras[worker.id]) return  // ya cargado
+    setObrasLoading(true)
+    try {
+      const ids = await getWorkerProjectIds(worker.id)
+      setWorkerObras(prev => ({ ...prev, [worker.id]: new Set(ids) }))
+    } catch { /* silent */ }
+    finally { setObrasLoading(false) }
+  }
+
+  const handleToggleObra = async (worker, projectId) => {
+    const key = `${worker.id}-${projectId}`
+    const current = workerObras[worker.id] ?? new Set()
+    const assign = !current.has(projectId)
+    // Optimistic
+    setWorkerObras(prev => {
+      const next = new Set(prev[worker.id] ?? [])
+      assign ? next.add(projectId) : next.delete(projectId)
+      return { ...prev, [worker.id]: next }
+    })
+    setObrasToggling(prev => ({ ...prev, [key]: true }))
+    try {
+      await toggleWorkerProject(worker.id, projectId, assign)
+    } catch {
+      // Revert
+      setWorkerObras(prev => {
+        const next = new Set(prev[worker.id] ?? [])
+        assign ? next.delete(projectId) : next.add(projectId)
+        return { ...prev, [worker.id]: next }
+      })
+    }
+    setObrasToggling(prev => ({ ...prev, [key]: false }))
   }
 
   const handleGuardarPin = async (worker) => {
@@ -515,6 +562,22 @@ export default function ControlAsistencia() {
                       </button>
                     </div>
 
+                    {/* Obras asignadas */}
+                    <button
+                      onClick={() => handleExpandObras(w)}
+                      className="text-[10px] font-semibold px-2 py-1 rounded-lg transition-all flex-shrink-0"
+                      style={{
+                        fontFamily: 'Unbounded',
+                        letterSpacing: '0.06em',
+                        background: expandedObras === w.id ? 'var(--amber-dim)' : 'var(--bg-elevated)',
+                        color:      expandedObras === w.id ? 'var(--amber)' : 'var(--subtle)',
+                        border:     `1px solid ${expandedObras === w.id ? 'rgba(255,149,0,0.3)' : 'var(--border)'}`,
+                      }}
+                      title="Gestionar obras asignadas"
+                    >
+                      OBRAS
+                    </button>
+
                     {/* Toggle activo */}
                     <button
                       onClick={() => handleToggleActivo(w)}
@@ -527,6 +590,63 @@ export default function ControlAsistencia() {
                       }
                     </button>
                   </div>
+
+                  {/* Obras asignadas panel */}
+                  {expandedObras === w.id && (
+                    <div
+                      className="px-5 pb-4"
+                      style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', paddingTop: 14 }}
+                    >
+                      <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', marginBottom: 10 }}>
+                        // obras asignadas — sin asignación ve todas las activas
+                      </p>
+                      {obrasLoading && !workerObras[w.id] ? (
+                        <div className="flex justify-center py-4">
+                          <Loader2 size={18} className="animate-spin" style={{ color: 'var(--amber)' }} />
+                        </div>
+                      ) : obrasActivas.length === 0 ? (
+                        <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>No hay obras activas</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {obrasActivas.map(o => {
+                            const assigned = workerObras[w.id]?.has(o.id) ?? false
+                            const toggling = obrasToggling[`${w.id}-${o.id}`]
+                            return (
+                              <button
+                                key={o.id}
+                                onClick={() => handleToggleObra(w, o.id)}
+                                disabled={toggling}
+                                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-all text-left disabled:opacity-60"
+                                style={{
+                                  background: assigned ? 'var(--amber-dim)' : 'var(--bg-card)',
+                                  border: `1px solid ${assigned ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
+                                }}
+                              >
+                                <div
+                                  className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                                  style={{
+                                    background: assigned ? 'var(--amber)' : 'transparent',
+                                    border: `2px solid ${assigned ? 'var(--amber)' : 'var(--border)'}`,
+                                  }}
+                                >
+                                  {assigned && <Check size={10} color="#000" strokeWidth={3} />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate" style={{ color: assigned ? 'var(--amber)' : 'var(--text)' }}>
+                                    {o.nombre}
+                                  </p>
+                                  {o.direccion && (
+                                    <p className="text-[11px] truncate" style={{ color: 'var(--subtle)' }}>{o.direccion}</p>
+                                  )}
+                                </div>
+                                {toggling && <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: 'var(--amber)' }} />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* PIN editor inline */}
                   {editingPin === w.id && (

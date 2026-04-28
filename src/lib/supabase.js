@@ -109,7 +109,7 @@ export async function getWorkers() {
 export async function getAllWorkers() {
   const { data, error } = await supabase
     .from('workers')
-    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .select('id, nombre, avatar, valor_hora, pin, activo, created_at')
     .order('nombre')
   if (error) throw error
   return data
@@ -119,7 +119,7 @@ export async function createWorker(worker) {
   const { data, error } = await supabase
     .from('workers')
     .insert([worker])
-    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .select('id, nombre, avatar, valor_hora, pin, activo, created_at')
     .single()
   if (error) throw error
   return data
@@ -130,10 +130,48 @@ export async function updateWorker(id, updates) {
     .from('workers')
     .update(updates)
     .eq('id', id)
-    .select('id, nombre, avatar, valor_hora, activo, created_at')
+    .select('id, nombre, avatar, valor_hora, pin, activo, created_at')
     .single()
   if (error) throw error
   return data
+}
+
+// ── Worker ↔ Project assignments ──────────────────────────────
+export async function getWorkerProjectIds(workerId) {
+  const { data, error } = await supabase
+    .from('worker_projects')
+    .select('project_id')
+    .eq('worker_id', workerId)
+  if (error) throw error
+  return data.map(r => r.project_id)
+}
+
+export async function toggleWorkerProject(workerId, projectId, assign) {
+  if (assign) {
+    const { error } = await supabase
+      .from('worker_projects')
+      .insert([{ worker_id: workerId, project_id: projectId }])
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('worker_projects')
+      .delete()
+      .eq('worker_id', workerId)
+      .eq('project_id', projectId)
+    if (error) throw error
+  }
+}
+
+// Obras asignadas al trabajador (fallback: todas activas si no tiene asignaciones)
+export async function getWorkerObras(workerId) {
+  const { data, error } = await supabase
+    .from('worker_projects')
+    .select('projects(id, nombre, direccion)')
+    .eq('worker_id', workerId)
+  if (error) throw error
+  const obras = data.map(r => r.projects).filter(Boolean)
+  if (obras.length === 0) return getObrasActivas()
+  return obras
 }
 
 // Kiosco público: solo nombre + avatar, sin valor_hora ni PIN
