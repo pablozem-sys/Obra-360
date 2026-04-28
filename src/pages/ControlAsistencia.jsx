@@ -10,6 +10,7 @@ import {
   getObrasActivas,
   getWorkerProjectIds,
   toggleWorkerProject,
+  createObra,
 } from '../lib/supabase'
 
 function formatHora(iso) {
@@ -57,6 +58,12 @@ export default function ControlAsistencia() {
   const [workerObras, setWorkerObras]         = useState({})    // { [workerId]: Set<projectId> }
   const [obrasLoading, setObrasLoading]       = useState(false)
   const [obrasToggling, setObrasToggling]     = useState({})
+
+  // Crear nueva obra desde el panel de asignación
+  const [newObraWorker, setNewObraWorker]     = useState(null)  // worker id
+  const [newObraNombre, setNewObraNombre]     = useState('')
+  const [newObraDireccion, setNewObraDireccion] = useState('')
+  const [newObraSaving, setNewObraSaving]     = useState(false)
 
   const loadRegistros = useCallback(async () => {
     try {
@@ -164,6 +171,30 @@ export default function ControlAsistencia() {
       })
     }
     setObrasToggling(prev => ({ ...prev, [key]: false }))
+  }
+
+  const handleCrearObra = async (worker) => {
+    if (!newObraNombre.trim()) return
+    setNewObraSaving(true)
+    try {
+      const nueva = await createObra({
+        nombre:    newObraNombre.trim(),
+        direccion: newObraDireccion.trim() || null,
+        estado:    'en_ejecucion',
+      })
+      setObrasActivas(prev => [...prev, nueva].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      // Auto-asignar al trabajador
+      await toggleWorkerProject(worker.id, nueva.id, true)
+      setWorkerObras(prev => {
+        const next = new Set(prev[worker.id] ?? [])
+        next.add(nueva.id)
+        return { ...prev, [worker.id]: next }
+      })
+      setNewObraWorker(null)
+      setNewObraNombre('')
+      setNewObraDireccion('')
+    } catch { /* silent */ }
+    finally { setNewObraSaving(false) }
   }
 
   const handleGuardarPin = async (worker) => {
@@ -645,6 +676,66 @@ export default function ControlAsistencia() {
                               </button>
                             )
                           })}
+
+                          {/* Inline: nueva obra */}
+                          {newObraWorker === w.id ? (
+                            <div
+                              className="rounded-xl px-4 py-3 space-y-2"
+                              style={{ background: 'var(--bg-card)', border: '1px solid rgba(255,149,0,0.35)' }}
+                            >
+                              <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+                                // nueva obra
+                              </p>
+                              <input
+                                className="input text-sm"
+                                placeholder="Nombre de la obra"
+                                value={newObraNombre}
+                                onChange={e => setNewObraNombre(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
+                                autoFocus
+                              />
+                              <input
+                                className="input text-sm"
+                                placeholder="Dirección (opcional)"
+                                value={newObraDireccion}
+                                onChange={e => setNewObraDireccion(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleCrearObra(w)}
+                                  disabled={!newObraNombre.trim() || newObraSaving}
+                                  className="btn-primary gap-1 text-xs disabled:opacity-40"
+                                  style={{ padding: '7px 12px' }}
+                                >
+                                  {newObraSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                  {newObraSaving ? 'Guardando...' : 'Crear y asignar'}
+                                </button>
+                                <button
+                                  onClick={() => { setNewObraWorker(null); setNewObraNombre(''); setNewObraDireccion('') }}
+                                  className="btn-ghost text-xs"
+                                  style={{ color: 'var(--muted)' }}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setNewObraWorker(w.id); setNewObraNombre(''); setNewObraDireccion('') }}
+                              className="w-full flex items-center gap-2 rounded-xl px-4 py-2.5 transition-all"
+                              style={{
+                                background: 'transparent',
+                                border: '1px dashed var(--border)',
+                                color: 'var(--subtle)',
+                              }}
+                            >
+                              <Plus size={13} />
+                              <span className="text-[11px] font-semibold" style={{ fontFamily: 'Unbounded', letterSpacing: '0.06em' }}>
+                                NUEVA OBRA
+                              </span>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
