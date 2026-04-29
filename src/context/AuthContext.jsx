@@ -39,11 +39,11 @@ export const PERMISOS = {
 
 async function fetchUserProfile(userId, authUser) {
   try {
-    const { data } = await supabase
-      .from('users')
-      .select('id, nombre, email, rol, avatar')
-      .eq('id', userId)
-      .single()
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    const { data } = await Promise.race([
+      supabase.from('users').select('id, nombre, email, rol, avatar').eq('id', userId).single(),
+      timeout,
+    ])
     if (data) return data
   } catch { /* fallback below */ }
 

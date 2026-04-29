@@ -17,10 +17,11 @@ export default function AccesoTrabajador() {
   const pinRef = useRef(null)
 
   useEffect(() => {
+    const t = setTimeout(() => setLoadingList(false), 6000)
     getPublicWorkers()
       .then(setWorkers)
       .catch(() => setWorkers([]))
-      .finally(() => setLoadingList(false))
+      .finally(() => { clearTimeout(t); setLoadingList(false) })
   }, [])
 
   useEffect(() => {

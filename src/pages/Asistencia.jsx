@@ -48,13 +48,14 @@ export default function Asistencia() {
 
   useEffect(() => {
     if (!user?.id) return
+    const t = setTimeout(() => setInitLoading(false), 6000)
     Promise.all([
       getTodayOpenAttendance(user.id).catch(() => null),
       getWorkerObras(user.id).catch(() => []),
     ]).then(([registro, obrasData]) => {
       setRegistroAbierto(registro ?? null)
       setObras(obrasData)
-    }).finally(() => setInitLoading(false))
+    }).finally(() => { clearTimeout(t); setInitLoading(false) })
   }, [user?.id])
 
   const valorHora = user?.valor_hora ?? user?.valorHora ?? 5000

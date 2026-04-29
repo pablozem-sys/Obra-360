@@ -34,10 +34,11 @@ export default function Obras() {
   const [formError, setFormError] = useState('')
 
   useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 6000)
     getObras()
       .then(setObras)
       .catch(() => setObras([]))
-      .finally(() => setLoading(false))
+      .finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
 
   const filtered = obras.filter(o => {
