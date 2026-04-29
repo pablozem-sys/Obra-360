@@ -95,8 +95,8 @@ export default function NuevoGasto() {
         estado: 'pendiente',
       })
       setSaved(true)
-    } catch {
-      setSaveError('No se pudo guardar. Intenta de nuevo.')
+    } catch (err) {
+      setSaveError(err?.message || 'No se pudo guardar. Intenta de nuevo.')
     } finally {
       setSaving(false)
     }
