@@ -11,6 +11,7 @@ import {
   getWorkerProjectIds,
   toggleWorkerProject,
   createObra,
+  registrarAsistenciaManual,
 } from '../lib/supabase'
 
 function formatHora(iso) {
@@ -58,6 +59,16 @@ export default function ControlAsistencia() {
   const [workerObras, setWorkerObras]         = useState({})    // { [workerId]: Set<projectId> }
   const [obrasLoading, setObrasLoading]       = useState(false)
   const [obrasToggling, setObrasToggling]     = useState({})
+
+  // Registro manual de asistencia
+  const [showManual, setShowManual]           = useState(false)
+  const [manualWorker, setManualWorker]       = useState('')
+  const [manualObra, setManualObra]           = useState('')
+  const [manualFecha, setManualFecha]         = useState(HOY)
+  const [manualEntrada, setManualEntrada]     = useState('')
+  const [manualSalida, setManualSalida]       = useState('')
+  const [manualSaving, setManualSaving]       = useState(false)
+  const [manualError, setManualError]         = useState('')
 
   // Crear nueva obra desde el panel de asignación
   const [newObraWorker, setNewObraWorker]     = useState(null)  // worker id
@@ -109,6 +120,40 @@ export default function ControlAsistencia() {
       return { ...p, costoManoObra: costo, horasTotales: horas, nRegistros: regs.length }
     })
     .filter(p => p.costoManoObra > 0)
+
+  const handleGuardarManual = async () => {
+    if (!manualWorker) { setManualError('Selecciona un trabajador'); return }
+    if (!manualObra)   { setManualError('Selecciona una obra'); return }
+    if (!manualEntrada) { setManualError('Ingresa la hora de entrada'); return }
+    if (manualSalida && manualSalida <= manualEntrada) {
+      setManualError('La salida debe ser después de la entrada')
+      return
+    }
+    const worker = workers.find(w => w.id === manualWorker)
+    setManualSaving(true)
+    setManualError('')
+    try {
+      await registrarAsistenciaManual({
+        workerId:   manualWorker,
+        projectId:  manualObra,
+        fecha:      manualFecha,
+        horaEntrada: manualEntrada,
+        horaSalida:  manualSalida || null,
+        valorHora:  worker?.valor_hora ?? 5000,
+      })
+      await loadRegistros()
+      setShowManual(false)
+      setManualWorker('')
+      setManualObra('')
+      setManualFecha(HOY)
+      setManualEntrada('')
+      setManualSalida('')
+    } catch (err) {
+      setManualError(err.message || 'Error al guardar')
+    } finally {
+      setManualSaving(false)
+    }
+  }
 
   const handleGuardarWorker = async () => {
     if (!formNombre.trim()) { setFormError('Ingresa un nombre'); return }
@@ -288,28 +333,135 @@ export default function ControlAsistencia() {
       {/* ── TAB: REGISTROS ─────────────────────────────────────── */}
       {tab === 'registros' && (
         <>
-          {/* Filters */}
-          <div className="flex gap-3 flex-wrap">
-            <select
-              className="select flex-1 min-w-[140px] max-w-[200px]"
-              value={filtroObra}
-              onChange={e => setFiltroObra(e.target.value)}
+          {/* Filters + botón manual */}
+          <div className="flex gap-3 flex-wrap items-center justify-between">
+            <div className="flex gap-3 flex-wrap flex-1">
+              <select
+                className="select flex-1 min-w-[140px] max-w-[200px]"
+                value={filtroObra}
+                onChange={e => setFiltroObra(e.target.value)}
+              >
+                <option value="all">Todas las obras</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              </select>
+              <input
+                type="date"
+                className="input flex-1 min-w-[140px] max-w-[180px]"
+                value={filtroFecha}
+                onChange={e => setFiltroFecha(e.target.value)}
+              />
+              {filtroFecha && (
+                <button onClick={() => setFiltroFecha('')} className="btn-ghost text-sm" style={{ color: 'var(--muted)' }}>
+                  Limpiar
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => { setShowManual(f => !f); setManualError('') }}
+              className="btn-primary gap-1.5 text-xs flex-shrink-0"
+              style={{ padding: '8px 14px' }}
             >
-              <option value="all">Todas las obras</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
-            <input
-              type="date"
-              className="input flex-1 min-w-[140px] max-w-[180px]"
-              value={filtroFecha}
-              onChange={e => setFiltroFecha(e.target.value)}
-            />
-            {filtroFecha && (
-              <button onClick={() => setFiltroFecha('')} className="btn-ghost text-sm" style={{ color: 'var(--muted)' }}>
-                Limpiar
-              </button>
-            )}
+              {showManual ? <X size={13} /> : <Plus size={13} />}
+              {showManual ? 'Cancelar' : 'Registrar manual'}
+            </button>
           </div>
+
+          {/* Formulario registro manual */}
+          {showManual && (
+            <div
+              className="rounded-2xl p-5 space-y-4"
+              style={{ background: 'var(--bg-card)', border: '1px solid rgba(255,149,0,0.25)' }}
+            >
+              <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+                // registro manual de asistencia
+              </p>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">Trabajador</label>
+                  <select
+                    className="select"
+                    value={manualWorker}
+                    onChange={e => { setManualWorker(e.target.value); setManualError('') }}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {workers.filter(w => w.activo).map(w => (
+                      <option key={w.id} value={w.id}>{w.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Obra</label>
+                  <select
+                    className="select"
+                    value={manualObra}
+                    onChange={e => { setManualObra(e.target.value); setManualError('') }}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Fecha</label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={manualFecha}
+                    onChange={e => { setManualFecha(e.target.value); setManualError('') }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Hora entrada</label>
+                  <input
+                    type="time"
+                    className="input num"
+                    value={manualEntrada}
+                    onChange={e => { setManualEntrada(e.target.value); setManualError('') }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Hora salida <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
+                  <input
+                    type="time"
+                    className="input num"
+                    value={manualSalida}
+                    onChange={e => { setManualSalida(e.target.value); setManualError('') }}
+                  />
+                </div>
+                {manualWorker && manualEntrada && manualSalida && manualSalida > manualEntrada && (
+                  <div className="flex flex-col justify-end pb-0.5">
+                    <label className="label">Costo estimado</label>
+                    <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
+                      {formatCLP(
+                        Math.round(
+                          ((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000) *
+                          (workers.find(w => w.id === manualWorker)?.valor_hora ?? 5000)
+                        )
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+              {manualError && (
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={12} style={{ color: 'var(--red)' }} />
+                  <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)', letterSpacing: '0.06em' }}>
+                    {manualError.toUpperCase()}
+                  </p>
+                </div>
+              )}
+              <button
+                onClick={handleGuardarManual}
+                disabled={manualSaving}
+                className="btn-primary gap-1.5 text-xs disabled:opacity-50"
+                style={{ padding: '9px 16px' }}
+              >
+                {manualSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                {manualSaving ? 'Guardando...' : 'Guardar registro'}
+              </button>
+            </div>
+          )}
 
           {/* Records table */}
           <div className="card overflow-hidden">

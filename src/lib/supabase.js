@@ -237,6 +237,36 @@ export async function getTodayOpenAttendance(workerId) {
   return data
 }
 
+export async function registrarAsistenciaManual({ workerId, projectId, fecha, horaEntrada, horaSalida, valorHora }) {
+  const entradaISO = `${fecha}T${horaEntrada}:00`
+  let salidaISO = null
+  let horasTrabajadas = null
+  let costoTotal = null
+
+  if (horaSalida) {
+    salidaISO = `${fecha}T${horaSalida}:00`
+    horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entradaISO)) / 3600000) * 100) / 100
+    costoTotal = Math.round(horasTrabajadas * valorHora)
+  }
+
+  const { data, error } = await supabase
+    .from('attendance')
+    .insert([{
+      worker_id: workerId,
+      project_id: projectId,
+      fecha,
+      entrada: entradaISO,
+      salida: salidaISO,
+      horas_trabajadas: horasTrabajadas,
+      valor_hora: valorHora,
+      costo_total: costoTotal,
+    }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function registrarEntrada(workerId, projectId, geo, valorHora) {
   const now = new Date().toISOString()
   const { data, error } = await supabase
