@@ -423,6 +423,7 @@ export default function ControlAsistencia() {
                   <label className="label">Hora entrada</label>
                   <input
                     type="time"
+                    step="60"
                     className="input num"
                     value={manualEntrada}
                     onChange={e => { setManualEntrada(e.target.value); setManualError('') }}
@@ -432,6 +433,7 @@ export default function ControlAsistencia() {
                   <label className="label">Hora salida <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
                   <input
                     type="time"
+                    step="60"
                     className="input num"
                     value={manualSalida}
                     onChange={e => { setManualSalida(e.target.value); setManualError('') }}
