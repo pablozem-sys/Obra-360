@@ -175,9 +175,7 @@ export async function getWorkerObras(workerId) {
     .select('projects(id, nombre, direccion)')
     .eq('worker_id', workerId)
   if (error) throw error
-  const obras = data.map(r => r.projects).filter(Boolean)
-  if (obras.length === 0) return getObrasActivas()
-  return obras
+  return data.map(r => r.projects).filter(Boolean)
 }
 
 // Kiosco público: solo nombre + avatar, sin valor_hora ni PIN

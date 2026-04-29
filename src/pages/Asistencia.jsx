@@ -226,7 +226,7 @@ export default function Asistencia() {
         <p className="text-sm mb-7" style={{ color: 'var(--muted)' }}>Selecciona la obra donde trabajarás hoy</p>
 
         {obras.length === 0 ? (
-          <p className="text-sm text-center py-12" style={{ color: 'var(--subtle)' }}>No hay obras activas</p>
+          <p className="text-sm text-center py-12" style={{ color: 'var(--subtle)' }}>No tienes obras asignadas. Contacta al administrador.</p>
         ) : (
           <div className="space-y-3">
             {obras.map(o => {
