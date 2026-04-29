@@ -32,6 +32,22 @@ function getGeo() {
   })
 }
 
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'Accept-Language': 'es' } }
+    )
+    const data = await res.json()
+    const { road, house_number, suburb, city, town } = data.address || {}
+    const calle = road ? `${road}${house_number ? ` ${house_number}` : ''}` : null
+    const sector = suburb || city || town || null
+    return [calle, sector].filter(Boolean).join(', ') || null
+  } catch {
+    return null
+  }
+}
+
 export default function Asistencia() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
@@ -89,12 +105,16 @@ export default function Asistencia() {
     setLoading(true)
     const obra = obras.find(o => o.id === selectedObra)
     try {
-      const record = await registrarEntrada(user.id, selectedObra, lastAction.geo, valorHora)
+      const [record, address] = await Promise.all([
+        registrarEntrada(user.id, selectedObra, lastAction.geo, valorHora),
+        reverseGeocode(lastAction.geo.lat, lastAction.geo.lng),
+      ])
       setRegistroAbierto(record)
+      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra, address })
     } catch (err) {
       console.error('registrarEntrada:', err)
+      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra })
     }
-    setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra })
     setStep('confirmado')
     setLoading(false)
   }
@@ -175,6 +195,12 @@ export default function Asistencia() {
                 <div className="flex justify-between text-sm">
                   <span style={{ color: 'var(--muted)' }}>Obra</span>
                   <span className="font-medium text-right max-w-[60%]" style={{ color: 'var(--text)' }}>{lastAction.obra.nombre}</span>
+                </div>
+              )}
+              {lastAction.address && (
+                <div className="flex justify-between text-sm gap-3">
+                  <span style={{ color: 'var(--muted)', flexShrink: 0 }}>Ubicación</span>
+                  <span className="text-right text-xs" style={{ color: 'var(--muted)' }}>{lastAction.address}</span>
                 </div>
               )}
               {!esEntrada && lastAction.horas && (
