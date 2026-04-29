@@ -1,38 +1,52 @@
-import { useState } from 'react'
-import { Search, FolderOpen, Download, Eye } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Search, FolderOpen, Download, Eye, Loader2 } from 'lucide-react'
 import Badge from '../components/ui/Badge'
-import { documentos, obras } from '../data/mockData'
+import { getDocumentos, getObras } from '../lib/supabase'
 import { formatCLP, formatDate, TIPOS_DOC } from '../lib/helpers'
 
 const TIPOS = ['todos', 'factura', 'boleta', 'contrato', 'cotizacion', 'foto', 'permiso', 'comprobante']
 
 export default function Biblioteca() {
+  const [docs,       setDocs]       = useState([])
+  const [obras,      setObras]      = useState([])
+  const [loading,    setLoading]    = useState(true)
   const [obraFiltro, setObraFiltro] = useState('all')
   const [tipoFiltro, setTipoFiltro] = useState('todos')
-  const [search, setSearch] = useState('')
-  const [viewMode, setViewMode] = useState('grid')
+  const [search,     setSearch]     = useState('')
 
-  const filtered = documentos.filter(d => {
-    const matchObra = obraFiltro === 'all' || d.obraId === obraFiltro
-    const matchTipo = tipoFiltro === 'todos' || d.tipo === tipoFiltro
-    const matchSearch = !search || d.nombre.toLowerCase().includes(search.toLowerCase()) || d.proveedor?.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 6000)
+    Promise.all([
+      getDocumentos().catch(() => []),
+      getObras().catch(() => []),
+    ]).then(([d, o]) => { setDocs(d); setObras(o) })
+      .finally(() => { clearTimeout(t); setLoading(false) })
+  }, [])
+
+  const filtered = docs.filter(d => {
+    const matchObra   = obraFiltro === 'all' || d.project_id === obraFiltro
+    const matchTipo   = tipoFiltro === 'todos' || d.tipo === tipoFiltro
+    const matchSearch = !search || d.nombre?.toLowerCase().includes(search.toLowerCase()) || d.proveedor?.toLowerCase().includes(search.toLowerCase())
     return matchObra && matchTipo && matchSearch
   })
 
-  const totalDocs = filtered.length
-  const totalSize = '14.2 MB'
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
+    </div>
+  )
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="font-display font-bold text-2xl text-slate-100">Biblioteca Documental</h1>
-        <p className="text-slate-500 text-sm mt-0.5">{totalDocs} documentos · {totalSize}</p>
+        <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>Biblioteca Documental</h1>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{filtered.length} documentos</p>
       </div>
 
       {/* Filters */}
       <div className="space-y-3">
         <div className="relative">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
           <input
             className="input pl-10"
             placeholder="Buscar documento o proveedor..."
@@ -50,9 +64,12 @@ export default function Biblioteca() {
               <button
                 key={t}
                 onClick={() => setTipoFiltro(t)}
-                className={`flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold capitalize transition-all duration-150 ${
-                  tipoFiltro === t ? 'bg-amber-500 text-slate-900' : 'bg-[#1A1E35] text-slate-400 hover:text-slate-200 border border-[#2A2E4A]'
-                }`}
+                className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold capitalize transition-all duration-150"
+                style={{
+                  background: tipoFiltro === t ? 'var(--amber)' : 'var(--bg-card)',
+                  color: tipoFiltro === t ? '#0A0C1A' : 'var(--muted)',
+                  border: `1px solid ${tipoFiltro === t ? 'transparent' : 'var(--border)'}`,
+                }}
               >
                 {t === 'todos' ? 'Todos' : TIPOS_DOC[t]?.label || t}
               </button>
@@ -64,50 +81,50 @@ export default function Biblioteca() {
       {/* Document grid */}
       {filtered.length === 0 ? (
         <div className="card p-12 text-center">
-          <FolderOpen size={32} className="text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 font-medium">Sin documentos</p>
-          <p className="text-slate-500 text-sm mt-1">Sube gastos con documentos para verlos aquí</p>
+          <FolderOpen size={32} className="mx-auto mb-3" style={{ color: 'var(--subtle)' }} />
+          <p className="font-medium" style={{ color: 'var(--muted)' }}>Sin documentos</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--subtle)' }}>Sube gastos con documentos para verlos aquí</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map(d => {
-            const obra = obras.find(o => o.id === d.obraId)
+            const obra = obras.find(o => o.id === d.project_id)
             const info = TIPOS_DOC[d.tipo]
-            const isImage = d.archivo?.match(/\.(jpg|jpeg|png|webp)/i)
-            const isPdf = d.archivo?.match(/\.pdf/i)
-
             return (
               <div key={d.id} className="card-hover p-4 group cursor-pointer">
-                {/* Icon/Preview area */}
-                <div className="w-full h-24 bg-[#131629] rounded-xl flex items-center justify-center mb-3 relative overflow-hidden">
-                  <span className="text-4xl">{info?.icon}</span>
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2">
-                    <button className="w-8 h-8 bg-white/10 hover:bg-white/20 rounded-lg flex items-center justify-center transition-colors">
-                      <Eye size={14} className="text-white" />
-                    </button>
-                    <button className="w-8 h-8 bg-white/10 hover:bg-white/20 rounded-lg flex items-center justify-center transition-colors">
-                      <Download size={14} className="text-white" />
-                    </button>
+                <div className="w-full h-24 rounded-xl flex items-center justify-center mb-3 relative overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
+                  <span className="text-4xl">{info?.icon ?? '📄'}</span>
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                    {d.archivo_url && (
+                      <>
+                        <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                          <Eye size={14} className="text-white" />
+                        </a>
+                        <a href={d.archivo_url} download className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                          <Download size={14} className="text-white" />
+                        </a>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-200 truncate">{d.nombre}</p>
-                    <p className="text-xs text-slate-500 truncate">{obra?.nombre}</p>
+                    <p className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{d.nombre}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--muted)' }}>{obra?.nombre ?? '—'}</p>
                   </div>
-                  <Badge className={`text-[10px] ${info?.color} bg-transparent border-0`}>{info?.label}</Badge>
+                  {info && <Badge className={`text-[10px] ${info.color} bg-transparent border-0`}>{info.label}</Badge>}
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
                   <span>{formatDate(d.fecha)}</span>
-                  <span>{d.tamaño}</span>
+                  <span>{d.tamaño ?? ''}</span>
                 </div>
 
                 {d.monto && (
-                  <div className="mt-2 pt-2 border-t border-[#2A2E4A]">
-                    <span className="text-xs font-semibold text-slate-300">{formatCLP(d.monto)}</span>
-                    {d.proveedor && <span className="text-xs text-slate-500 ml-2">· {d.proveedor}</span>}
+                  <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{formatCLP(d.monto)}</span>
+                    {d.proveedor && <span className="text-xs ml-2" style={{ color: 'var(--muted)' }}>· {d.proveedor}</span>}
                   </div>
                 )}
               </div>
