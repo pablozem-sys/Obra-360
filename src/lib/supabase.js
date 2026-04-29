@@ -84,6 +84,12 @@ export async function getIngresos() {
   return data ?? []
 }
 
+export async function updateCuentaPagar(id, updates) {
+  const { data, error } = await supabase.from('accounts_payable').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
 export async function getCuentasCobrar() {
   const { data, error } = await supabase
     .from('accounts_receivable')
@@ -94,6 +100,12 @@ export async function getCuentasCobrar() {
 }
 
 // ── Geolocation ───────────────────────────────────────────────
+export async function updateCuentaCobrar(id, updates) {
+  const { data, error } = await supabase.from('accounts_receivable').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
 export async function logGeolocalizacion(entry) {
   const { error } = await supabase.from('geolocation_logs').insert([entry])
   if (error) throw error
