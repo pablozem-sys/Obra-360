@@ -19,11 +19,15 @@ function useClock() {
 }
 
 function getGeo() {
-  return new Promise((resolve) => {
-    navigator.geolocation?.getCurrentPosition(
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('GPS no disponible en este dispositivo'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
       p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => resolve({ lat: -33.4489, lng: -70.6693 }),
-      { timeout: 5000 }
+      err => reject(err),
+      { timeout: 8000, enableHighAccuracy: true }
     )
   })
 }
@@ -40,6 +44,7 @@ export default function Asistencia() {
   const [initLoading, setInitLoading]         = useState(true)
   const [lastAction, setLastAction]           = useState(null)
   const [selectedObra, setSelectedObra]       = useState(null)
+  const [geoError, setGeoError]               = useState(false)
 
   useEffect(() => {
     if (!user?.id) return
@@ -63,8 +68,16 @@ export default function Asistencia() {
     : null
 
   const handleLlegue = async () => {
+    setGeoError(false)
     setLoading(true)
-    const geo = await getGeo()
+    let geo
+    try {
+      geo = await getGeo()
+    } catch {
+      setLoading(false)
+      setGeoError(true)
+      return
+    }
     setLoading(false)
     setStep('select-obra')
     setLastAction({ tipo: 'entrada', geo })
@@ -87,8 +100,16 @@ export default function Asistencia() {
 
   const handleMeVoy = async () => {
     if (!tieneEntrada) return
+    setGeoError(false)
     setLoading(true)
-    const geo = await getGeo()
+    let geo
+    try {
+      geo = await getGeo()
+    } catch {
+      setLoading(false)
+      setGeoError(true)
+      return
+    }
     let horas, costo
     try {
       const updated = await registrarSalida(registroAbierto.id, registroAbierto.entrada, geo, valorHora)
@@ -292,6 +313,22 @@ export default function Asistencia() {
             <span className="num font-medium" style={{ color: 'var(--amber)' }}>
               {horasDesdeEntrada} hrs acumuladas
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Error GPS */}
+      {geoError && (
+        <div
+          className="rounded-2xl p-4 mb-4 flex items-start gap-3"
+          style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,69,96,0.3)' }}
+        >
+          <MapPin size={18} style={{ color: 'var(--red)', flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <p className="font-semibold text-sm" style={{ color: 'var(--red)' }}>Activa tu ubicación para continuar</p>
+            <p className="text-[12px] mt-0.5" style={{ color: 'var(--muted)' }}>
+              Ve a Ajustes → Privacidad → Ubicación y permite el acceso al navegador.
+            </p>
           </div>
         </div>
       )}
