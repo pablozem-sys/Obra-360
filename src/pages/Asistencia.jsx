@@ -325,11 +325,18 @@ export default function Asistencia() {
           style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,69,96,0.3)' }}
         >
           <MapPin size={18} style={{ color: 'var(--red)', flexShrink: 0, marginTop: 1 }} />
-          <div>
+          <div className="flex-1">
             <p className="font-semibold text-sm" style={{ color: 'var(--red)' }}>Activa tu ubicación para continuar</p>
             <p className="text-[12px] mt-0.5" style={{ color: 'var(--muted)' }}>
               Ve a Ajustes → Privacidad → Ubicación y permite el acceso al navegador.
             </p>
+            <button
+              onClick={tieneEntrada ? handleMeVoy : handleLlegue}
+              className="mt-2 text-[12px] font-semibold underline underline-offset-2"
+              style={{ color: 'var(--red)' }}
+            >
+              Reintentar
+            </button>
           </div>
         </div>
       )}
