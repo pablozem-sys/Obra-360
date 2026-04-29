@@ -51,6 +51,7 @@ export default function ControlAsistencia() {
   const [editingPin, setEditingPin]   = useState(null)
   const [pinValue, setPinValue]       = useState('')
   const [pinSaving, setPinSaving]     = useState(false)
+  const [pinError, setPinError]       = useState('')
   const [showPins, setShowPins]       = useState({})
 
   // Obras asignadas por worker
@@ -160,6 +161,7 @@ export default function ControlAsistencia() {
     const valor = parseInt(formValor)
     if (!valor || valor < 1000) { setFormError('Valor/hora mínimo $1.000'); return }
     if (formPin && !/^\d{4}$/.test(formPin)) { setFormError('PIN debe ser exactamente 4 dígitos'); return }
+    if (formPin && workers.some(w => w.pin === formPin)) { setFormError('Ese PIN ya está en uso, elige otro'); return }
     setSaving(true)
     setFormError('')
     try {
@@ -247,6 +249,9 @@ export default function ControlAsistencia() {
 
   const handleGuardarPin = async (worker) => {
     if (!/^\d{4}$/.test(pinValue)) return
+    const duplicado = workers.find(w => w.id !== worker.id && w.pin === pinValue)
+    if (duplicado) { setPinError(`PIN ya usado por ${duplicado.nombre}`); return }
+    setPinError('')
     setPinSaving(true)
     try {
       const updated = await updateWorker(worker.id, { pin: pinValue })
@@ -906,18 +911,21 @@ export default function ControlAsistencia() {
                       <span style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0 }}>
                         Nuevo PIN →
                       </span>
-                      <input
-                        className="input num w-28 text-center"
-                        type="password"
-                        inputMode="numeric"
-                        maxLength={4}
-                        placeholder="••••"
-                        value={pinValue}
-                        onChange={e => setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        onKeyDown={e => { if (e.key === 'Enter') handleGuardarPin(w) }}
-                        autoFocus
-                        style={{ fontSize: 18, letterSpacing: '0.2em', padding: '8px 12px' }}
-                      />
+                      <div className="flex flex-col gap-1 flex-1">
+                        <input
+                          className="input num w-28 text-center"
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={4}
+                          placeholder="••••"
+                          value={pinValue}
+                          onChange={e => { setPinValue(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError('') }}
+                          onKeyDown={e => { if (e.key === 'Enter') handleGuardarPin(w) }}
+                          autoFocus
+                          style={{ fontSize: 18, letterSpacing: '0.2em', padding: '8px 12px' }}
+                        />
+                        {pinError && <p style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ {pinError}</p>}
+                      </div>
                       <button
                         onClick={() => handleGuardarPin(w)}
                         disabled={pinValue.length !== 4 || pinSaving}
@@ -928,7 +936,7 @@ export default function ControlAsistencia() {
                         Guardar
                       </button>
                       <button
-                        onClick={() => { setEditingPin(null); setPinValue('') }}
+                        onClick={() => { setEditingPin(null); setPinValue(''); setPinError('') }}
                         className="btn-ghost text-xs"
                         style={{ color: 'var(--muted)', flexShrink: 0 }}
                       >
