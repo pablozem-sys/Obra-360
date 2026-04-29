@@ -1,11 +1,11 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Building2, Plus, Wallet, FolderOpen } from 'lucide-react'
+import { LayoutDashboard, Building2, Plus, Users, FolderOpen } from 'lucide-react'
 
 const items = [
-  { to: '/',           label: 'Inicio', icon: LayoutDashboard },
-  { to: '/obras',      label: 'Obras',  icon: Building2 },
-  { to: '/flujo-caja', label: 'Flujo',  icon: Wallet },
-  { to: '/documentos', label: 'Docs',   icon: FolderOpen },
+  { to: '/dashboard',          label: 'Inicio',     icon: LayoutDashboard },
+  { to: '/obras',              label: 'Obras',      icon: Building2 },
+  { to: '/asistencia-control', label: 'Asistencia', icon: Users },
+  { to: '/documentos',         label: 'Docs',       icon: FolderOpen },
 ]
 
 export default function BottomNav() {

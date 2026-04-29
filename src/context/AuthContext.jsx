@@ -77,8 +77,13 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') setSession(null)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
+      if (event === 'SIGNED_OUT') {
+        setSession(null)
+      } else if (s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')) {
+        const profile = await fetchUserProfile(s.user.id, s.user)
+        setSession(prev => prev ? { user: profile } : prev)
+      }
     })
 
     return () => subscription.unsubscribe()
