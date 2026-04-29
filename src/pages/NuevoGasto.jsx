@@ -77,8 +77,10 @@ export default function NuevoGasto() {
     try {
       let docUrl = null
       if (archivoFile) {
-        const { url } = await uploadDocumento(form.obraId, archivoFile)
-        docUrl = url
+        try {
+          const { url } = await uploadDocumento(form.obraId, archivoFile)
+          docUrl = url
+        } catch { /* guarda el gasto igual, sin documento */ }
       }
       await createGasto({
         project_id: form.obraId,
