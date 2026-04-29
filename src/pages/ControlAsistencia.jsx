@@ -228,7 +228,6 @@ export default function ControlAsistencia() {
         estado:    'en_ejecucion',
       })
       setObrasActivas(prev => [...prev, nueva].sort((a, b) => a.nombre.localeCompare(b.nombre)))
-      // Auto-asignar al trabajador
       await toggleWorkerProject(worker.id, nueva.id, true)
       setWorkerObras(prev => {
         const next = new Set(prev[worker.id] ?? [])
@@ -238,8 +237,12 @@ export default function ControlAsistencia() {
       setNewObraWorker(null)
       setNewObraNombre('')
       setNewObraDireccion('')
-    } catch { /* silent */ }
-    finally { setNewObraSaving(false) }
+    } catch (err) {
+      console.error('createObra:', err)
+      alert(err.message || 'Error al crear la obra. Revisa los permisos en Supabase.')
+    } finally {
+      setNewObraSaving(false)
+    }
   }
 
   const handleGuardarPin = async (worker) => {

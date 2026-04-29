@@ -1,13 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2, MapPin, User, ArrowRight, Calendar } from 'lucide-react'
+import { Plus, Search, Building2, MapPin, Calendar, Loader2, AlertCircle } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
-import { obras as initialObras, gastos, ingresos } from '../data/mockData'
-import {
-  formatCLP, formatDate, calcGastosObra, calcIngresosObra,
-  TIPOS_OBRA, ESTADOS_OBRA
-} from '../lib/helpers'
+import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
+import { getObras, createObra } from '../lib/supabase'
 
 const FILTROS = [
   { key: 'all',          label: 'Todas' },
@@ -19,39 +16,69 @@ const FILTROS = [
 
 const TIPOS = ['piscina', 'quincho', 'ampliacion', 'remodelacion', 'otro']
 
+const FORM_INITIAL = {
+  nombre: '', direccion: '', tipo: 'piscina',
+  fecha_inicio: '', fecha_termino: '', presupuesto: '',
+  estado: 'cotizada', descripcion: '',
+}
+
 export default function Obras() {
   const navigate = useNavigate()
-  const [obras, setObras] = useState(initialObras)
-  const [filtro, setFiltro] = useState('all')
-  const [search, setSearch] = useState('')
+  const [obras, setObras]       = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [filtro, setFiltro]     = useState('all')
+  const [search, setSearch]     = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    nombre: '', cliente: '', direccion: '', tipo: 'piscina',
-    fechaInicio: '', fechaTermino: '', presupuesto: '',
-    responsable: '', estado: 'cotizada', descripcion: '',
-  })
+  const [form, setForm]         = useState(FORM_INITIAL)
+  const [saving, setSaving]     = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    getObras()
+      .then(setObras)
+      .catch(() => setObras([]))
+      .finally(() => setLoading(false))
+  }, [])
 
   const filtered = obras.filter(o => {
     const matchFiltro = filtro === 'all' || o.estado === filtro
     const matchSearch = !search ||
-      o.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      o.cliente.toLowerCase().includes(search.toLowerCase())
+      o.nombre?.toLowerCase().includes(search.toLowerCase()) ||
+      o.clients?.nombre?.toLowerCase().includes(search.toLowerCase())
     return matchFiltro && matchSearch
   })
 
-  const handleCreate = () => {
-    const newObra = {
-      ...form,
-      id: String(Date.now()),
-      presupuesto: parseInt(form.presupuesto) || 0,
-      avance: 0,
-      lat: -33.4489,
-      lng: -70.6693,
-      clienteId: String(Date.now()),
+  const handleCreate = async () => {
+    if (!form.nombre.trim()) { setFormError('Ingresa el nombre de la obra'); return }
+    setSaving(true)
+    setFormError('')
+    try {
+      const nueva = await createObra({
+        nombre:        form.nombre.trim(),
+        direccion:     form.direccion.trim() || null,
+        tipo:          form.tipo,
+        estado:        form.estado,
+        fecha_inicio:  form.fecha_inicio || null,
+        fecha_termino: form.fecha_termino || null,
+        presupuesto:   parseInt(form.presupuesto) || null,
+        descripcion:   form.descripcion.trim() || null,
+      })
+      setObras(prev => [nueva, ...prev])
+      setShowForm(false)
+      setForm(FORM_INITIAL)
+    } catch (err) {
+      setFormError(err.message || 'Error al guardar la obra')
+    } finally {
+      setSaving(false)
     }
-    setObras(prev => [newObra, ...prev])
-    setShowForm(false)
-    setForm({ nombre: '', cliente: '', direccion: '', tipo: 'piscina', fechaInicio: '', fechaTermino: '', presupuesto: '', responsable: '', estado: 'cotizada', descripcion: '' })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
+      </div>
+    )
   }
 
   return (
@@ -59,10 +86,10 @@ export default function Obras() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="font-display font-bold text-2xl text-slate-100">Obras</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{obras.length} proyectos en total</p>
+          <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>Obras</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{obras.length} proyectos en total</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary text-sm">
+        <button onClick={() => { setShowForm(true); setFormError('') }} className="btn-primary text-sm">
           <Plus size={16} />
           <span className="hidden sm:inline">Nueva Obra</span>
           <span className="sm:hidden">Nueva</span>
@@ -72,10 +99,10 @@ export default function Obras() {
       {/* Search + filters */}
       <div className="space-y-3">
         <div className="relative">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--subtle)' }} />
           <input
             type="text"
-            placeholder="Buscar por nombre o cliente..."
+            placeholder="Buscar por nombre..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="input pl-10"
@@ -86,11 +113,12 @@ export default function Obras() {
             <button
               key={f.key}
               onClick={() => setFiltro(f.key)}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150 ${
-                filtro === f.key
-                  ? 'bg-amber-500 text-slate-900'
-                  : 'bg-[#1A1E35] text-slate-400 hover:text-slate-200 border border-[#2A2E4A]'
-              }`}
+              className="flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150"
+              style={{
+                background: filtro === f.key ? 'var(--amber)' : 'var(--bg-card)',
+                color:      filtro === f.key ? '#000' : 'var(--muted)',
+                border:     filtro === f.key ? 'none' : '1px solid var(--border)',
+              }}
             >
               {f.label}
             </button>
@@ -101,72 +129,46 @@ export default function Obras() {
       {/* Grid */}
       {filtered.length === 0 ? (
         <div className="card p-12 text-center">
-          <Building2 size={32} className="text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 font-medium">Sin obras para este filtro</p>
+          <Building2 size={32} className="mx-auto mb-3" style={{ color: 'var(--subtle)' }} />
+          <p className="font-medium" style={{ color: 'var(--muted)' }}>Sin obras para este filtro</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(o => {
-            const gasto = calcGastosObra(gastos, o.id)
-            const ingreso = calcIngresosObra(ingresos, o.id)
-            const pctGasto = Math.min((gasto / o.presupuesto) * 100, 100)
-            const sobrecosto = gasto > o.presupuesto * 0.9
             const estadoInfo = ESTADOS_OBRA[o.estado]
-            const tipoInfo = TIPOS_OBRA[o.tipo]
-
+            const tipoInfo   = TIPOS_OBRA[o.tipo]
             return (
               <div
                 key={o.id}
                 onClick={() => navigate(`/obras/${o.id}`)}
                 className="card-hover p-5 cursor-pointer group"
               >
-                {/* Top badges */}
                 <div className="flex items-center justify-between mb-4">
-                  <Badge className={tipoInfo?.color}>{tipoInfo?.label}</Badge>
-                  <Badge className={estadoInfo?.color}>{estadoInfo?.label}</Badge>
+                  <Badge className={tipoInfo?.color}>{tipoInfo?.label ?? o.tipo}</Badge>
+                  <Badge className={estadoInfo?.color}>{estadoInfo?.label ?? o.estado}</Badge>
                 </div>
 
-                {/* Nombre + cliente */}
-                <h3 className="font-display font-semibold text-slate-100 text-base leading-tight mb-1">
+                <h3 className="font-display font-semibold text-base leading-tight mb-1" style={{ color: 'var(--text)' }}>
                   {o.nombre}
                 </h3>
-                <p className="text-sm text-slate-400 mb-3">{o.cliente}</p>
+                {o.clients?.nombre && (
+                  <p className="text-sm mb-2" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
+                )}
 
-                {/* Location */}
-                <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-4">
-                  <MapPin size={11} />
-                  <span className="truncate">{o.direccion}</span>
-                </div>
+                {o.direccion && (
+                  <div className="flex items-center gap-1.5 text-xs mb-4" style={{ color: 'var(--subtle)' }}>
+                    <MapPin size={11} />
+                    <span className="truncate">{o.direccion}</span>
+                  </div>
+                )}
 
-                {/* Budget progress */}
-                <div className="space-y-1.5 mb-4">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-500">Presupuesto ejecutado</span>
-                    <span className={`font-semibold ${sobrecosto ? 'text-red-400' : 'text-slate-300'}`}>
-                      {pctGasto.toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-[#131629] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-700 ${sobrecosto ? 'bg-red-500' : 'bg-amber-500'}`}
-                      style={{ width: `${pctGasto}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span>{formatCLP(gasto)}</span>
-                    <span>{formatCLP(o.presupuesto)}</span>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-3 border-t border-[#2A2E4A]">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <User size={11} />
-                    {o.responsable}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                  <span className="num text-sm font-semibold" style={{ color: 'var(--amber)' }}>
+                    {o.presupuesto ? formatCLP(o.presupuesto) : '—'}
+                  </span>
+                  <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
                     <Calendar size={11} />
-                    {formatDate(o.fechaTermino)}
+                    {formatDate(o.fecha_termino)}
                   </div>
                 </div>
               </div>
@@ -176,23 +178,25 @@ export default function Obras() {
       )}
 
       {/* Modal nueva obra */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title="Nueva Obra" size="lg">
+      <Modal open={showForm} onClose={() => { setShowForm(false); setFormError('') }} title="Nueva Obra" size="lg">
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
             <label className="label">Nombre de la obra *</label>
-            <input className="input" placeholder="Ej: Piscina Las Condes" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Cliente *</label>
-            <input className="input" placeholder="Nombre del cliente" value={form.cliente} onChange={e => setForm(p => ({ ...p, cliente: e.target.value }))} />
-          </div>
-          <div>
-            <label className="label">Responsable</label>
-            <input className="input" placeholder="Jefe de obra" value={form.responsable} onChange={e => setForm(p => ({ ...p, responsable: e.target.value }))} />
+            <input
+              className="input"
+              placeholder="Ej: Piscina Las Condes"
+              value={form.nombre}
+              onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); setFormError('') }}
+            />
           </div>
           <div className="sm:col-span-2">
             <label className="label">Dirección</label>
-            <input className="input" placeholder="Calle y número, comuna" value={form.direccion} onChange={e => setForm(p => ({ ...p, direccion: e.target.value }))} />
+            <input
+              className="input"
+              placeholder="Calle y número, comuna"
+              value={form.direccion}
+              onChange={e => setForm(p => ({ ...p, direccion: e.target.value }))}
+            />
           </div>
           <div>
             <label className="label">Tipo de obra</label>
@@ -209,25 +213,54 @@ export default function Obras() {
           </div>
           <div>
             <label className="label">Fecha inicio</label>
-            <input type="date" className="input" value={form.fechaInicio} onChange={e => setForm(p => ({ ...p, fechaInicio: e.target.value }))} />
+            <input type="date" className="input" value={form.fecha_inicio} onChange={e => setForm(p => ({ ...p, fecha_inicio: e.target.value }))} />
           </div>
           <div>
             <label className="label">Fecha estimada término</label>
-            <input type="date" className="input" value={form.fechaTermino} onChange={e => setForm(p => ({ ...p, fechaTermino: e.target.value }))} />
+            <input type="date" className="input" value={form.fecha_termino} onChange={e => setForm(p => ({ ...p, fecha_termino: e.target.value }))} />
           </div>
           <div className="sm:col-span-2">
             <label className="label">Presupuesto aprobado (CLP)</label>
-            <input type="number" className="input" placeholder="Ej: 25000000" value={form.presupuesto} onChange={e => setForm(p => ({ ...p, presupuesto: e.target.value }))} />
+            <input
+              type="number"
+              className="input num"
+              placeholder="Ej: 25000000"
+              value={form.presupuesto}
+              onChange={e => setForm(p => ({ ...p, presupuesto: e.target.value }))}
+            />
           </div>
           <div className="sm:col-span-2">
             <label className="label">Descripción</label>
-            <textarea className="input resize-none" rows={3} placeholder="Descripción del trabajo..." value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} />
+            <textarea
+              className="input resize-none"
+              rows={3}
+              placeholder="Descripción del trabajo..."
+              value={form.descripcion}
+              onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))}
+            />
           </div>
         </div>
+
+        {formError && (
+          <div className="flex items-center gap-2 mt-3">
+            <AlertCircle size={13} style={{ color: 'var(--red)' }} />
+            <p style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--red)', letterSpacing: '0.06em' }}>
+              {formError.toUpperCase()}
+            </p>
+          </div>
+        )}
+
         <div className="flex gap-3 mt-6">
-          <button onClick={() => setShowForm(false)} className="btn-secondary flex-1 justify-center">Cancelar</button>
-          <button onClick={handleCreate} disabled={!form.nombre || !form.cliente} className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed">
-            Crear Obra
+          <button onClick={() => { setShowForm(false); setFormError('') }} className="btn-secondary flex-1 justify-center">
+            Cancelar
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={saving || !form.nombre}
+            className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+            {saving ? 'Guardando...' : 'Crear Obra'}
           </button>
         </div>
       </Modal>
