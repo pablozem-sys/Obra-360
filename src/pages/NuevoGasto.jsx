@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ArrowRight, Upload, CheckCircle2,
   MapPin, Camera, X, Loader2
 } from 'lucide-react'
-import { obras } from '../data/mockData'
+import { getObras, createGasto, uploadDocumento } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import { CATEGORIAS_GASTO, TIPOS_OBRA, formatCLP } from '../lib/helpers'
 
 // Excluir mano_obra (auto) y legacy
@@ -25,11 +26,16 @@ const MEDIOS_PAGO = ['transferencia', 'efectivo', 'tarjeta', 'cheque']
 export default function NuevoGasto() {
   const navigate  = useNavigate()
   const fileRef   = useRef()
-  const [step, setStep]     = useState(1)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
-  const [geo, setGeo]       = useState(null)
+  const { user }  = useAuth()
+  const [step, setStep]         = useState(1)
+  const [saving, setSaving]     = useState(false)
+  const [saved, setSaved]       = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [geo, setGeo]           = useState(null)
   const [geoLoading, setGeoLoading] = useState(false)
+  const [obras, setObras]       = useState([])
+  const [obrasLoading, setObrasLoading] = useState(true)
+  const [archivoFile, setArchivoFile] = useState(null)
 
   const [form, setForm] = useState({
     obraId: '', archivo: null, archivoNombre: null,
@@ -38,6 +44,14 @@ export default function NuevoGasto() {
     medioPago: 'transferencia', comentario: '',
   })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  useEffect(() => {
+    const t = setTimeout(() => setObrasLoading(false), 6000)
+    getObras()
+      .then(setObras)
+      .catch(() => setObras([]))
+      .finally(() => { clearTimeout(t); setObrasLoading(false) })
+  }, [])
 
   const getGeo = () => {
     setGeoLoading(true)
@@ -50,16 +64,46 @@ export default function NuevoGasto() {
 
   const handleFile = e => {
     const file = e.target.files?.[0]
-    if (file) { set('archivo', URL.createObjectURL(file)); set('archivoNombre', file.name) }
+    if (file) {
+      set('archivo', URL.createObjectURL(file))
+      set('archivoNombre', file.name)
+      setArchivoFile(file)
+    }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true)
-    setTimeout(() => { setSaving(false); setSaved(true) }, 1200)
+    setSaveError('')
+    try {
+      let docUrl = null
+      if (archivoFile) {
+        const { url } = await uploadDocumento(form.obraId, archivoFile)
+        docUrl = url
+      }
+      await createGasto({
+        project_id: form.obraId,
+        monto: parseInt(form.monto),
+        categoria: form.categoria,
+        proveedor: form.proveedor,
+        fecha: form.fecha,
+        medio_pago: form.medioPago,
+        comentario: form.comentario || null,
+        documento_url: docUrl,
+        lat: geo?.lat ? parseFloat(geo.lat) : null,
+        lng: geo?.lng ? parseFloat(geo.lng) : null,
+        usuario_id: user?.id ?? null,
+        estado: 'pendiente',
+      })
+      setSaved(true)
+    } catch {
+      setSaveError('No se pudo guardar. Intenta de nuevo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const reset = () => {
-    setSaved(false); setStep(1); setGeo(null)
+    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError('')
     setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'transferencia', comentario:'' })
   }
 
@@ -134,6 +178,11 @@ export default function NuevoGasto() {
           <div className="card p-5">
             <label className="label">Selecciona la obra</label>
             <div className="space-y-2 mt-2">
+              {obrasLoading
+                ? <p className="text-sm text-center py-4" style={{ color: 'var(--muted)' }}>Cargando obras...</p>
+                : obras.length === 0
+                ? <p className="text-sm text-center py-4" style={{ color: 'var(--muted)' }}>No hay obras activas</p>
+                : null}
               {obras.filter(o => o.estado !== 'finalizada' && o.estado !== 'cotizada').map(o => {
                 const active = form.obraId === o.id
                 return (
@@ -158,7 +207,7 @@ export default function NuevoGasto() {
                         <p className="text-sm font-semibold truncate" style={{ color: active ? 'var(--amber)' : 'var(--text)' }}>
                           {o.nombre}
                         </p>
-                        <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{o.cliente}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{o.clients?.nombre ?? '—'}</p>
                       </div>
                       {active && (
                         <CheckCircle2 size={16} style={{ color: 'var(--amber)', flexShrink: 0 }} />
@@ -378,6 +427,11 @@ export default function NuevoGasto() {
             )}
           </div>
 
+          {saveError && (
+            <p className="text-[11px] px-1" style={{ color: 'var(--red)', fontFamily: 'DM Mono' }}>
+              ⚠ {saveError}
+            </p>
+          )}
           <button
             onClick={handleSave}
             disabled={saving}
