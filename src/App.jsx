@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
+import { Loader2 } from 'lucide-react'
 
 import Landing           from './pages/Landing'
 import Login             from './pages/Login'
@@ -22,7 +23,11 @@ import ControlAsistencia from './pages/ControlAsistencia'
 // Protege rutas admin — redirige al landing si no hay sesión
 function ProtectedRoute({ children, roles }) {
   const { isAuth, rol, loading } = useAuth()
-  if (loading) return null
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-base)' }}>
+      <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
+    </div>
+  )
   if (!isAuth) return <Navigate to="/" replace />
   if (roles && !roles.includes(rol)) return <Navigate to="/dashboard" replace />
   return children
