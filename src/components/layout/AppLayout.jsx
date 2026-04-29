@@ -12,7 +12,7 @@ export default function AppLayout() {
       <header
         className="lg:hidden sticky top-0 z-20 px-4 py-3 flex items-center"
         style={{
-          background: 'rgba(6,7,9,0.92)',
+          background: 'var(--bg-header)',
           backdropFilter: 'blur(16px)',
           borderBottom: '1px solid var(--border)',
         }}

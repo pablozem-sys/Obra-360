@@ -2,9 +2,10 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
   ArrowUpCircle, BarChart3, Wallet, FolderOpen, MapPin,
-  Settings, Users, LogOut
+  Users, LogOut, Sun, Moon
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { useTheme } from '../../context/ThemeContext'
 
 const navAll = [
   { to: '/dashboard',          label: 'Dashboard',       icon: LayoutDashboard, perm: null },
@@ -26,6 +27,7 @@ const roleBadge = {
 export default function Sidebar() {
   const navigate = useNavigate()
   const { user, can, logout } = useAuth()
+  const { theme, toggle } = useTheme()
 
   const visibleNav = navAll.filter(item => !item.perm || can(item.perm))
 
@@ -110,6 +112,16 @@ export default function Sidebar() {
               {roleBadge[user?.rol]?.label}
             </span>
           </div>
+          <button
+            onClick={toggle}
+            className="transition-colors p-1 rounded-lg"
+            style={{ color: 'var(--subtle)' }}
+            title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--amber)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--subtle)'}
+          >
+            {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
           <button
             onClick={() => { logout(); navigate('/') }}
             className="transition-colors p-1 rounded-lg"
