@@ -1,7 +1,8 @@
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Building2, TrendingUp, TrendingDown, DollarSign,
-  AlertTriangle, Plus, ArrowRight, Wallet, Clock, Users
+  AlertTriangle, Plus, ArrowRight, Wallet, Clock, Users, Loader2
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -11,13 +12,15 @@ import StatCard from '../components/ui/StatCard'
 import Badge from '../components/ui/Badge'
 import { useAuth } from '../context/AuthContext'
 import {
-  obras, gastos, ingresos, cuentasPagar, cuentasCobrar, flujoCajaData,
-  registrosAsistencia
-} from '../data/mockData'
+  getObras, getGastos, getIngresos,
+  getCuentasPagar, getCuentasCobrar, getAttendance
+} from '../lib/supabase'
 import {
   formatCLP, calcGastosObra, calcIngresosObra,
   ESTADOS_OBRA, TIPOS_OBRA, CATEGORIAS_GASTO
 } from '../lib/helpers'
+
+const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
 const CTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -47,30 +50,82 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const { can } = useAuth()
 
-  const totalIngresos = ingresos.reduce((s, i) => s + i.monto, 0)
-  const totalGastos   = gastos.reduce((s, g) => s + g.monto, 0)
-  const totalManoObra = registrosAsistencia.filter(r => r.costoTotal).reduce((s, r) => s + r.costoTotal, 0)
-  const totalGastosReal = totalGastos + totalManoObra
-  const margen        = totalIngresos > 0 ? ((totalIngresos - totalGastosReal) / totalIngresos * 100).toFixed(1) : 0
-  const obrasActivas  = obras.filter(o => o.estado === 'en_ejecucion')
-  const cxpPendiente  = cuentasPagar.filter(c => c.estado !== 'pagado').reduce((s, c) => s + c.monto, 0)
-  const cxcPendiente  = cuentasCobrar.filter(c => c.estado !== 'cobrado').reduce((s, c) => s + c.saldoPendiente, 0)
-  const enObraAhora   = registrosAsistencia.filter(r => !r.salida).length
+  const [obras,       setObras]       = useState([])
+  const [gastos,      setGastos]      = useState([])
+  const [ingresos,    setIngresos]    = useState([])
+  const [cuentasPagar,   setCuentasPagar]   = useState([])
+  const [cuentasCobrar,  setCuentasCobrar]  = useState([])
+  const [asistencia,  setAsistencia]  = useState([])
+  const [loading,     setLoading]     = useState(true)
 
-  const alertas = obras.filter(o => {
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 8000)
+    Promise.all([
+      getObras().catch(() => []),
+      getGastos().catch(() => []),
+      getIngresos().catch(() => []),
+      getCuentasPagar().catch(() => []),
+      getCuentasCobrar().catch(() => []),
+      getAttendance().catch(() => []),
+    ]).then(([o, g, i, cp, cc, a]) => {
+      setObras(o)
+      setGastos(g)
+      setIngresos(i)
+      setCuentasPagar(cp)
+      setCuentasCobrar(cc)
+      setAsistencia(a)
+    }).finally(() => { clearTimeout(t); setLoading(false) })
+  }, [])
+
+  const totalIngresos   = ingresos.reduce((s, i) => s + (i.monto ?? 0), 0)
+  const totalGastos     = gastos.reduce((s, g) => s + (g.monto ?? 0), 0)
+  const totalManoObra   = asistencia.reduce((s, r) => s + (r.costo_total ?? 0), 0)
+  const totalGastosReal = totalGastos + totalManoObra
+  const margen          = totalIngresos > 0 ? ((totalIngresos - totalGastosReal) / totalIngresos * 100).toFixed(1) : 0
+  const obrasActivas    = obras.filter(o => o.estado === 'en_ejecucion')
+  const cxpPendiente    = cuentasPagar.filter(c => c.estado !== 'pagado').reduce((s, c) => s + (c.monto ?? 0), 0)
+  const cxcPendiente    = cuentasCobrar.filter(c => c.estado !== 'cobrado').reduce((s, c) => s + (c.saldo_pendiente ?? 0), 0)
+  const enObraAhora     = asistencia.filter(r => !r.salida).length
+
+  const alertas = obrasActivas.filter(o => {
     const g = calcGastosObra(gastos, o.id)
-    return g > o.presupuesto * 0.85 && o.estado === 'en_ejecucion'
+    return o.presupuesto && g > o.presupuesto * 0.85
   })
 
-  const gastosCat = Object.entries(
+  const gastosCat = useMemo(() => Object.entries(
     gastos.reduce((acc, g) => { acc[g.categoria] = (acc[g.categoria] || 0) + g.monto; return acc }, {})
   ).map(([cat, monto]) => ({
     cat: CATEGORIAS_GASTO[cat]?.label || cat,
     monto,
     fill: CATEGORIAS_GASTO[cat]?.color || '#353A57',
-  })).sort((a, b) => b.monto - a.monto)
+  })).sort((a, b) => b.monto - a.monto), [gastos])
+
+  const flujoCajaData = useMemo(() => {
+    const map = {}
+    gastos.forEach(g => {
+      if (!g.fecha) return
+      const d = new Date(g.fecha)
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      if (!map[key]) map[key] = { mes: MESES[d.getMonth()], ingresos: 0, egresos: 0, order: d.getFullYear() * 12 + d.getMonth() }
+      map[key].egresos += g.monto ?? 0
+    })
+    ingresos.forEach(i => {
+      if (!i.fecha) return
+      const d = new Date(i.fecha)
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      if (!map[key]) map[key] = { mes: MESES[d.getMonth()], ingresos: 0, egresos: 0, order: d.getFullYear() * 12 + d.getMonth() }
+      map[key].ingresos += i.monto ?? 0
+    })
+    return Object.values(map).sort((a, b) => a.order - b.order).slice(-6)
+  }, [gastos, ingresos])
 
   const ultimosGastos = [...gastos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 6)
+
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -87,7 +142,7 @@ export default function Dashboard() {
             Dashboard
           </h1>
           <p className="text-sm mt-1.5" style={{ color: 'var(--muted)' }}>
-            {obrasActivas.length} obras activas · abril 2024
+            {obrasActivas.length} obras activas
           </p>
         </div>
         <button onClick={() => navigate('/gastos/nuevo')} className="btn-primary hidden sm:flex">
@@ -176,26 +231,32 @@ export default function Dashboard() {
               VER <ArrowRight size={11} />
             </button>
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={flujoCajaData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gi" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#00C48C" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#00C48C" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="ge" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#FF4560" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#FF4560" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="mes" tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
-              <YAxis tick={false} axisLine={false} tickLine={false} />
-              <Tooltip content={<CTooltip />} />
-              <Area type="monotone" dataKey="ingresos" stroke="#00C48C" strokeWidth={2} fill="url(#gi)" />
-              <Area type="monotone" dataKey="egresos"  stroke="#FF4560" strokeWidth={2} fill="url(#ge)" />
-            </AreaChart>
-          </ResponsiveContainer>
+          {flujoCajaData.length === 0 ? (
+            <div className="flex items-center justify-center h-[180px]">
+              <p className="text-sm" style={{ color: 'var(--subtle)' }}>Sin datos financieros aún</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={flujoCajaData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gi" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#00C48C" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#00C48C" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="ge" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#FF4560" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#FF4560" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="mes" tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
+                <YAxis tick={false} axisLine={false} tickLine={false} />
+                <Tooltip content={<CTooltip />} />
+                <Area type="monotone" dataKey="ingresos" stroke="#00C48C" strokeWidth={2} fill="url(#gi)" />
+                <Area type="monotone" dataKey="egresos"  stroke="#FF4560" strokeWidth={2} fill="url(#ge)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
           <div className="flex items-center gap-5 mt-2">
             <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--muted)' }}>
               <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--green)', boxShadow: '0 0 6px var(--green-dim)' }} />
@@ -211,25 +272,31 @@ export default function Dashboard() {
         {/* Distribución gastos */}
         <div className="card p-5 lg:col-span-2">
           <h2 className="section-title mb-5">Gastos por Categoría</h2>
-          <div className="space-y-3">
-            {gastosCat.slice(0, 5).map(({ cat, monto, fill }) => {
-              const pct = (monto / totalGastos * 100).toFixed(0)
-              return (
-                <div key={cat}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[12px]" style={{ color: 'var(--muted)' }}>{cat}</span>
-                    <span className="num text-[11px] font-medium" style={{ color: fill }}>{pct}%</span>
+          {gastosCat.length === 0 ? (
+            <div className="flex items-center justify-center h-[120px]">
+              <p className="text-sm" style={{ color: 'var(--subtle)' }}>Sin gastos registrados</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {gastosCat.slice(0, 5).map(({ cat, monto, fill }) => {
+                const pct = (monto / totalGastos * 100).toFixed(0)
+                return (
+                  <div key={cat}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[12px]" style={{ color: 'var(--muted)' }}>{cat}</span>
+                      <span className="num text-[11px] font-medium" style={{ color: fill }}>{pct}%</span>
+                    </div>
+                    <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${pct}%`, background: fill, boxShadow: `0 0 8px ${fill}` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${pct}%`, background: fill, boxShadow: `0 0 8px ${fill}` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          )}
           <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
             <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total Gastos</p>
             <p className="num text-xl font-medium" style={{ color: 'var(--text)' }}>{formatCLP(totalGastos)}</p>
@@ -256,68 +323,65 @@ export default function Dashboard() {
             VER TODAS <ArrowRight size={11} />
           </button>
         </div>
-        <div className="space-y-2">
-          {obrasActivas.map((o, idx) => {
-            const g = calcGastosObra(gastos, o.id)
-            const pctG = Math.min((g / o.presupuesto) * 100, 100).toFixed(0)
-            const over = g > o.presupuesto
-            return (
-              <div
-                key={o.id}
-                onClick={() => navigate(`/obras/${o.id}`)}
-                className="flex items-center gap-4 px-4 py-3.5 rounded-xl cursor-pointer group transition-all duration-200"
-                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'var(--border-light)'
-                  e.currentTarget.style.background = 'var(--bg-elevated)'
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'var(--border)'
-                  e.currentTarget.style.background = 'var(--bg-surface)'
-                }}
-              >
-                {/* Number */}
+        {obrasActivas.length === 0 ? (
+          <div className="py-10 text-center">
+            <p className="text-sm" style={{ color: 'var(--subtle)' }}>No hay obras en ejecución</p>
+            <button onClick={() => navigate('/obras')} className="btn-secondary mt-4 text-xs">
+              <Plus size={12} /> Crear obra
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {obrasActivas.map((o, idx) => {
+              const g = calcGastosObra(gastos, o.id)
+              const pctG = o.presupuesto ? Math.min((g / o.presupuesto) * 100, 100).toFixed(0) : 0
+              const over = o.presupuesto && g > o.presupuesto
+              return (
                 <div
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 num text-[11px] font-medium"
-                  style={{ background: 'var(--bg-elevated)', color: 'var(--muted)' }}
+                  key={o.id}
+                  onClick={() => navigate(`/obras/${o.id}`)}
+                  className="flex items-center gap-4 px-4 py-3.5 rounded-xl cursor-pointer group transition-all duration-200"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'var(--bg-elevated)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}
                 >
-                  {String(idx + 1).padStart(2, '0')}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{o.nombre}</span>
-                    <Badge className={TIPOS_OBRA[o.tipo]?.color}>{TIPOS_OBRA[o.tipo]?.label}</Badge>
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 num text-[11px] font-medium"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--muted)' }}
+                  >
+                    {String(idx + 1).padStart(2, '0')}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--bg-card)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${pctG}%`,
-                          background: over ? 'var(--red)' : 'var(--amber)',
-                          boxShadow: `0 0 6px ${over ? 'var(--red-dim)' : 'var(--amber-glow)'}`,
-                        }}
-                      />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{o.nombre}</span>
+                      {o.tipo && <Badge className={TIPOS_OBRA[o.tipo]?.color}>{TIPOS_OBRA[o.tipo]?.label}</Badge>}
                     </div>
-                    <span className="num text-[11px] flex-shrink-0" style={{ color: over ? 'var(--red)' : 'var(--muted)' }}>
-                      {pctG}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--bg-card)' }}>
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${pctG}%`,
+                            background: over ? 'var(--red)' : 'var(--amber)',
+                            boxShadow: `0 0 6px ${over ? 'var(--red-dim)' : 'var(--amber-glow)'}`,
+                          }}
+                        />
+                      </div>
+                      <span className="num text-[11px] flex-shrink-0" style={{ color: over ? 'var(--red)' : 'var(--muted)' }}>
+                        {pctG}%
+                      </span>
+                    </div>
                   </div>
+                  <div className="text-right hidden sm:block flex-shrink-0">
+                    <p className="num text-sm font-medium" style={{ color: 'var(--text)' }}>{formatCLP(g)}</p>
+                    <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{o.presupuesto ? `de ${formatCLP(o.presupuesto)}` : 'sin presupuesto'}</p>
+                  </div>
+                  <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--subtle)' }} />
                 </div>
-
-                {/* Amount */}
-                <div className="text-right hidden sm:block flex-shrink-0">
-                  <p className="num text-sm font-medium" style={{ color: 'var(--text)' }}>{formatCLP(g)}</p>
-                  <p className="text-[11px]" style={{ color: 'var(--muted)' }}>de {formatCLP(o.presupuesto)}</p>
-                </div>
-
-                <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--subtle)' }} />
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── Section 04 ───────────────────────────── */}
@@ -335,66 +399,57 @@ export default function Dashboard() {
             <Plus size={13} /> Subir
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px]">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                {['Proveedor / Categoría', 'Obra', 'Monto', 'Fecha'].map((h, i) => (
-                  <th
-                    key={h}
-                    className="px-5 py-3 text-left"
-                    style={{
-                      fontSize: 10,
-                      fontFamily: 'Unbounded',
-                      fontWeight: 600,
-                      color: 'var(--subtle)',
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      display: i === 1 ? undefined : undefined,
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ultimosGastos.map(g => {
-                const obra = obras.find(o => o.id === g.obraId)
-                const cat  = CATEGORIAS_GASTO[g.categoria]
-                return (
-                  <tr
-                    key={g.id}
-                    className="table-row"
-                    style={{ cursor: 'default' }}
-                  >
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ background: cat?.color, boxShadow: `0 0 6px ${cat?.color}` }}
-                        />
-                        <div>
-                          <p className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>{g.proveedor}</p>
-                          <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{cat?.label}</p>
+        {ultimosGastos.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm" style={{ color: 'var(--subtle)' }}>No hay gastos registrados aún</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px]">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                  {['Proveedor / Categoría', 'Obra', 'Monto', 'Fecha'].map(h => (
+                    <th
+                      key={h}
+                      className="px-5 py-3 text-left"
+                      style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ultimosGastos.map(g => {
+                  const obra = obras.find(o => o.id === g.project_id)
+                  const cat  = CATEGORIAS_GASTO[g.categoria]
+                  return (
+                    <tr key={g.id} className="table-row" style={{ cursor: 'default' }}>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat?.color, boxShadow: `0 0 6px ${cat?.color}` }} />
+                          <div>
+                            <p className="text-[13px] font-medium" style={{ color: 'var(--text)' }}>{g.proveedor}</p>
+                            <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{cat?.label}</p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{obra?.nombre}</span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="num text-[13px] font-medium" style={{ color: 'var(--text)' }}>{formatCLP(g.monto)}</span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className="num text-[11px]" style={{ color: 'var(--muted)' }}>{g.fecha}</span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{obra?.nombre ?? '—'}</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="num text-[13px] font-medium" style={{ color: 'var(--text)' }}>{formatCLP(g.monto)}</span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="num text-[11px]" style={{ color: 'var(--muted)' }}>{g.fecha}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

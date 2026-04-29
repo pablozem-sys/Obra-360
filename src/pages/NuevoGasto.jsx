@@ -110,6 +110,8 @@ export default function NuevoGasto() {
   }
 
   const selectedObra = obras.find(o => o.id === form.obraId)
+  const [triedStep1, setTriedStep1] = useState(false)
+  const [triedStep2, setTriedStep2] = useState(false)
   const canStep1 = !!form.obraId
   const canStep2 = !!form.monto && !!form.proveedor
 
@@ -258,7 +260,10 @@ export default function NuevoGasto() {
             </button>
           </div>
 
-          <button onClick={() => setStep(2)} disabled={!canStep1} className="btn-primary w-full justify-center disabled:opacity-30 disabled:cursor-not-allowed">
+          {triedStep1 && !canStep1 && (
+            <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ Selecciona una obra para continuar</p>
+          )}
+          <button onClick={() => { if (!canStep1) { setTriedStep1(true); return } setStep(2) }} className="btn-primary w-full justify-center">
             Continuar <ArrowRight size={15} />
           </button>
         </div>
@@ -274,11 +279,12 @@ export default function NuevoGasto() {
               <input
                 type="number"
                 className="input num text-2xl"
-                style={{ fontFamily: 'DM Mono', fontSize: 24, fontWeight: 500 }}
+                style={{ fontFamily: 'DM Mono', fontSize: 24, fontWeight: 500, borderColor: triedStep2 && !form.monto ? 'var(--red)' : undefined }}
                 placeholder="0"
                 value={form.monto}
                 onChange={e => set('monto', e.target.value)}
               />
+              {triedStep2 && !form.monto && <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono', marginTop: 4 }}>⚠ Ingresa el monto</p>}
               {form.monto && (
                 <p className="num text-xs mt-1.5 font-medium" style={{ color: 'var(--amber)' }}>
                   {formatCLP(parseInt(form.monto))}
@@ -331,7 +337,14 @@ export default function NuevoGasto() {
             {/* Proveedor */}
             <div>
               <label className="label">Proveedor</label>
-              <input className="input" placeholder="Nombre del proveedor" value={form.proveedor} onChange={e => set('proveedor', e.target.value)} />
+              <input
+                className="input"
+                placeholder="Nombre del proveedor"
+                value={form.proveedor}
+                onChange={e => set('proveedor', e.target.value)}
+                style={{ borderColor: triedStep2 && !form.proveedor ? 'var(--red)' : undefined }}
+              />
+              {triedStep2 && !form.proveedor && <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono', marginTop: 4 }}>⚠ Ingresa el proveedor</p>}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -353,7 +366,7 @@ export default function NuevoGasto() {
             </div>
           </div>
 
-          <button onClick={() => { setStep(3); getGeo() }} disabled={!canStep2} className="btn-primary w-full justify-center disabled:opacity-30 disabled:cursor-not-allowed">
+          <button onClick={() => { if (!canStep2) { setTriedStep2(true); return } setStep(3); getGeo() }} className="btn-primary w-full justify-center">
             Revisar y confirmar <ArrowRight size={15} />
           </button>
         </div>

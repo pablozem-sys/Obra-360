@@ -75,6 +75,15 @@ export async function getCuentasPagar() {
   return data
 }
 
+export async function getIngresos() {
+  const { data, error } = await supabase
+    .from('income')
+    .select('*, projects(nombre)')
+    .order('fecha', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
 export async function getCuentasCobrar() {
   const { data, error } = await supabase
     .from('accounts_receivable')
