@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, Pencil, Eye, EyeOff } from 'lucide-react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, Pencil, Eye, EyeOff, Hash, Trash2 } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
+import { supabase } from '../lib/supabase'
 import {
   getAllWorkers,
   createWorker,
   updateWorker,
+  deleteWorker,
+  updateObra,
   getAttendance,
   getProjectsList,
   getObrasActivas,
@@ -12,7 +15,116 @@ import {
   toggleWorkerProject,
   createObra,
   registrarAsistenciaManual,
+  actualizarSalidaManual,
 } from '../lib/supabase'
+
+/* ── Time Picker ─────────────────────────────────────────────── */
+function TimePicker({ value, onChange }) {
+  const parse = (v) => {
+    if (!v) return { h: '', m: '', ap: 'AM' }
+    const [hStr, mStr] = v.split(':')
+    const h24 = parseInt(hStr, 10)
+    const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24
+    return { h: String(h12), m: mStr ?? '00', ap: h24 >= 12 ? 'PM' : 'AM' }
+  }
+
+  const [h, setH] = useState(() => parse(value).h)
+  const [m, setM] = useState(() => parse(value).m)
+  const [ap, setAp] = useState(() => parse(value).ap)
+
+  const to24 = (hv, mv, apv) => {
+    const hNum = parseInt(hv, 10)
+    if (!hNum || mv === '') return ''
+    let h24
+    if (apv === 'AM') h24 = hNum === 12 ? 0 : hNum
+    else h24 = hNum === 12 ? 12 : hNum + 12
+    return `${String(h24).padStart(2, '0')}:${mv.padStart(2, '0')}`
+  }
+
+  const handleH = (v) => {
+    const clean = v.replace(/\D/g, '').slice(0, 2)
+    setH(clean)
+    const num = parseInt(clean, 10)
+    if (clean && num >= 1 && num <= 12) onChange(to24(clean, m, ap))
+    else onChange('')
+  }
+  const handleM = (v) => {
+    const clean = v.replace(/\D/g, '').slice(0, 2)
+    setM(clean)
+    const num = parseInt(clean, 10)
+    if (clean && num >= 0 && num <= 59) onChange(to24(h, clean, ap))
+    else onChange('')
+  }
+  const handleAp = (newAp) => {
+    setAp(newAp)
+    onChange(to24(h, m, newAp))
+  }
+  const blurH = () => {
+    const num = parseInt(h, 10)
+    if (!h || isNaN(num)) { setH(''); onChange(''); return }
+    const clamped = String(Math.min(12, Math.max(1, num)))
+    setH(clamped)
+    onChange(to24(clamped, m, ap))
+  }
+  const blurM = () => {
+    const num = parseInt(m, 10)
+    if (!m || isNaN(num)) { setM('00'); onChange(to24(h, '00', ap)); return }
+    const clamped = String(Math.min(59, Math.max(0, num))).padStart(2, '0')
+    setM(clamped)
+    onChange(to24(h, clamped, ap))
+  }
+
+  const btn = {
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border)',
+    color: 'var(--text)',
+    fontSize: 18,
+    fontFamily: 'DM Mono',
+    letterSpacing: '0.05em',
+    textAlign: 'center',
+    borderRadius: 12,
+    padding: '8px 4px',
+    width: 52,
+    outline: 'none',
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="text" inputMode="numeric" maxLength={2}
+        placeholder="12" value={h}
+        onChange={e => handleH(e.target.value)}
+        onBlur={blurH}
+        style={btn}
+      />
+      <span style={{ color: 'var(--muted)', fontFamily: 'DM Mono', fontSize: 20, fontWeight: 700, lineHeight: 1 }}>:</span>
+      <input
+        type="text" inputMode="numeric" maxLength={2}
+        placeholder="00" value={m}
+        onChange={e => handleM(e.target.value)}
+        onBlur={blurM}
+        style={btn}
+      />
+      <div className="flex rounded-xl overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+        {['AM', 'PM'].map(p => (
+          <button
+            key={p} type="button" onClick={() => handleAp(p)}
+            className="px-3 py-2 transition-all"
+            style={{
+              fontFamily: 'Unbounded',
+              fontSize: 11,
+              fontWeight: 700,
+              background: ap === p ? 'var(--amber)' : 'var(--bg-card)',
+              color: ap === p ? '#000' : 'var(--muted)',
+            }}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function formatHora(iso) {
   if (!iso) return '—'
@@ -31,7 +143,7 @@ function initials(nombre = '') {
 const HOY = new Date().toISOString().split('T')[0]
 
 export default function ControlAsistencia() {
-  const [tab, setTab]               = useState('registros') // registros | trabajadores
+  const [tab, setTab]               = useState('registros') // registros | trabajadores | quincena
   const [registros, setRegistros]   = useState([])
   const [workers, setWorkers]       = useState([])
   const [projects, setProjects]     = useState([])
@@ -71,11 +183,35 @@ export default function ControlAsistencia() {
   const [manualSaving, setManualSaving]       = useState(false)
   const [manualError, setManualError]         = useState('')
 
+  // Editar salida de un registro
+  const [editingRecord, setEditingRecord]   = useState(null)
+  const [editSalida, setEditSalida]         = useState('')
+  const [editSaving, setEditSaving]         = useState(false)
+  const [editError, setEditError]           = useState('')
+
+  // Quincena
+  const now = new Date()
+  const [quinMes, setQuinMes]       = useState(now.getMonth())
+  const [quinAnio, setQuinAnio]     = useState(now.getFullYear())
+  const [quinPeriodo, setQuinPeriodo] = useState(now.getDate() <= 15 ? '1' : '2')
+  const [quinRegistros, setQuinRegistros] = useState([])
+  const [quinLoading, setQuinLoading] = useState(false)
+
   // Crear nueva obra desde el panel de asignación
   const [newObraWorker, setNewObraWorker]     = useState(null)  // worker id
   const [newObraNombre, setNewObraNombre]     = useState('')
   const [newObraDireccion, setNewObraDireccion] = useState('')
+  const [newObraClave, setNewObraClave]       = useState('')
   const [newObraSaving, setNewObraSaving]     = useState(false)
+
+  // Eliminar trabajador
+  const [confirmDeleteWorkerId, setConfirmDeleteWorkerId] = useState(null)
+
+  // Editar clave de obra existente
+  const [editingClave, setEditingClave]   = useState(null)  // obra id
+  const [claveValue, setClaveValue]       = useState('')
+  const [claveSaving, setClaveSaving]     = useState(false)
+  const [claveError, setClaveError]       = useState('')
 
   const loadRegistros = useCallback(async () => {
     try {
@@ -106,6 +242,28 @@ export default function ControlAsistencia() {
   useEffect(() => {
     if (!loading) loadRegistros()
   }, [filtroFecha, filtroObra])
+
+  useEffect(() => {
+    if (tab !== 'quincena') return
+    const mes = quinMes
+    const anio = quinAnio
+    const diasDesde = quinPeriodo === '1' ? 1 : 16
+    const diasHasta = quinPeriodo === '1' ? 15 : new Date(anio, mes + 1, 0).getDate()
+    const pad = n => String(n).padStart(2, '0')
+    const desde = `${anio}-${pad(mes + 1)}-${pad(diasDesde)}`
+    const hasta  = `${anio}-${pad(mes + 1)}-${pad(diasHasta)}`
+    setQuinLoading(true)
+    supabase
+      .from('attendance')
+      .select(`id, worker_id, project_id, fecha, horas_trabajadas, valor_hora, costo_total, workers(nombre), projects(nombre)`)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .not('salida', 'is', null)
+      .order('fecha', { ascending: true })
+      .then(({ data }) => setQuinRegistros(data ?? []))
+      .catch(() => setQuinRegistros([]))
+      .finally(() => setQuinLoading(false))
+  }, [tab, quinMes, quinAnio, quinPeriodo])
 
   // Summary stats
   const enObra     = registros.filter(r => !r.salida).length
@@ -156,10 +314,32 @@ export default function ControlAsistencia() {
     }
   }
 
+  const handleGuardarSalida = async (record) => {
+    if (!editSalida) { setEditError('Ingresa la hora de salida'); return }
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const updated = await actualizarSalidaManual(
+        record.id,
+        record.entrada,
+        record.fecha,
+        editSalida,
+        record.valor_hora ?? 5000,
+      )
+      setRegistros(prev => prev.map(r => r.id === record.id ? { ...r, ...updated } : r))
+      setEditingRecord(null)
+      setEditSalida('')
+    } catch (err) {
+      setEditError(err.message || 'Error al guardar')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   const handleGuardarWorker = async () => {
     if (!formNombre.trim()) { setFormError('Ingresa un nombre'); return }
     const valor = parseInt(formValor)
-    if (!valor || valor < 1000) { setFormError('Valor/hora mínimo $1.000'); return }
+    if (!valor || valor < 1000) { setFormError('Valor día mínimo $1.000'); return }
     if (formPin && !/^\d{4}$/.test(formPin)) { setFormError('PIN debe ser exactamente 4 dígitos'); return }
     if (formPin && workers.some(w => w.pin === formPin)) { setFormError('Ese PIN ya está en uso, elige otro'); return }
     setSaving(true)
@@ -227,6 +407,7 @@ export default function ControlAsistencia() {
       const nueva = await createObra({
         nombre:    newObraNombre.trim(),
         direccion: newObraDireccion.trim() || null,
+        clave:     newObraClave.trim() || null,
         estado:    'en_ejecucion',
       })
       setObrasActivas(prev => [...prev, nueva].sort((a, b) => a.nombre.localeCompare(b.nombre)))
@@ -239,12 +420,29 @@ export default function ControlAsistencia() {
       setNewObraWorker(null)
       setNewObraNombre('')
       setNewObraDireccion('')
+      setNewObraClave('')
     } catch (err) {
       console.error('createObra:', err)
       alert(err.message || 'Error al crear la obra. Revisa los permisos en Supabase.')
     } finally {
       setNewObraSaving(false)
     }
+  }
+
+  const handleGuardarClave = async (obraId) => {
+    const val = claveValue.trim()
+    if (!val) return
+    const duplicada = obrasActivas.find(o => o.id !== obraId && o.clave === val)
+    if (duplicada) { setClaveError(`Clave usada en "${duplicada.nombre}"`); return }
+    setClaveError('')
+    setClaveSaving(true)
+    try {
+      await updateObra(obraId, { clave: val })
+      setObrasActivas(prev => prev.map(o => o.id === obraId ? { ...o, clave: val } : o))
+      setEditingClave(null)
+      setClaveValue('')
+    } catch { /* silent */ }
+    finally { setClaveSaving(false) }
   }
 
   const handleGuardarPin = async (worker) => {
@@ -269,6 +467,17 @@ export default function ControlAsistencia() {
       await updateWorker(worker.id, { activo: !worker.activo })
     } catch {
       setWorkers(workers) // revert
+    }
+  }
+
+  const handleDeleteWorker = async (id) => {
+    try {
+      await deleteWorker(id)
+      setWorkers(prev => prev.filter(w => w.id !== id))
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setConfirmDeleteWorkerId(null)
     }
   }
 
@@ -303,9 +512,9 @@ export default function ControlAsistencia() {
         <div className="card p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock size={13} style={{ color: 'var(--green)' }} />
-            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total horas</span>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total días</span>
           </div>
-          <p className="num font-medium text-2xl" style={{ color: 'var(--green)' }}>{totalHoras.toFixed(1)}</p>
+          <p className="num font-medium text-2xl" style={{ color: 'var(--green)' }}>{(totalHoras / 9).toFixed(2)}</p>
         </div>
         <div className="card p-4 col-span-2">
           <div className="flex items-center gap-2 mb-2">
@@ -322,6 +531,7 @@ export default function ControlAsistencia() {
         {[
           { key: 'registros',    label: 'Registros' },
           { key: 'trabajadores', label: 'Trabajadores' },
+          { key: 'quincena',     label: 'Quincena' },
         ].map(t => (
           <button
             key={t.key}
@@ -421,34 +631,31 @@ export default function ControlAsistencia() {
                 </div>
                 <div>
                   <label className="label">Hora entrada</label>
-                  <input
-                    type="time"
-                    step="60"
-                    className="input num"
+                  <TimePicker
                     value={manualEntrada}
-                    onChange={e => { setManualEntrada(e.target.value); setManualError('') }}
+                    onChange={v => { setManualEntrada(v); setManualError('') }}
                   />
                 </div>
                 <div>
                   <label className="label">Hora salida <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
-                  <input
-                    type="time"
-                    step="60"
-                    className="input num"
+                  <TimePicker
                     value={manualSalida}
-                    onChange={e => { setManualSalida(e.target.value); setManualError('') }}
+                    onChange={v => { setManualSalida(v); setManualError('') }}
                   />
                 </div>
                 {manualWorker && manualEntrada && manualSalida && manualSalida > manualEntrada && (
                   <div className="flex flex-col justify-end pb-0.5">
                     <label className="label">Costo estimado</label>
                     <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
-                      {formatCLP(
-                        Math.round(
-                          ((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000) *
-                          (workers.find(w => w.id === manualWorker)?.valor_hora ?? 5000)
-                        )
-                      )}
+                      {(() => {
+                        const horas = (new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000
+                        const dias = horas / 9
+                        const valorDia = workers.find(w => w.id === manualWorker)?.valor_hora ?? 50000
+                        return formatCLP(Math.round(dias * valorDia))
+                      })()}
+                    </p>
+                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--subtle)', fontFamily: 'DM Mono' }}>
+                      {((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000).toFixed(1)}h = {((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 32400000).toFixed(2)} días
                     </p>
                   </div>
                 )}
@@ -482,7 +689,7 @@ export default function ControlAsistencia() {
               <table className="w-full min-w-[580px]">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo'].map(h => (
+                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Días', 'Costo', ''].map(h => (
                       <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {h}
                       </th>
@@ -492,54 +699,104 @@ export default function ControlAsistencia() {
                 <tbody>
                   {registros.map(r => {
                     const abierto = !r.salida
+                    const isEditing = editingRecord === r.id
                     return (
-                      <tr key={r.id} className="table-row">
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                              style={{ background: 'var(--amber)', color: '#000' }}
-                            >
-                              {r.workers?.avatar}
+                      <>
+                        <tr key={r.id} className="table-row">
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                                style={{ background: 'var(--amber)', color: '#000' }}
+                              >
+                                {r.workers?.avatar}
+                              </div>
+                              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{r.workers?.nombre}</span>
                             </div>
-                            <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{r.workers?.nombre}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {abierto ? (
-                            <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
-                              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
-                              EN OBRA
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {abierto ? (
+                              <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
+                                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
+                                EN OBRA
+                              </span>
+                            ) : (
+                              <span className="num text-[13px] font-medium" style={{ color: 'var(--red)' }}>{formatHora(r.salida)}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--amber)' }}>
+                              {r.horas_trabajadas != null ? `${(r.horas_trabajadas / 9).toFixed(2)}d` : '—'}
                             </span>
-                          ) : (
-                            <span className="num text-[13px] font-medium" style={{ color: 'var(--red)' }}>{formatHora(r.salida)}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--amber)' }}>
-                            {r.horas_trabajadas != null ? `${r.horas_trabajadas}h` : '—'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--green)' }}>
-                            {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
-                          </span>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--green)' }}>
+                              {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <button
+                              onClick={() => {
+                                if (isEditing) { setEditingRecord(null); setEditSalida(''); setEditError('') }
+                                else { setEditingRecord(r.id); setEditSalida(''); setEditError('') }
+                              }}
+                              title="Ingresar / editar salida"
+                              className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                              style={{
+                                background: isEditing ? 'var(--amber-dim)' : 'var(--bg-elevated)',
+                                border: `1px solid ${isEditing ? 'rgba(255,149,0,0.4)' : 'var(--border)'}`,
+                              }}
+                            >
+                              <Pencil size={12} style={{ color: isEditing ? 'var(--amber)' : 'var(--subtle)' }} />
+                            </button>
+                          </td>
+                        </tr>
+                        {isEditing && (
+                          <tr style={{ background: 'var(--bg-surface)' }}>
+                            <td colSpan={8} className="px-6 py-4">
+                              <div className="flex items-center gap-4 flex-wrap">
+                                <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0 }}>
+                                  // hora de salida — {r.workers?.nombre}
+                                </p>
+                                <TimePicker value={editSalida} onChange={v => { setEditSalida(v); setEditError('') }} />
+                                <button
+                                  onClick={() => handleGuardarSalida(r)}
+                                  disabled={!editSalida || editSaving}
+                                  className="btn-primary gap-1 text-xs disabled:opacity-40"
+                                  style={{ padding: '8px 14px', flexShrink: 0 }}
+                                >
+                                  {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                                  Guardar salida
+                                </button>
+                                <button
+                                  onClick={() => { setEditingRecord(null); setEditSalida(''); setEditError('') }}
+                                  className="btn-ghost text-xs"
+                                  style={{ color: 'var(--muted)', flexShrink: 0 }}
+                                >
+                                  <X size={12} />
+                                </button>
+                                {editError && (
+                                  <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)' }}>⚠ {editError}</p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     )
                   })}
                   {registros.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
+                      <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
                         Sin registros para este filtro
                       </td>
                     </tr>
@@ -566,7 +823,7 @@ export default function ControlAsistencia() {
                     <div>
                       <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{p.nombre}</p>
                       <p className="text-[11px] num" style={{ color: 'var(--muted)' }}>
-                        {p.horasTotales.toFixed(1)} hrs · {p.nRegistros} turnos
+                        {(p.horasTotales / 9).toFixed(2)} días · {p.nRegistros} turnos
                       </p>
                     </div>
                     <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
@@ -579,6 +836,138 @@ export default function ControlAsistencia() {
           )}
         </>
       )}
+
+      {/* ── TAB: QUINCENA ─────────────────────────────────────── */}
+      {tab === 'quincena' && (() => {
+        const MESES_LABELS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+        const aniosDisp = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i)
+
+        // Agrupar por obra → trabajador
+        const porObra = {}
+        quinRegistros.forEach(r => {
+          const obraKey  = r.project_id
+          const obraNombre = r.projects?.nombre ?? '—'
+          if (!porObra[obraKey]) porObra[obraKey] = { nombre: obraNombre, workers: {} }
+          const wKey = r.worker_id
+          const wNombre = r.workers?.nombre ?? '—'
+          if (!porObra[obraKey].workers[wKey]) porObra[obraKey].workers[wKey] = { nombre: wNombre, horas: 0, costo: 0 }
+          porObra[obraKey].workers[wKey].horas += r.horas_trabajadas ?? 0
+          porObra[obraKey].workers[wKey].costo += r.costo_total ?? 0
+        })
+
+        return (
+          <div className="space-y-4">
+            {/* Selectores */}
+            <div className="flex gap-3 flex-wrap items-center">
+              <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                {[{ key: '1', label: '1ra (1–15)' }, { key: '2', label: '2da (16–fin)' }].map(p => (
+                  <button
+                    key={p.key}
+                    onClick={() => setQuinPeriodo(p.key)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                    style={{
+                      background: quinPeriodo === p.key ? 'var(--amber)' : 'transparent',
+                      color:      quinPeriodo === p.key ? '#000' : 'var(--muted)',
+                      fontFamily: 'Instrument Sans, sans-serif',
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <select className="select" value={quinMes} onChange={e => setQuinMes(parseInt(e.target.value))}>
+                {MESES_LABELS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select className="select" value={quinAnio} onChange={e => setQuinAnio(parseInt(e.target.value))}>
+                {aniosDisp.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+
+            {quinLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
+              </div>
+            ) : Object.keys(porObra).length === 0 ? (
+              <div className="card p-10 text-center">
+                <p className="text-sm" style={{ color: 'var(--muted)' }}>Sin registros para esta quincena</p>
+              </div>
+            ) : (
+              Object.entries(porObra).map(([obraId, obra]) => {
+                const workers = Object.values(obra.workers)
+                const totalCostoObra = workers.reduce((s, w) => s + w.costo, 0)
+                const totalDiasObra  = workers.reduce((s, w) => s + w.horas, 0) / 9
+
+                return (
+                  <div key={obraId} className="card overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                      <div>
+                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{obra.nombre}</h3>
+                        <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                          {totalDiasObra.toFixed(2)} días · {workers.length} trabajadores
+                        </p>
+                      </div>
+                      <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>{formatCLP(totalCostoObra)}</p>
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          {['Trabajador', 'Días', 'Valor Día', 'Total'].map(h => (
+                            <th key={h} className="px-5 py-2.5 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {workers.sort((a, b) => b.costo - a.costo).map(w => {
+                          const dias = w.horas / 9
+                          const valorDia = dias > 0 ? Math.round(w.costo / dias) : 0
+                          return (
+                            <tr key={w.nombre} className="table-row">
+                              <td className="px-5 py-3">
+                                <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{w.nombre}</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className="num text-[13px]" style={{ color: 'var(--amber)' }}>{dias.toFixed(2)}</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatCLP(valorDia)}</span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <span className="num text-[13px] font-semibold" style={{ color: 'var(--green)' }}>{formatCLP(w.costo)}</span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })
+            )}
+
+            {/* Total general quincena */}
+            {Object.keys(porObra).length > 0 && !quinLoading && (
+              <div
+                className="rounded-2xl p-4 flex items-center justify-between"
+                style={{ background: 'var(--amber-dim)', border: '1px solid rgba(255,149,0,0.25)' }}
+              >
+                <div>
+                  <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase', opacity: 0.7 }}>
+                    Total quincena
+                  </p>
+                  <p className="text-[11px] mt-0.5 num" style={{ color: 'var(--muted)' }}>
+                    {(quinRegistros.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0) / 9).toFixed(2)} días · {Object.keys(porObra).length} obras
+                  </p>
+                </div>
+                <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>
+                  {formatCLP(quinRegistros.reduce((s, r) => s + (r.costo_total ?? 0), 0))}
+                </p>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── TAB: TRABAJADORES ──────────────────────────────────── */}
       {tab === 'trabajadores' && (
@@ -626,11 +1015,11 @@ export default function ControlAsistencia() {
                   />
                 </div>
                 <div className="w-36">
-                  <label className="label">Valor hora ($)</label>
+                  <label className="label">Valor día ($)</label>
                   <input
                     className="input num"
                     type="number"
-                    placeholder="5000"
+                    placeholder="50000"
                     value={formValor}
                     onChange={e => { setFormValor(e.target.value); setFormError('') }}
                     onKeyDown={e => e.key === 'Enter' && handleGuardarWorker()}
@@ -707,7 +1096,7 @@ export default function ControlAsistencia() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{w.nombre}</p>
                       <p className="text-[12px] num" style={{ color: 'var(--muted)' }}>
-                        {formatCLP(w.valor_hora)}/hora
+                        {formatCLP(w.valor_hora)}/día
                       </p>
                     </div>
 
@@ -784,6 +1173,32 @@ export default function ControlAsistencia() {
                         : <ToggleLeft  size={26} style={{ color: 'var(--subtle)' }} />
                       }
                     </button>
+
+                    {/* Eliminar trabajador */}
+                    {confirmDeleteWorkerId === w.id ? (
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-[10px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                        <button
+                          onClick={() => handleDeleteWorker(w.id)}
+                          className="px-2 py-0.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                        >Sí</button>
+                        <button
+                          onClick={() => setConfirmDeleteWorkerId(null)}
+                          className="p-1 rounded-lg"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteWorkerId(w.id)}
+                        className="p-1.5 rounded-lg flex-shrink-0 transition-all hover:opacity-80"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        title="Eliminar trabajador"
+                      >
+                        <Trash2 size={12} style={{ color: 'var(--red)' }} />
+                      </button>
+                    )}
                   </div>
 
                   {/* Obras asignadas panel */}
@@ -807,36 +1222,90 @@ export default function ControlAsistencia() {
                           {obrasActivas.map(o => {
                             const assigned = workerObras[w.id]?.has(o.id) ?? false
                             const toggling = obrasToggling[`${w.id}-${o.id}`]
+                            const editandoClave = editingClave === o.id
                             return (
-                              <button
-                                key={o.id}
-                                onClick={() => handleToggleObra(w, o.id)}
-                                disabled={toggling}
-                                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-all text-left disabled:opacity-60"
-                                style={{
-                                  background: assigned ? 'var(--amber-dim)' : 'var(--bg-card)',
-                                  border: `1px solid ${assigned ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
-                                }}
-                              >
-                                <div
-                                  className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                              <div key={o.id} className="space-y-1">
+                                <button
+                                  onClick={() => handleToggleObra(w, o.id)}
+                                  disabled={toggling}
+                                  className="w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-all text-left disabled:opacity-60"
                                   style={{
-                                    background: assigned ? 'var(--amber)' : 'transparent',
-                                    border: `2px solid ${assigned ? 'var(--amber)' : 'var(--border)'}`,
+                                    background: assigned ? 'var(--amber-dim)' : 'var(--bg-card)',
+                                    border: `1px solid ${assigned ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
                                   }}
                                 >
-                                  {assigned && <Check size={10} color="#000" strokeWidth={3} />}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate" style={{ color: assigned ? 'var(--amber)' : 'var(--text)' }}>
-                                    {o.nombre}
-                                  </p>
-                                  {o.direccion && (
-                                    <p className="text-[11px] truncate" style={{ color: 'var(--subtle)' }}>{o.direccion}</p>
-                                  )}
-                                </div>
-                                {toggling && <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: 'var(--amber)' }} />}
-                              </button>
+                                  <div
+                                    className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
+                                    style={{
+                                      background: assigned ? 'var(--amber)' : 'transparent',
+                                      border: `2px solid ${assigned ? 'var(--amber)' : 'var(--border)'}`,
+                                    }}
+                                  >
+                                    {assigned && <Check size={10} color="#000" strokeWidth={3} />}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate" style={{ color: assigned ? 'var(--amber)' : 'var(--text)' }}>
+                                      {o.nombre}
+                                    </p>
+                                    {o.direccion && (
+                                      <p className="text-[11px] truncate" style={{ color: 'var(--subtle)' }}>{o.direccion}</p>
+                                    )}
+                                  </div>
+                                  {toggling && <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: 'var(--amber)' }} />}
+                                </button>
+
+                                {/* Clave de la obra */}
+                                {editandoClave ? (
+                                  <div className="flex items-center gap-2 px-1">
+                                    <input
+                                      className="input num text-sm w-28 text-center"
+                                      placeholder="ej: 1234"
+                                      value={claveValue}
+                                      maxLength={6}
+                                      onChange={e => { setClaveValue(e.target.value.replace(/\D/g, '').slice(0, 6)); setClaveError('') }}
+                                      onKeyDown={e => { if (e.key === 'Enter') handleGuardarClave(o.id); if (e.key === 'Escape') { setEditingClave(null); setClaveValue(''); setClaveError('') } }}
+                                      autoFocus
+                                      style={{ fontSize: 16, letterSpacing: '0.15em', padding: '6px 10px' }}
+                                    />
+                                    <button
+                                      onClick={() => handleGuardarClave(o.id)}
+                                      disabled={!claveValue.trim() || claveSaving}
+                                      className="btn-primary gap-1 text-xs disabled:opacity-40"
+                                      style={{ padding: '6px 10px' }}
+                                    >
+                                      {claveSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingClave(null); setClaveValue(''); setClaveError('') }}
+                                      className="btn-ghost text-xs"
+                                      style={{ color: 'var(--muted)' }}
+                                    >
+                                      <X size={11} />
+                                    </button>
+                                    {claveError && (
+                                      <p style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'DM Mono' }}>{claveError}</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => { setEditingClave(o.id); setClaveValue(o.clave ?? ''); setClaveError('') }}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-opacity hover:opacity-70 text-left"
+                                    style={{ marginLeft: 4 }}
+                                  >
+                                    <Hash size={11} style={{ color: o.clave ? 'var(--amber)' : 'var(--subtle)', flexShrink: 0 }} />
+                                    {o.clave ? (
+                                      <span className="num text-[12px] font-semibold" style={{ color: 'var(--amber)', letterSpacing: '0.1em' }}>
+                                        {o.clave}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px]" style={{ color: 'var(--subtle)', fontFamily: 'DM Mono' }}>
+                                        sin clave — asignar
+                                      </span>
+                                    )}
+                                    <Pencil size={10} style={{ color: 'var(--subtle)', marginLeft: 2 }} />
+                                  </button>
+                                )}
+                              </div>
                             )
                           })}
 
@@ -863,6 +1332,15 @@ export default function ControlAsistencia() {
                                 value={newObraDireccion}
                                 onChange={e => setNewObraDireccion(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
+                              />
+                              <input
+                                className="input num text-sm"
+                                placeholder="Clave numérica (ej: 1234)"
+                                value={newObraClave}
+                                maxLength={6}
+                                onChange={e => setNewObraClave(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
+                                style={{ letterSpacing: '0.1em' }}
                               />
                               <div className="flex gap-2">
                                 <button

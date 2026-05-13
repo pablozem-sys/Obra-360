@@ -11,6 +11,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 })
 
+
 // ── Projects ──────────────────────────────────────────────────
 export async function getObras() {
   const { data, error } = await supabase
@@ -33,6 +34,50 @@ export async function updateObra(id, updates) {
   return data[0]
 }
 
+export async function deleteObra(id) {
+  const { error } = await supabase.rpc('delete_obra', { p_project_id: id })
+  if (error) throw error
+}
+
+export async function deleteWorker(id) {
+  const { error } = await supabase.rpc('delete_worker', { p_worker_id: id })
+  if (error) throw error
+}
+
+// ── Additional Sales ──────────────────────────────────────────
+export async function getAdditionalSales(projectId) {
+  const { data, error } = await supabase
+    .from('additional_sales')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getAllAdditionalSales() {
+  const { data, error } = await supabase
+    .from('additional_sales')
+    .select('project_id, monto')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createAdditionalSale(sale) {
+  const { data, error } = await supabase
+    .from('additional_sales')
+    .insert([sale])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteAdditionalSale(id) {
+  const { error } = await supabase.from('additional_sales').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ── Expenses ──────────────────────────────────────────────────
 export async function getGastos(obraId) {
   let query = supabase.from('expenses').select('*').order('fecha', { ascending: false })
@@ -42,10 +87,44 @@ export async function getGastos(obraId) {
   return data
 }
 
+export async function getEgresosCredito() {
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('*, projects(id, nombre)')
+    .eq('medio_pago', 'credito')
+    .order('fecha', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getGastosDetallado({ obraId, fechaDesde, fechaHasta } = {}) {
+  let query = supabase
+    .from('expenses')
+    .select('*, projects(id, nombre)')
+    .order('fecha', { ascending: false })
+  if (obraId)     query = query.eq('project_id', obraId)
+  if (fechaDesde) query = query.gte('fecha', fechaDesde)
+  if (fechaHasta) query = query.lte('fecha', fechaHasta)
+  const { data, error } = await query
+  if (error) throw error
+  return data ?? []
+}
+
 export async function createGasto(gasto) {
   const { data, error } = await supabase.from('expenses').insert([gasto]).select()
   if (error) throw error
   return data[0]
+}
+
+export async function updateGasto(id, updates) {
+  const { data, error } = await supabase.from('expenses').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteGasto(id) {
+  const { error } = await supabase.from('expenses').delete().eq('id', id)
+  if (error) throw error
 }
 
 // ── Documents ────────────────────────────────────────────────
@@ -84,6 +163,79 @@ export async function getIngresos() {
   return data ?? []
 }
 
+export async function createIngreso(ingreso) {
+  const { data, error } = await supabase
+    .from('income')
+    .insert([ingreso])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateIngreso(id, updates) {
+  const { data, error } = await supabase
+    .from('income')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteIngreso(id) {
+  const { error } = await supabase.from('income').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Users ─────────────────────────────────────────────────────
+export async function getUsuarios() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, nombre, email, rol, avatar')
+    .order('nombre')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createUsuario({ email, password, nombre, rol }) {
+  const tmp = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'sb-tmp-create' },
+  })
+  const { data, error } = await tmp.auth.signUp({ email, password })
+  if (error) throw error
+  const userId = data.user?.id
+  if (!userId) throw new Error('No se pudo crear el usuario')
+
+  // Inserta perfil via RPC SECURITY DEFINER (bypasea RLS y FK timing)
+  const { error: rpcError } = await supabase.rpc('create_user_profile', {
+    user_id:     userId,
+    user_email:  email.trim().toLowerCase(),
+    user_nombre: nombre.trim(),
+    user_rol:    rol,
+    user_avatar: nombre.trim().slice(0, 2).toUpperCase(),
+  })
+  if (rpcError) throw rpcError
+  return data.user
+}
+
+export async function deleteUsuario(id) {
+  const { error } = await supabase.rpc('delete_user', { user_id: id })
+  if (error) throw error
+}
+
+export async function updateUsuarioPerfil(id, updates) {
+  const { data, error } = await supabase
+    .from('users')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function updateCuentaPagar(id, updates) {
   const { data, error } = await supabase.from('accounts_payable').update(updates).eq('id', id).select().single()
   if (error) throw error
@@ -115,9 +267,20 @@ export async function logGeolocalizacion(entry) {
 export async function getObrasActivas() {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, nombre, direccion')
+    .select('id, nombre, direccion, clave')
     .eq('estado', 'en_ejecucion')
     .order('nombre')
+  if (error) throw error
+  return data
+}
+
+export async function getObraByClaveActiva(clave) {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, nombre, direccion')
+    .eq('clave', clave)
+    .eq('estado', 'en_ejecucion')
+    .maybeSingle()
   if (error) throw error
   return data
 }
@@ -216,6 +379,39 @@ export async function verifyWorkerPin(workerId, pin) {
   return data?.[0] ?? null  // null = PIN incorrecto
 }
 
+// Verifica PIN solo (sin seleccionar trabajador de lista).
+// Requiere crear esta función en Supabase SQL Editor:
+//
+//   CREATE OR REPLACE FUNCTION verify_worker_pin_only(p_pin text)
+//   RETURNS TABLE(id uuid, nombre text, avatar text, valor_hora numeric)
+//   LANGUAGE sql SECURITY DEFINER AS $$
+//     SELECT id, nombre, avatar, valor_hora
+//     FROM workers WHERE pin = p_pin AND activo = true LIMIT 1;
+//   $$;
+//   GRANT EXECUTE ON FUNCTION verify_worker_pin_only TO anon;
+export async function verifyWorkerPinSolo(pin) {
+  const { data, error } = await supabase.rpc('verify_worker_pin_only', { p_pin: pin })
+  if (error) throw error
+  return data?.[0] ?? null
+}
+
+// ── Providers ─────────────────────────────────────────────────
+export async function getProviders() {
+  const { data, error } = await supabase
+    .from('providers')
+    .select('id, nombre')
+    .order('nombre')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function upsertProvider(nombre) {
+  const { error } = await supabase
+    .from('providers')
+    .upsert([{ nombre }], { onConflict: 'nombre', ignoreDuplicates: true })
+  if (error) throw error
+}
+
 // ── Projects (simple list for selects) ───────────────────────
 export async function getProjectsList() {
   const { data, error } = await supabase
@@ -243,11 +439,16 @@ export async function getAttendance({ fecha, projectId } = {}) {
   if (error) throw error
   return data ?? []
 }
+function localDateString() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export async function getTodayOpenAttendance(workerId) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateString()
   const { data, error } = await supabase
     .from('attendance')
-    .select('*')
+    .select('*, projects(id, nombre, direccion)')
     .eq('worker_id', workerId)
     .eq('fecha', today)
     .is('salida', null)
@@ -256,16 +457,24 @@ export async function getTodayOpenAttendance(workerId) {
   return data
 }
 
+function localOffset() {
+  const off = new Date().getTimezoneOffset()
+  const sign = off <= 0 ? '+' : '-'
+  const abs = Math.abs(off)
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+}
+
 export async function registrarAsistenciaManual({ workerId, projectId, fecha, horaEntrada, horaSalida, valorHora }) {
-  const entradaISO = `${fecha}T${horaEntrada}:00`
+  const tz = localOffset()
+  const entradaISO = `${fecha}T${horaEntrada}:00${tz}`
   let salidaISO = null
   let horasTrabajadas = null
   let costoTotal = null
 
   if (horaSalida) {
-    salidaISO = `${fecha}T${horaSalida}:00`
+    salidaISO = `${fecha}T${horaSalida}:00${tz}`
     horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entradaISO)) / 3600000) * 100) / 100
-    costoTotal = Math.round(horasTrabajadas * valorHora)
+    costoTotal = Math.round((horasTrabajadas / 9) * valorHora)
   }
 
   const { data, error } = await supabase
@@ -293,12 +502,29 @@ export async function registrarEntrada(workerId, projectId, geo, valorHora) {
     .insert([{
       worker_id: workerId,
       project_id: projectId,
-      fecha: now.split('T')[0],
+      fecha: localDateString(),
       entrada: now,
       lat_entrada: geo.lat,
       lng_entrada: geo.lng,
       valor_hora: valorHora,
     }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function actualizarSalidaManual(attendanceId, entrada, fecha, horaSalida, valorHora) {
+  const salidaISO = `${fecha}T${horaSalida}:00${localOffset()}`
+  const horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entrada)) / 3600000) * 100) / 100
+  const { data, error } = await supabase
+    .from('attendance')
+    .update({
+      salida: salidaISO,
+      horas_trabajadas: horasTrabajadas,
+      costo_total: Math.round((horasTrabajadas / 9) * valorHora),
+    })
+    .eq('id', attendanceId)
     .select()
     .single()
   if (error) throw error
@@ -315,7 +541,7 @@ export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
       lat_salida: geo.lat,
       lng_salida: geo.lng,
       horas_trabajadas: horasTrabajadas,
-      costo_total: Math.round(horasTrabajadas * valorHora),
+      costo_total: Math.round((horasTrabajadas / 9) * valorHora),
     })
     .eq('id', attendanceId)
     .select()

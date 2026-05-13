@@ -22,20 +22,20 @@ export function formatDateShort(dateStr) {
 
 export function calcGastosObra(gastos, obraId) {
   return gastos
-    .filter(g => g.obraId === obraId)
-    .reduce((sum, g) => sum + g.monto, 0)
+    .filter(g => g.project_id === obraId)
+    .reduce((sum, g) => sum + (g.monto ?? 0), 0)
 }
 
 export function calcIngresosObra(ingresos, obraId) {
   return ingresos
-    .filter(i => i.obraId === obraId)
-    .reduce((sum, i) => sum + i.monto, 0)
+    .filter(i => i.project_id === obraId)
+    .reduce((sum, i) => sum + (i.monto ?? 0), 0)
 }
 
 export function calcManoObraObra(registros, obraId) {
   return registros
-    .filter(r => r.obraId === obraId && r.costoTotal != null)
-    .reduce((sum, r) => sum + r.costoTotal, 0)
+    .filter(r => r.project_id === obraId && r.costo_total != null)
+    .reduce((sum, r) => sum + r.costo_total, 0)
 }
 
 export function calcGastosTotalesObra(gastos, registros, obraId) {
@@ -52,6 +52,7 @@ export const TIPOS_OBRA = {
   quincho:     { label: 'Quincho',      color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   ampliacion:  { label: 'Ampliación',   color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
   remodelacion:{ label: 'Remodelación', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  '360':       { label: '360',          color: 'bg-teal-500/10 text-teal-400 border-teal-500/20' },
   otro:        { label: 'Otro',         color: 'bg-slate-500/10 text-slate-400 border-slate-500/20' },
 }
 
@@ -62,26 +63,29 @@ export const ESTADOS_OBRA = {
   finalizada:   { label: 'Finalizada',   color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
 }
 
-// ── Categorías de egresos reorganizadas ─────────────────────────
+// ── Categorías de egresos ────────────────────────────────────────
 export const CATEGORIAS_GASTO = {
-  // Operación obra
-  aridos:           { label: 'Áridos',           grupo: 'Operación Obra',   color: '#A3642A' },
-  retiro_escombros: { label: 'Retiro escombros',  grupo: 'Operación Obra',   color: '#8B5E3C' },
-  materiales:       { label: 'Materiales',        grupo: 'Operación Obra',   color: '#3B82F6' },
-  fletes:           { label: 'Fletes',            grupo: 'Operación Obra',   color: '#06B6D4' },
-  banio_quimico:    { label: 'Baño químico',       grupo: 'Operación Obra',   color: '#7C3AED' },
-  // Gastos generales
-  bencina:          { label: 'Bencina',           grupo: 'Gastos Generales', color: '#F97316' },
-  herramientas:     { label: 'Herramientas',      grupo: 'Gastos Generales', color: '#F59E0B' },
-  arriendo:         { label: 'Arriendo',          grupo: 'Gastos Generales', color: '#EF4444' },
-  cuentas:          { label: 'Cuentas',           grupo: 'Gastos Generales', color: '#64748B' },
-  subcontratos:     { label: 'Subcontratos',      grupo: 'Gastos Generales', color: '#EC4899' },
-  permisos:         { label: 'Permisos',          grupo: 'Gastos Generales', color: '#6366F1' },
-  otros:            { label: 'Otros',             grupo: 'Gastos Generales', color: '#475569' },
-  // Auto desde asistencia — no aparece en formulario manual
-  mano_obra:        { label: 'Mano de obra',      grupo: 'Automático',       color: '#8B5CF6', auto: true },
-  // Legacy (para datos existentes en mock)
-  transporte:       { label: 'Transporte',        grupo: 'Operación Obra',   color: '#06B6D4' },
+  // Costo Directo de la Obra (CDO)
+  materiales:       { label: 'Materiales',       grupo: 'Costo Directo de la Obra', color: '#3B82F6' },
+  subcontratos:     { label: 'Subcontratos',     grupo: 'Costo Directo de la Obra', color: '#EC4899' },
+  equipos:          { label: 'Equipos',          grupo: 'Costo Directo de la Obra', color: '#06B6D4' },
+  aridos:           { label: 'Áridos',           grupo: 'Costo Directo de la Obra', color: '#A3642A' },
+  retiro_escombros: { label: 'Retiro escombros', grupo: 'Costo Directo de la Obra', color: '#8B5E3C' },
+  banio_quimico:    { label: 'Baño químico',     grupo: 'Costo Directo de la Obra', color: '#7C3AED' },
+  otros_operacion:  { label: 'Otros',            grupo: 'Costo Directo de la Obra', color: '#475569' },
+  // Gastos Generales (GAV)
+  sueldos:          { label: 'Sueldos',          grupo: 'Gastos Generales',         color: '#F97316' },
+  publicidad:       { label: 'Publicidad',       grupo: 'Gastos Generales',         color: '#F59E0B' },
+  marketing:        { label: 'Marketing',        grupo: 'Gastos Generales',         color: '#EF4444' },
+  bencina:          { label: 'Bencina',          grupo: 'Gastos Generales',         color: '#E879F9' },
+  herramientas:     { label: 'Herramientas',     grupo: 'Gastos Generales',         color: '#34D399' },
+  arriendo:         { label: 'Arriendo',         grupo: 'Gastos Generales',         color: '#60A5FA' },
+  cuentas:          { label: 'Cuentas',          grupo: 'Gastos Generales',         color: '#94A3B8' },
+  otros:            { label: 'Otros',            grupo: 'Gastos Generales',         color: '#64748B' },
+  // Automático — generado desde Asistencia, no aparece en formularios
+  mano_obra:        { label: 'Mano de obra',     grupo: 'Automático',               color: '#8B5CF6', auto: true },
+  // Legacy — solo para mostrar datos históricos
+  transporte:       { label: 'Transporte',       grupo: 'Costo Directo de la Obra', color: '#06B6D4', legacy: true },
 }
 
 export const ESTADOS_PAGO = {

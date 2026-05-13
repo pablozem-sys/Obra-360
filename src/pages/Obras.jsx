@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2, MapPin, Calendar, Loader2, AlertCircle } from 'lucide-react'
+import { Plus, Search, Building2, MapPin, Calendar, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
-import { getObras, createObra } from '../lib/supabase'
+import { getObras, createObra, deleteObra } from '../lib/supabase'
 
 const FILTROS = [
   { key: 'all',          label: 'Todas' },
@@ -14,7 +14,7 @@ const FILTROS = [
   { key: 'finalizada',   label: 'Finalizadas' },
 ]
 
-const TIPOS = ['piscina', 'quincho', 'ampliacion', 'remodelacion', 'otro']
+const TIPOS = ['piscina', 'quincho', 'ampliacion', 'remodelacion', '360', 'otro']
 
 const FORM_INITIAL = {
   nombre: '', direccion: '', tipo: 'piscina',
@@ -32,6 +32,7 @@ export default function Obras() {
   const [form, setForm]         = useState(FORM_INITIAL)
   const [saving, setSaving]     = useState(false)
   const [formError, setFormError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
@@ -71,6 +72,17 @@ export default function Obras() {
       setFormError(err.message || 'Error al guardar la obra')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteObra(id)
+      setObras(prev => prev.filter(o => o.id !== id))
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setConfirmDeleteId(null)
     }
   }
 
@@ -141,8 +153,8 @@ export default function Obras() {
             return (
               <div
                 key={o.id}
+                className="card-hover p-5 cursor-pointer group relative"
                 onClick={() => navigate(`/obras/${o.id}`)}
-                className="card-hover p-5 cursor-pointer group"
               >
                 <div className="flex items-center justify-between mb-4">
                   <Badge className={tipoInfo?.color}>{tipoInfo?.label ?? o.tipo}</Badge>
@@ -167,9 +179,40 @@ export default function Obras() {
                   <span className="num text-sm font-semibold" style={{ color: 'var(--amber)' }}>
                     {o.presupuesto ? formatCLP(o.presupuesto) : '—'}
                   </span>
-                  <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
-                    <Calendar size={11} />
-                    {formatDate(o.fecha_termino)}
+                  <div className="flex items-center gap-1.5">
+                    {confirmDeleteId === o.id ? (
+                      <div
+                        className="flex items-center gap-1.5"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <span className="text-[11px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                        <button
+                          onClick={() => handleDelete(o.id)}
+                          className="px-2 py-0.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                        >Sí</button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="p-1 rounded-lg"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
+                          <Calendar size={11} />
+                          {formatDate(o.fecha_termino)}
+                        </div>
+                        <button
+                          onClick={e => { e.stopPropagation(); setConfirmDeleteId(o.id) }}
+                          className="p-1.5 rounded-lg transition-all hover:opacity-80 ml-1"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                          title="Eliminar obra"
+                        >
+                          <Trash2 size={11} style={{ color: 'var(--red)' }} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -221,7 +264,7 @@ export default function Obras() {
             <input type="date" className="input" value={form.fecha_termino} onChange={e => setForm(p => ({ ...p, fecha_termino: e.target.value }))} />
           </div>
           <div className="sm:col-span-2">
-            <label className="label">Presupuesto aprobado (CLP)</label>
+            <label className="label">Venta Aprobada (CLP)</label>
             <input
               type="number"
               className="input num"

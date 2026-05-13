@@ -14,7 +14,6 @@ export const PERMISOS = {
     verAsistencia: true,
     verObras: true,
     verDocumentos: true,
-    verMapa: true,
     subirGastos: true,
     editarTodo: true,
   },
@@ -28,7 +27,6 @@ export const PERMISOS = {
     verAsistencia: true,
     verObras: true,
     verDocumentos: true,
-    verMapa: true,
     subirGastos: true,
     editarTodo: false,
   },
@@ -60,11 +58,23 @@ async function fetchUserProfile(userId, authUser) {
   return null
 }
 
+const WORKER_KEY = 'vaion_worker_session'
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Restaurar sesión de trabajador desde localStorage antes de ir a Supabase
+    try {
+      const saved = localStorage.getItem(WORKER_KEY)
+      if (saved) {
+        setSession({ user: JSON.parse(saved) })
+        setLoading(false)
+        return
+      }
+    } catch { /* ignorar */ }
+
     const timeout = setTimeout(() => setLoading(false), 5000)
     const sessionPromise = supabase.auth.getSession()
     const fallback = new Promise(r => setTimeout(() => r({ data: { session: null } }), 4000))
@@ -98,13 +108,16 @@ export function AuthProvider({ children }) {
   }
 
   const loginTrabajador = (trabajador) => {
-    setSession({ user: { ...trabajador, rol: 'trabajador' } })
+    const user = { ...trabajador, rol: 'trabajador' }
+    try { localStorage.setItem(WORKER_KEY, JSON.stringify(user)) } catch { /* ignorar */ }
+    setSession({ user })
   }
 
   const logout = () => {
     setSession(null)
-    if (session?.user?.rol !== 'trabajador') {
-      // Limpiar localStorage inmediatamente para evitar sesión corrupta
+    if (session?.user?.rol === 'trabajador') {
+      try { localStorage.removeItem(WORKER_KEY) } catch { /* ignorar */ }
+    } else {
       try {
         Object.keys(localStorage)
           .filter(k => k.startsWith('sb-'))

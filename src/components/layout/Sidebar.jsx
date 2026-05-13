@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
-  ArrowUpCircle, BarChart3, Wallet, FolderOpen, MapPin,
-  Users, LogOut, Sun, Moon
+  ArrowUpCircle, BarChart3, Wallet, FolderOpen, Receipt,
+  Users, UserCog, LogOut, Sun, Moon
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -15,8 +15,9 @@ const navAll = [
   { to: '/cuentas-cobrar',     label: 'CxC',              icon: ArrowUpCircle,   perm: 'verCxC' },
   { to: '/eerr',               label: 'EERR',             icon: BarChart3,       perm: 'verEERR' },
   { to: '/flujo-caja',         label: 'Flujo de Caja',    icon: Wallet,          perm: 'verFlujoCaja' },
-  { to: '/documentos',         label: 'Documentos',       icon: FolderOpen,      perm: null },
-  { to: '/mapa',               label: 'Mapa',             icon: MapPin,          perm: null },
+  { to: '/gastos',             label: 'Egresos',          icon: Receipt,         perm: null },
+  { to: '/documentos',        label: 'Documentos',       icon: FolderOpen,      perm: null },
+  { to: '/usuarios',          label: 'Usuarios',         icon: UserCog,         perm: 'editarTodo' },
 ]
 
 const roleBadge = {
@@ -59,7 +60,7 @@ export default function Sidebar() {
       {/* CTA */}
       <div className="px-4 py-4">
         <button onClick={() => navigate('/gastos/nuevo')} className="btn-primary w-full justify-center">
-          <Plus size={15} strokeWidth={2.5} /> Subir Gasto
+          <Plus size={15} strokeWidth={2.5} /> Subir Egreso
         </button>
       </div>
 

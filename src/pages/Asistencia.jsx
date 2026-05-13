@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, MapPin, Clock, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react'
+import { LogOut, MapPin, Clock, CheckCircle2, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
   getTodayOpenAttendance,
@@ -54,37 +54,42 @@ export default function Asistencia() {
   const time = useClock()
 
   const [registroAbierto, setRegistroAbierto] = useState(null)
-  const [obras, setObras]                     = useState([])
   const [step, setStep]                       = useState('main')
   const [loading, setLoading]                 = useState(false)
   const [initLoading, setInitLoading]         = useState(true)
   const [lastAction, setLastAction]           = useState(null)
-  const [selectedObra, setSelectedObra]       = useState(null)
   const [geoError, setGeoError]               = useState(false)
 
+  const [obras, setObras]                   = useState([])
+  const [obraSeleccionada, setObraSeleccionada] = useState(null)
+
   useEffect(() => {
-    if (!user?.id) return
+    if (!user?.id) {
+      navigate('/trabajador', { replace: true })
+      return
+    }
     const t = setTimeout(() => setInitLoading(false), 6000)
+
     Promise.all([
       getTodayOpenAttendance(user.id).catch(() => null),
       getWorkerObras(user.id).catch(() => []),
-    ]).then(([registro, obrasData]) => {
+    ]).then(([registro, listaObras]) => {
       setRegistroAbierto(registro ?? null)
-      setObras(obrasData)
+      setObras(listaObras)
+      if (listaObras.length === 1) setObraSeleccionada(listaObras[0])
     }).finally(() => { clearTimeout(t); setInitLoading(false) })
   }, [user?.id])
 
   const valorHora = user?.valor_hora ?? user?.valorHora ?? 5000
 
-  const tieneEntrada = !!registroAbierto
-  const obraActual   = registroAbierto
-    ? obras.find(o => o.id === registroAbierto.project_id)
-    : null
+  const tieneEntrada    = !!registroAbierto
+  const obraActual      = registroAbierto?.projects ?? null
   const horasDesdeEntrada = registroAbierto
     ? ((time - new Date(registroAbierto.entrada)) / 3600000).toFixed(1)
     : null
 
   const handleLlegue = async () => {
+    if (!obraSeleccionada) return
     setGeoError(false)
     setLoading(true)
     let geo
@@ -95,28 +100,20 @@ export default function Asistencia() {
       setGeoError(true)
       return
     }
-    setLoading(false)
-    setStep('select-obra')
-    setLastAction({ tipo: 'entrada', geo })
-  }
-
-  const handleConfirmarObra = async () => {
-    if (!selectedObra || !lastAction) return
-    setLoading(true)
-    const obra = obras.find(o => o.id === selectedObra)
     try {
       const [record, address] = await Promise.all([
-        registrarEntrada(user.id, selectedObra, lastAction.geo, valorHora),
-        reverseGeocode(lastAction.geo.lat, lastAction.geo.lng),
+        registrarEntrada(user.id, obraSeleccionada.id, geo, valorHora),
+        reverseGeocode(geo.lat, geo.lng),
       ])
-      setRegistroAbierto(record)
-      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra, address })
+      setRegistroAbierto({ ...record, projects: obraSeleccionada })
+      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra: obraSeleccionada, address })
+      setStep('confirmado')
     } catch (err) {
       console.error('registrarEntrada:', err)
-      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra })
+      setGeoError(true)
+    } finally {
+      setLoading(false)
     }
-    setStep('confirmado')
-    setLoading(false)
   }
 
   const handleMeVoy = async () => {
@@ -223,7 +220,7 @@ export default function Asistencia() {
 
         <div className="flex gap-3 mt-8 w-full max-w-xs">
           <button
-            onClick={() => { setStep('main'); setLastAction(null); setSelectedObra(null) }}
+            onClick={() => { setStep('main'); setLastAction(null) }}
             className="btn-primary flex-1 justify-center"
           >
             Volver
@@ -239,62 +236,11 @@ export default function Asistencia() {
     )
   }
 
-  /* ── Seleccionar obra ────────────────────── */
-  if (step === 'select-obra') {
-    return (
-      <div className="min-h-screen flex flex-col px-5 py-8" style={{ background: 'var(--bg-base)' }}>
-        <button onClick={() => setStep('main')} className="btn-ghost -ml-2 mb-8 text-sm self-start" style={{ color: 'var(--muted)' }}>
-          <ArrowLeft size={14} /> Atrás
-        </button>
-        <h2 className="font-display font-bold mb-2" style={{ fontSize: 24, letterSpacing: '-0.04em', color: 'var(--text)' }}>
-          ¿En qué obra estás?
-        </h2>
-        <p className="text-sm mb-7" style={{ color: 'var(--muted)' }}>Selecciona la obra donde trabajarás hoy</p>
-
-        {obras.length === 0 ? (
-          <p className="text-sm text-center py-12" style={{ color: 'var(--subtle)' }}>No tienes obras asignadas. Contacta al administrador.</p>
-        ) : (
-          <div className="space-y-3">
-            {obras.map(o => {
-              const active = selectedObra === o.id
-              return (
-                <button
-                  key={o.id}
-                  onClick={() => setSelectedObra(o.id)}
-                  className="w-full text-left rounded-2xl p-5 transition-all duration-150 active:scale-[0.98]"
-                  style={{
-                    background: active ? 'var(--amber-dim)' : 'var(--bg-card)',
-                    border: `1px solid ${active ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
-                  }}
-                >
-                  <p className="font-semibold text-base" style={{ color: active ? 'var(--amber)' : 'var(--text)' }}>{o.nombre}</p>
-                  {o.direccion && <p className="text-[12px] mt-0.5" style={{ color: 'var(--muted)' }}>{o.direccion}</p>}
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        <button
-          onClick={handleConfirmarObra}
-          disabled={!selectedObra || loading}
-          className="btn-primary w-full justify-center mt-6 disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ padding: '15px', fontSize: 14 }}
-        >
-          {loading
-            ? <Loader2 size={18} className="animate-spin" />
-            : <><CheckCircle2 size={18} /> Confirmar entrada</>
-          }
-        </button>
-      </div>
-    )
-  }
-
   /* ── Main ────────────────────────────────── */
   return (
     <div className="min-h-screen flex flex-col px-5 py-8" style={{ background: 'var(--bg-base)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-10">
+      <div className="flex items-center justify-between mb-8">
         <div>
           <p className="font-display text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
             VAION
@@ -311,7 +257,7 @@ export default function Asistencia() {
       </div>
 
       {/* Clock */}
-      <div className="text-center mb-10">
+      <div className="text-center mb-8">
         <p className="num font-medium" style={{ fontSize: 52, letterSpacing: '-0.04em', color: 'var(--text)', fontFamily: 'DM Mono' }}>
           {formatTime(time)}
         </p>
@@ -319,30 +265,6 @@ export default function Asistencia() {
           {time.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
-
-      {/* Status */}
-      {tieneEntrada && obraActual && (
-        <div
-          className="rounded-2xl p-4 mb-6"
-          style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,196,140,0.25)' }}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--green)' }} />
-            <span className="text-[12px] font-semibold" style={{ color: 'var(--green)', fontFamily: 'Unbounded' }}>
-              EN OBRA
-            </span>
-          </div>
-          <p className="font-semibold" style={{ color: 'var(--text)' }}>{obraActual.nombre}</p>
-          <div className="flex items-center gap-4 mt-2 text-[12px]" style={{ color: 'var(--muted)' }}>
-            <span className="flex items-center gap-1">
-              <Clock size={11} /> Desde {formatHour(registroAbierto.entrada)}
-            </span>
-            <span className="num font-medium" style={{ color: 'var(--amber)' }}>
-              {horasDesdeEntrada} hrs acumuladas
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Error GPS */}
       {geoError && (
@@ -367,47 +289,117 @@ export default function Asistencia() {
         </div>
       )}
 
-      {/* Botones */}
-      <div className="space-y-4 flex-1 flex flex-col justify-center">
-        {!tieneEntrada ? (
-          <button
-            onClick={handleLlegue}
-            disabled={loading}
-            className="w-full rounded-3xl transition-all duration-200 active:scale-[0.97] disabled:opacity-60"
-            style={{ background: 'var(--green)', padding: '32px 24px', boxShadow: '0 8px 40px rgba(0,196,140,0.35)' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 50px rgba(0,196,140,0.5)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = '0 8px 40px rgba(0,196,140,0.35)'}
+      {/* Si ya tiene entrada → mostrar estado y ME VOY */}
+      {tieneEntrada && obraActual ? (
+        <>
+          <div
+            className="rounded-2xl p-4 mb-6"
+            style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,196,140,0.25)' }}
           >
-            {loading
-              ? <Loader2 size={36} className="mx-auto animate-spin" color="#000" />
-              : <>
-                  <p className="font-display font-black text-black text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>LLEGUÉ</p>
-                  <p className="text-black/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar entrada</p>
-                </>
-            }
-          </button>
-        ) : (
-          <button
-            onClick={handleMeVoy}
-            disabled={loading}
-            className="w-full rounded-3xl transition-all duration-200 active:scale-[0.97] disabled:opacity-60"
-            style={{ background: 'var(--red)', padding: '32px 24px', boxShadow: '0 8px 40px rgba(255,69,96,0.35)' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 50px rgba(255,69,96,0.5)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = '0 8px 40px rgba(255,69,96,0.35)'}
-          >
-            {loading
-              ? <Loader2 size={36} className="mx-auto animate-spin" color="#fff" />
-              : <>
-                  <p className="font-display font-black text-white text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>ME VOY</p>
-                  <p className="text-white/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar salida</p>
-                </>
-            }
-          </button>
-        )}
-      </div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--green)' }} />
+              <span className="text-[12px] font-semibold" style={{ color: 'var(--green)', fontFamily: 'Unbounded' }}>
+                EN OBRA
+              </span>
+            </div>
+            <p className="font-semibold" style={{ color: 'var(--text)' }}>{obraActual.nombre}</p>
+            <div className="flex items-center gap-4 mt-2 text-[12px]" style={{ color: 'var(--muted)' }}>
+              <span className="flex items-center gap-1">
+                <Clock size={11} /> Desde {formatHour(registroAbierto.entrada)}
+              </span>
+              <span className="num font-medium" style={{ color: 'var(--amber)' }}>
+                {horasDesdeEntrada} hrs acumuladas
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col justify-center">
+            <button
+              onClick={handleMeVoy}
+              disabled={loading}
+              className="w-full rounded-3xl transition-all duration-200 active:scale-[0.97] disabled:opacity-60"
+              style={{ background: 'var(--red)', padding: '32px 24px', boxShadow: '0 8px 40px rgba(255,69,96,0.35)' }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 50px rgba(255,69,96,0.5)'}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = '0 8px 40px rgba(255,69,96,0.35)'}
+            >
+              {loading
+                ? <Loader2 size={36} className="mx-auto animate-spin" color="#fff" />
+                : <>
+                    <p className="font-display font-black text-white text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>ME VOY</p>
+                    <p className="text-white/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar salida</p>
+                  </>
+              }
+            </button>
+          </div>
+        </>
+      ) : (
+        /* Sin entrada → seleccionar obra y LLEGUÉ */
+        <>
+          <div className="mb-4">
+            <p className="text-sm font-semibold mb-3" style={{ color: 'var(--text)' }}>
+              ¿En qué obra estás?
+            </p>
+            {obras.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay obras disponibles</p>
+            ) : (
+              <div className="space-y-2">
+                {obras.map(obra => {
+                  const selected = obraSeleccionada?.id === obra.id
+                  return (
+                    <button
+                      key={obra.id}
+                      onClick={() => setObraSeleccionada(obra)}
+                      className="w-full text-left rounded-2xl p-4 transition-all duration-150 active:scale-[0.98]"
+                      style={{
+                        background: selected ? 'var(--amber)' : 'var(--bg-card)',
+                        border: `1px solid ${selected ? 'var(--amber)' : 'var(--border)'}`,
+                        boxShadow: selected ? '0 0 20px var(--amber-glow)' : 'none',
+                      }}
+                    >
+                      <p
+                        className="font-semibold text-sm"
+                        style={{ color: selected ? '#000' : 'var(--text)' }}
+                      >
+                        {obra.nombre}
+                      </p>
+                      {obra.direccion && (
+                        <p
+                          className="text-[12px] mt-0.5"
+                          style={{ color: selected ? 'rgba(0,0,0,0.6)' : 'var(--muted)' }}
+                        >
+                          {obra.direccion}
+                        </p>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 flex flex-col justify-end">
+            <button
+              onClick={handleLlegue}
+              disabled={loading || !obraSeleccionada}
+              className="w-full rounded-3xl transition-all duration-200 active:scale-[0.97] disabled:opacity-40"
+              style={{ background: 'var(--green)', padding: '32px 24px', boxShadow: obraSeleccionada ? '0 8px 40px rgba(0,196,140,0.35)' : 'none' }}
+              onMouseEnter={e => { if (obraSeleccionada) e.currentTarget.style.boxShadow = '0 12px 50px rgba(0,196,140,0.5)' }}
+              onMouseLeave={e => { if (obraSeleccionada) e.currentTarget.style.boxShadow = '0 8px 40px rgba(0,196,140,0.35)' }}
+            >
+              {loading
+                ? <Loader2 size={36} className="mx-auto animate-spin" color="#000" />
+                : <>
+                    <p className="font-display font-black text-black text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>LLEGUÉ</p>
+                    <p className="text-black/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar entrada</p>
+                  </>
+              }
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Geo */}
-      <div className="flex items-center justify-center gap-2 mt-8" style={{ color: 'var(--subtle)' }}>
+      <div className="flex items-center justify-center gap-2 mt-6" style={{ color: 'var(--subtle)' }}>
         <MapPin size={12} />
         <span className="text-[11px]" style={{ fontFamily: 'DM Mono' }}>Ubicación GPS activa</span>
       </div>

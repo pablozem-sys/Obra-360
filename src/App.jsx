@@ -17,8 +17,9 @@ import CuentasCobrar     from './pages/CuentasCobrar'
 import EstadoResultado   from './pages/EstadoResultado'
 import FlujoCaja         from './pages/FlujoCaja'
 import Biblioteca        from './pages/Biblioteca'
-import Mapa              from './pages/Mapa'
+import Gastos           from './pages/Gastos'
 import ControlAsistencia from './pages/ControlAsistencia'
+import Usuarios         from './pages/Usuarios'
 
 // Protege rutas admin — redirige al landing si no hay sesión
 function ProtectedRoute({ children, roles }) {
@@ -72,13 +73,14 @@ export default function App() {
         <Route path="/gastos/nuevo"     element={<NuevoGasto />} />
         <Route path="/cuentas-pagar"    element={<CuentasPagar />} />
         <Route path="/asistencia-control" element={<ControlAsistencia />} />
+        <Route path="/gastos"           element={<Gastos />} />
         <Route path="/documentos"       element={<Biblioteca />} />
-        <Route path="/mapa"             element={<Mapa />} />
 
         {/* Solo dueño */}
         <Route path="/cuentas-cobrar"   element={<DuenoRoute><CuentasCobrar /></DuenoRoute>} />
         <Route path="/eerr"             element={<DuenoRoute><EstadoResultado /></DuenoRoute>} />
         <Route path="/flujo-caja"       element={<DuenoRoute><FlujoCaja /></DuenoRoute>} />
+        <Route path="/usuarios"         element={<DuenoRoute><Usuarios /></DuenoRoute>} />
 
         <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
       </Route>

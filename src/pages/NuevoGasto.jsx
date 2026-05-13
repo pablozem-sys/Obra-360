@@ -4,24 +4,18 @@ import {
   ArrowLeft, ArrowRight, Upload, CheckCircle2,
   MapPin, Camera, X, Loader2
 } from 'lucide-react'
-import { getObras, createGasto, uploadDocumento } from '../lib/supabase'
+import { getObras, createGasto, uploadDocumento, getProviders, upsertProvider } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIAS_GASTO, TIPOS_OBRA, formatCLP } from '../lib/helpers'
 
-// Excluir mano_obra (auto) y legacy
-const CATEGORIAS_GRUPOS = Object.entries(CATEGORIAS_GASTO)
-  .filter(([, v]) => !v.auto && v.grupo !== undefined)
-  .reduce((acc, [k, v]) => {
-    const g = v.grupo || 'Otros'
-    if (!acc[g]) acc[g] = []
-    acc[g].push({ value: k, label: v.label, color: v.color })
-    return acc
-  }, {})
-
-const CATEGORIAS = Object.entries(CATEGORIAS_GASTO)
-  .filter(([, v]) => !v.auto)
+const CATS_CDO = Object.entries(CATEGORIAS_GASTO)
+  .filter(([, v]) => !v.auto && !v.legacy && v.grupo === 'Costo Directo de la Obra')
   .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
-const MEDIOS_PAGO = ['transferencia', 'efectivo', 'tarjeta', 'cheque']
+
+const CATS_GAV = Object.entries(CATEGORIAS_GASTO)
+  .filter(([, v]) => !v.auto && !v.legacy && v.grupo === 'Gastos Generales')
+  .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
+const PLAZOS_CREDITO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 export default function NuevoGasto() {
   const navigate  = useNavigate()
@@ -36,12 +30,16 @@ export default function NuevoGasto() {
   const [obras, setObras]       = useState([])
   const [obrasLoading, setObrasLoading] = useState(true)
   const [archivoFile, setArchivoFile] = useState(null)
+  const [providers, setProviders]     = useState([])
+  const [provSuggestions, setProvSuggestions] = useState([])
+  const [showProvDrop, setShowProvDrop] = useState(false)
+  const [isGAV, setIsGAV]       = useState(false)
 
   const [form, setForm] = useState({
     obraId: '', archivo: null, archivoNombre: null,
     monto: '', categoria: 'materiales', proveedor: '',
     fecha: new Date().toISOString().split('T')[0],
-    medioPago: 'transferencia', comentario: '',
+    medioPago: 'contado', plazoCredito: 1, comentario: '',
   })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -51,6 +49,7 @@ export default function NuevoGasto() {
       .then(setObras)
       .catch(() => setObras([]))
       .finally(() => { clearTimeout(t); setObrasLoading(false) })
+    getProviders().then(setProviders).catch(() => {})
   }, [])
 
   const getGeo = () => {
@@ -78,26 +77,33 @@ export default function NuevoGasto() {
       let docUrl = null
       if (archivoFile) {
         try {
-          const { url } = await uploadDocumento(form.obraId, archivoFile)
+          const uploadPath = isGAV ? 'gav' : (form.obraId || 'sin-obra')
+          const { url } = await uploadDocumento(uploadPath, archivoFile)
           docUrl = url
         } catch { /* guarda el gasto igual, sin documento */ }
       }
-      await createGasto({
-        project_id: form.obraId,
+      if (form.proveedor.trim()) {
+        try { await upsertProvider(form.proveedor.trim()) } catch { /* no bloquea */ }
+      }
+      const gastoPayload = {
+        project_id: (isGAV || !form.obraId) ? null : form.obraId,
         monto: parseInt(form.monto),
         categoria: form.categoria,
         proveedor: form.proveedor,
         fecha: form.fecha,
         medio_pago: form.medioPago,
+        plazo_credito: form.medioPago === 'credito' ? form.plazoCredito : null,
         comentario: form.comentario || null,
         documento_url: docUrl,
         lat: geo?.lat ? parseFloat(geo.lat) : null,
         lng: geo?.lng ? parseFloat(geo.lng) : null,
-        usuario_id: user?.id ?? null,
+        usuario_id: user?.id || null,
         estado: 'pendiente',
-      })
+      }
+      await createGasto(gastoPayload)
       setSaved(true)
     } catch (err) {
+      console.error('Error al guardar gasto:', err)
       setSaveError(err?.message || 'No se pudo guardar. Intenta de nuevo.')
     } finally {
       setSaving(false)
@@ -105,14 +111,14 @@ export default function NuevoGasto() {
   }
 
   const reset = () => {
-    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError('')
-    setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'transferencia', comentario:'' })
+    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError(''); setIsGAV(false)
+    setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'contado', plazoCredito:1, comentario:'' })
   }
 
   const selectedObra = obras.find(o => o.id === form.obraId)
   const [triedStep1, setTriedStep1] = useState(false)
   const [triedStep2, setTriedStep2] = useState(false)
-  const canStep1 = !!form.obraId
+  const canStep1 = isGAV || !!form.obraId
   const canStep2 = !!form.monto && !!form.proveedor
 
   /* ── Success screen ─────────────────────────── */
@@ -126,9 +132,9 @@ export default function NuevoGasto() {
           <CheckCircle2 size={44} style={{ color: 'var(--green)' }} />
         </div>
         <h2 className="font-display font-bold text-2xl mb-2" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>
-          ¡Gasto guardado!
+          ¡Egreso guardado!
         </h2>
-        <p className="text-sm mb-1.5" style={{ color: 'var(--muted)' }}>El gasto fue registrado correctamente.</p>
+        <p className="text-sm mb-1.5" style={{ color: 'var(--muted)' }}>El egreso fue registrado correctamente.</p>
         {geo && (
           <p className="text-[11px] mb-10 flex items-center gap-1.5" style={{ color: 'var(--subtle)' }}>
             <MapPin size={10} />
@@ -136,7 +142,7 @@ export default function NuevoGasto() {
           </p>
         )}
         <div className="flex gap-3 flex-col sm:flex-row w-full max-w-xs">
-          <button onClick={reset} className="btn-primary justify-center flex-1">Subir otro gasto</button>
+          <button onClick={reset} className="btn-primary justify-center flex-1">Subir otro egreso</button>
           <button onClick={() => navigate('/dashboard')} className="btn-secondary justify-center flex-1">Dashboard</button>
         </div>
       </div>
@@ -155,10 +161,10 @@ export default function NuevoGasto() {
           <ArrowLeft size={14} /> {step > 1 ? 'Atrás' : 'Volver'}
         </button>
         <h1 className="font-display font-bold text-[26px] leading-none" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>
-          Subir Gasto
+          Subir Egreso
         </h1>
         <p className="text-[12px] mt-1.5" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>
-          PASO {step}/3 — {step === 1 ? 'OBRA Y DOCUMENTO' : step === 2 ? 'DATOS DEL GASTO' : 'CONFIRMAR'}
+          PASO {step}/3 — {step === 1 ? 'OBRA Y DOCUMENTO' : step === 2 ? 'DATOS DEL EGRESO' : 'CONFIRMAR'}
         </p>
       </div>
 
@@ -179,6 +185,32 @@ export default function NuevoGasto() {
       {/* ── Step 1: Obra + documento ─────────────── */}
       {step === 1 && (
         <div className="space-y-4 page-enter">
+          {/* Tipo de egreso */}
+          <div className="card p-5">
+            <label className="label mb-2">Tipo de egreso</label>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {[
+                { value: false, label: 'Egreso de obra', sub: 'CDO / materiales / MO' },
+                { value: true,  label: 'Gasto general',  sub: 'GAV — sin obra asignada' },
+              ].map(opt => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => { setIsGAV(opt.value); set('obraId', ''); set('categoria', opt.value ? 'sueldos' : 'materiales') }}
+                  className="text-left p-3 rounded-xl transition-all"
+                  style={{
+                    background: isGAV === opt.value ? 'var(--amber-dim)' : 'var(--bg-surface)',
+                    border: `1px solid ${isGAV === opt.value ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
+                  }}
+                >
+                  <p className="text-sm font-semibold" style={{ color: isGAV === opt.value ? 'var(--amber)' : 'var(--text)' }}>{opt.label}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)', fontFamily: 'DM Mono' }}>{opt.sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {!isGAV && (
           <div className="card p-5">
             <label className="label">Selecciona la obra</label>
             <div className="space-y-2 mt-2">
@@ -222,6 +254,7 @@ export default function NuevoGasto() {
               })}
             </div>
           </div>
+          )}
 
           <div className="card p-5">
             <label className="label">Documento (opcional)</label>
@@ -261,7 +294,7 @@ export default function NuevoGasto() {
           </div>
 
           {triedStep1 && !canStep1 && (
-            <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ Selecciona una obra para continuar</p>
+            <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ Selecciona una obra o marca como Gasto General</p>
           )}
           <button onClick={() => { if (!canStep1) { setTriedStep1(true); return } setStep(2) }} className="btn-primary w-full justify-center">
             Continuar <ArrowRight size={15} />
@@ -295,74 +328,126 @@ export default function NuevoGasto() {
             {/* Categoría */}
             <div>
               <label className="label">Categoría</label>
-              <div className="space-y-3 mt-2">
-                {Object.entries(CATEGORIAS_GRUPOS).map(([grupo, cats]) => (
-                  <div key={grupo}>
-                    <p className="text-[10px] font-bold uppercase tracking-widest mb-2 px-0.5"
-                      style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>
-                      {grupo}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {cats.map(c => {
-                        const active = form.categoria === c.value
-                        return (
-                          <button
-                            key={c.value}
-                            onClick={() => set('categoria', c.value)}
-                            className="p-3 rounded-xl text-left transition-all duration-150"
-                            style={{
-                              background: active ? 'var(--bg-elevated)' : 'var(--bg-surface)',
-                              border: `1px solid ${active ? 'var(--border-light)' : 'var(--border)'}`,
-                              boxShadow: active ? `0 0 12px rgba(255,149,0,0.08)` : 'none',
-                            }}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="w-2 h-2 rounded-full flex-shrink-0"
-                                style={{ background: c.color, boxShadow: active ? `0 0 8px ${c.color}` : 'none' }}
-                              />
-                              <span className="text-[12px] font-medium" style={{ color: active ? 'var(--text)' : 'var(--muted)' }}>
-                                {c.label}
-                              </span>
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
+              <p className="text-[10px] font-bold uppercase tracking-widest mt-2 mb-2 px-0.5"
+                style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>
+                {isGAV ? 'Gastos Generales (GAV)' : 'Costo Directo de la Obra'}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(isGAV ? CATS_GAV : CATS_CDO).map(c => {
+                  const active = form.categoria === c.value
+                  return (
+                    <button
+                      key={c.value}
+                      onClick={() => set('categoria', c.value)}
+                      className="p-3 rounded-xl text-left transition-all duration-150"
+                      style={{
+                        background: active ? 'var(--bg-elevated)' : 'var(--bg-surface)',
+                        border: `1px solid ${active ? 'var(--border-light)' : 'var(--border)'}`,
+                        boxShadow: active ? `0 0 12px rgba(255,149,0,0.08)` : 'none',
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ background: c.color, boxShadow: active ? `0 0 8px ${c.color}` : 'none' }}
+                        />
+                        <span className="text-[12px] font-medium" style={{ color: active ? 'var(--text)' : 'var(--muted)' }}>
+                          {c.label}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </div>
 
             {/* Proveedor */}
-            <div>
+            <div className="relative">
               <label className="label">Proveedor</label>
               <input
                 className="input"
                 placeholder="Nombre del proveedor"
                 value={form.proveedor}
-                onChange={e => set('proveedor', e.target.value)}
+                autoComplete="off"
+                onChange={e => {
+                  const v = e.target.value
+                  set('proveedor', v)
+                  if (v.length >= 1) {
+                    const matches = providers.filter(p => p.nombre.toLowerCase().includes(v.toLowerCase())).slice(0, 6)
+                    setProvSuggestions(matches)
+                    setShowProvDrop(matches.length > 0)
+                  } else {
+                    setShowProvDrop(false)
+                  }
+                }}
+                onBlur={() => setTimeout(() => setShowProvDrop(false), 150)}
+                onFocus={() => {
+                  if (form.proveedor.length >= 1 && provSuggestions.length > 0) setShowProvDrop(true)
+                }}
                 style={{ borderColor: triedStep2 && !form.proveedor ? 'var(--red)' : undefined }}
               />
+              {showProvDrop && (
+                <div
+                  className="absolute left-0 right-0 z-20 rounded-xl overflow-hidden shadow-2xl mt-1"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}
+                >
+                  {provSuggestions.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={() => { set('proveedor', p.nombre); setShowProvDrop(false) }}
+                      className="w-full text-left px-4 py-2.5 text-sm transition-colors"
+                      style={{ color: 'var(--text)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      {p.nombre}
+                    </button>
+                  ))}
+                </div>
+              )}
               {triedStep2 && !form.proveedor && <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono', marginTop: 4 }}>⚠ Ingresa el proveedor</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Fecha</label>
-                <input type="date" className="input" value={form.fecha} onChange={e => set('fecha', e.target.value)} />
+            <div>
+              <label className="label">Fecha</label>
+              <input type="date" className="input" value={form.fecha} onChange={e => set('fecha', e.target.value)} />
+            </div>
+
+            <div>
+              <label className="label">Medio de pago</label>
+              <div className="flex gap-2 mt-2">
+                {[{ value: 'contado', label: 'Al Contado' }, { value: 'credito', label: 'Crédito' }].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => set('medioPago', opt.value)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150"
+                    style={{
+                      background: form.medioPago === opt.value ? 'var(--amber)' : 'var(--bg-surface)',
+                      color:      form.medioPago === opt.value ? '#000' : 'var(--muted)',
+                      border:     `1px solid ${form.medioPago === opt.value ? 'transparent' : 'var(--border)'}`,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label className="label">Medio de pago</label>
-                <select className="select" value={form.medioPago} onChange={e => set('medioPago', e.target.value)}>
-                  {MEDIOS_PAGO.map(m => <option key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>)}
-                </select>
-              </div>
+              {form.medioPago === 'credito' && (
+                <div className="mt-3">
+                  <label className="label">Plazo</label>
+                  <select className="select mt-1" value={form.plazoCredito} onChange={e => set('plazoCredito', parseInt(e.target.value))}>
+                    {PLAZOS_CREDITO.map(p => (
+                      <option key={p} value={p}>{p} {p === 1 ? 'mes' : 'meses'}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div>
               <label className="label">Comentario</label>
-              <textarea className="input resize-none" rows={3} placeholder="Descripción del gasto..." value={form.comentario} onChange={e => set('comentario', e.target.value)} />
+              <textarea className="input resize-none" rows={3} placeholder="Descripción del egreso..." value={form.comentario} onChange={e => set('comentario', e.target.value)} />
             </div>
           </div>
 
@@ -379,11 +464,11 @@ export default function NuevoGasto() {
             <h3 className="section-title mb-3">Resumen</h3>
 
             {[
-              { label: 'Obra',         value: selectedObra?.nombre },
+              { label: 'Obra',         value: isGAV ? 'Sin obra (Gasto General)' : selectedObra?.nombre },
               { label: 'Proveedor',    value: form.proveedor },
               { label: 'Categoría',    value: CATEGORIAS_GASTO[form.categoria]?.label },
               { label: 'Fecha',        value: form.fecha },
-              { label: 'Medio de pago',value: form.medioPago },
+              { label: 'Medio de pago', value: form.medioPago === 'credito' ? `Crédito — ${form.plazoCredito} ${form.plazoCredito === 1 ? 'mes' : 'meses'}` : 'Al Contado' },
               { label: 'Comentario',   value: form.comentario || '—' },
             ].map(({ label, value }) => (
               <div
@@ -455,7 +540,7 @@ export default function NuevoGasto() {
           >
             {saving
               ? <><Loader2 size={16} className="animate-spin" /> Guardando...</>
-              : <><CheckCircle2 size={16} /> Guardar Gasto</>
+              : <><CheckCircle2 size={16} /> Guardar Egreso</>
             }
           </button>
         </div>
