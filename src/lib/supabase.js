@@ -6,24 +6,55 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publisha
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     autoRefreshToken: true,
-    detectSessionInUrl: false,
+    detectSessionInUrl: true,
     persistSession: true,
   },
 })
 
+// ── Multi-tenancy ─────────────────────────────────────────────
+let currentEmpresaId = null
+
+export function setEmpresaId(id) {
+  currentEmpresaId = id
+}
+
+export async function getUserCompanies(userId) {
+  const { data: memberships, error: e1 } = await supabase
+    .from('user_companies')
+    .select('rol, empresa_id')
+    .eq('user_id', userId)
+  if (e1) throw e1
+  if (!memberships?.length) return []
+
+  const ids = memberships.map(m => m.empresa_id)
+  const { data: companies, error: e2 } = await supabase
+    .from('companies')
+    .select('id, nombre, slug')
+    .in('id', ids)
+  if (e2) throw e2
+
+  return memberships.map(m => {
+    const co = (companies ?? []).find(c => c.id === m.empresa_id)
+    return { empresa_id: m.empresa_id, nombre: co?.nombre, slug: co?.slug, rol: m.rol }
+  })
+}
 
 // ── Projects ──────────────────────────────────────────────────
 export async function getObras() {
   const { data, error } = await supabase
     .from('projects')
     .select('*, clients(nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .order('created_at', { ascending: false })
   if (error) throw error
   return data
 }
 
 export async function createObra(obra) {
-  const { data, error } = await supabase.from('projects').insert([obra]).select()
+  const { data, error } = await supabase
+    .from('projects')
+    .insert([{ ...obra, empresa_id: currentEmpresaId }])
+    .select()
   if (error) throw error
   return data[0]
 }
@@ -58,7 +89,7 @@ export async function getAdditionalSales(projectId) {
 export async function getAllAdditionalSales() {
   const { data, error } = await supabase
     .from('additional_sales')
-    .select('project_id, monto')
+    .select('project_id, monto, tipo')
   if (error) throw error
   return data ?? []
 }
@@ -80,7 +111,9 @@ export async function deleteAdditionalSale(id) {
 
 // ── Expenses ──────────────────────────────────────────────────
 export async function getGastos(obraId) {
-  let query = supabase.from('expenses').select('*').order('fecha', { ascending: false })
+  let query = supabase.from('expenses').select('*')
+    .eq('empresa_id', currentEmpresaId)
+    .order('fecha', { ascending: false })
   if (obraId) query = query.eq('project_id', obraId)
   const { data, error } = await query
   if (error) throw error
@@ -91,6 +124,7 @@ export async function getEgresosCredito() {
   const { data, error } = await supabase
     .from('expenses')
     .select('*, projects(id, nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .eq('medio_pago', 'credito')
     .order('fecha', { ascending: false })
   if (error) throw error
@@ -101,6 +135,7 @@ export async function getGastosDetallado({ obraId, fechaDesde, fechaHasta } = {}
   let query = supabase
     .from('expenses')
     .select('*, projects(id, nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .order('fecha', { ascending: false })
   if (obraId)     query = query.eq('project_id', obraId)
   if (fechaDesde) query = query.gte('fecha', fechaDesde)
@@ -111,7 +146,10 @@ export async function getGastosDetallado({ obraId, fechaDesde, fechaHasta } = {}
 }
 
 export async function createGasto(gasto) {
-  const { data, error } = await supabase.from('expenses').insert([gasto]).select()
+  const { data, error } = await supabase
+    .from('expenses')
+    .insert([{ ...gasto, empresa_id: currentEmpresaId }])
+    .select()
   if (error) throw error
   return data[0]
 }
@@ -137,11 +175,43 @@ export async function uploadDocumento(obraId, file) {
 }
 
 export async function getDocumentos(obraId) {
-  let query = supabase.from('documents').select('*').order('fecha', { ascending: false })
+  let query = supabase.from('documents').select('*')
+    .eq('empresa_id', currentEmpresaId)
+    .order('fecha', { ascending: false })
   if (obraId) query = query.eq('project_id', obraId)
   const { data, error } = await query
   if (error) throw error
   return data
+}
+
+export async function createDocumento(doc) {
+  const { data, error } = await supabase
+    .from('documents')
+    .insert([{ ...doc, empresa_id: currentEmpresaId }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getExpensasPorObraLite() {
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('project_id, monto, categoria')
+    .eq('empresa_id', currentEmpresaId)
+    .not('project_id', 'is', null)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getAttendanceCostsPorObra() {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('project_id, costo_total')
+    .not('project_id', 'is', null)
+    .not('costo_total', 'is', null)
+  if (error) throw error
+  return data ?? []
 }
 
 // ── Accounts payable / receivable ─────────────────────────────
@@ -149,6 +219,7 @@ export async function getCuentasPagar() {
   const { data, error } = await supabase
     .from('accounts_payable')
     .select('*, projects(nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .order('fecha_vencimiento', { ascending: true })
   if (error) throw error
   return data
@@ -158,6 +229,7 @@ export async function getIngresos() {
   const { data, error } = await supabase
     .from('income')
     .select('*, projects(nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .order('fecha', { ascending: false })
   if (error) throw error
   return data ?? []
@@ -166,7 +238,7 @@ export async function getIngresos() {
 export async function createIngreso(ingreso) {
   const { data, error } = await supabase
     .from('income')
-    .insert([ingreso])
+    .insert([{ ...ingreso, empresa_id: currentEmpresaId }])
     .select()
     .single()
   if (error) throw error
@@ -192,11 +264,13 @@ export async function deleteIngreso(id) {
 // ── Users ─────────────────────────────────────────────────────
 export async function getUsuarios() {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, nombre, email, rol, avatar')
-    .order('nombre')
+    .from('user_companies')
+    .select('rol, users(id, nombre, email, avatar)')
+    .eq('empresa_id', currentEmpresaId)
   if (error) throw error
-  return data ?? []
+  return (data ?? [])
+    .map(uc => ({ ...uc.users, rol: uc.rol }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre))
 }
 
 export async function createUsuario({ email, password, nombre, rol }) {
@@ -217,6 +291,15 @@ export async function createUsuario({ email, password, nombre, rol }) {
     user_avatar: nombre.trim().slice(0, 2).toUpperCase(),
   })
   if (rpcError) throw rpcError
+
+  // Vincula al usuario con la empresa actual
+  if (currentEmpresaId) {
+    const { error: linkError } = await supabase
+      .from('user_companies')
+      .insert([{ user_id: userId, empresa_id: currentEmpresaId, rol }])
+    if (linkError) throw linkError
+  }
+
   return data.user
 }
 
@@ -246,6 +329,7 @@ export async function getCuentasCobrar() {
   const { data, error } = await supabase
     .from('accounts_receivable')
     .select('*, projects(nombre), clients(nombre)')
+    .eq('empresa_id', currentEmpresaId)
     .order('fecha_compromiso', { ascending: true })
   if (error) throw error
   return data
@@ -268,6 +352,7 @@ export async function getObrasActivas() {
   const { data, error } = await supabase
     .from('projects')
     .select('id, nombre, direccion, clave')
+    .eq('empresa_id', currentEmpresaId)
     .eq('estado', 'en_ejecucion')
     .order('nombre')
   if (error) throw error
@@ -290,6 +375,7 @@ export async function getWorkers() {
   const { data, error } = await supabase
     .from('workers')
     .select('*')
+    .eq('empresa_id', currentEmpresaId)
     .eq('activo', true)
     .order('nombre')
   if (error) throw error
@@ -300,6 +386,7 @@ export async function getAllWorkers() {
   const { data, error } = await supabase
     .from('workers')
     .select('id, nombre, avatar, valor_hora, pin, activo, created_at')
+    .eq('empresa_id', currentEmpresaId)
     .order('nombre')
   if (error) throw error
   return data
@@ -308,7 +395,7 @@ export async function getAllWorkers() {
 export async function createWorker(worker) {
   const { data, error } = await supabase
     .from('workers')
-    .insert([worker])
+    .insert([{ ...worker, empresa_id: currentEmpresaId }])
     .select('id, nombre, avatar, valor_hora, pin, activo, created_at')
     .single()
   if (error) throw error
@@ -395,6 +482,117 @@ export async function verifyWorkerPinSolo(pin) {
   return data?.[0] ?? null
 }
 
+// ── Baños Químicos ────────────────────────────────────────────
+export async function getActiveBanoByProject(projectId) {
+  const { data, error } = await supabase
+    .from('banos_quimicos')
+    .select('id, monto_mensual, proveedor')
+    .eq('empresa_id', currentEmpresaId)
+    .eq('project_id', projectId)
+    .eq('estado', 'activo')
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function getBanosQuimicos() {
+  const { data, error } = await supabase
+    .from('banos_quimicos')
+    .select('*, projects(id, nombre)')
+    .eq('empresa_id', currentEmpresaId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createBanoQuimico(bano) {
+  const { data, error } = await supabase
+    .from('banos_quimicos')
+    .insert([{ ...bano, empresa_id: currentEmpresaId }])
+    .select('*, projects(id, nombre)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateBanoQuimico(id, updates) {
+  const { data, error } = await supabase
+    .from('banos_quimicos')
+    .update(updates)
+    .eq('id', id)
+    .select('*, projects(id, nombre)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteBanoQuimico(id) {
+  const { error } = await supabase.from('banos_quimicos').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function getPagosBano(banoId) {
+  const { data, error } = await supabase
+    .from('banos_quimicos_pagos')
+    .select('*')
+    .eq('bano_id', banoId)
+    .order('fecha_pago', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createPagoBano(pago) {
+  const { data, error } = await supabase
+    .from('banos_quimicos_pagos')
+    .insert([pago])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deletePagoBano(id) {
+  const { error } = await supabase.from('banos_quimicos_pagos').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Tasks ─────────────────────────────────────────────────────
+export async function getTareas() {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*, projects(id, nombre)')
+    .eq('empresa_id', currentEmpresaId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createTarea(tarea) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert([{ ...tarea, empresa_id: currentEmpresaId }])
+    .select('*, projects(id, nombre)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateTarea(id, updates) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', id)
+    .select('*, projects(id, nombre)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteTarea(id) {
+  const { error } = await supabase.from('tasks').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ── Providers ─────────────────────────────────────────────────
 export async function getProviders() {
   const { data, error } = await supabase
@@ -417,6 +615,7 @@ export async function getProjectsList() {
   const { data, error } = await supabase
     .from('projects')
     .select('id, nombre')
+    .eq('empresa_id', currentEmpresaId)
     .order('nombre')
   if (error) throw error
   return data
@@ -474,7 +673,7 @@ export async function registrarAsistenciaManual({ workerId, projectId, fecha, ho
   if (horaSalida) {
     salidaISO = `${fecha}T${horaSalida}:00${tz}`
     horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entradaISO)) / 3600000) * 100) / 100
-    costoTotal = Math.round((horasTrabajadas / 9) * valorHora)
+    costoTotal = horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora)
   }
 
   const { data, error } = await supabase
@@ -504,8 +703,8 @@ export async function registrarEntrada(workerId, projectId, geo, valorHora) {
       project_id: projectId,
       fecha: localDateString(),
       entrada: now,
-      lat_entrada: geo.lat,
-      lng_entrada: geo.lng,
+      lat_entrada: geo?.lat ?? null,
+      lng_entrada: geo?.lng ?? null,
       valor_hora: valorHora,
     }])
     .select()
@@ -522,7 +721,7 @@ export async function actualizarSalidaManual(attendanceId, entrada, fecha, horaS
     .update({
       salida: salidaISO,
       horas_trabajadas: horasTrabajadas,
-      costo_total: Math.round((horasTrabajadas / 9) * valorHora),
+      costo_total: horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora),
     })
     .eq('id', attendanceId)
     .select()
@@ -538,10 +737,10 @@ export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
     .from('attendance')
     .update({
       salida: now,
-      lat_salida: geo.lat,
-      lng_salida: geo.lng,
+      lat_salida: geo?.lat ?? null,
+      lng_salida: geo?.lng ?? null,
       horas_trabajadas: horasTrabajadas,
-      costo_total: Math.round((horasTrabajadas / 9) * valorHora),
+      costo_total: horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora),
     })
     .eq('id', attendanceId)
     .select()
@@ -558,6 +757,25 @@ export async function getAttendanceByProject(projectId) {
     .order('entrada', { ascending: false })
   if (error) throw error
   return data
+}
+
+export async function getAttendanceRange({ desde, hasta, projectId } = {}) {
+  let q = supabase
+    .from('attendance')
+    .select(`
+      id, worker_id, project_id, fecha, entrada, salida,
+      horas_trabajadas, valor_hora, costo_total,
+      workers ( nombre, avatar ),
+      projects ( nombre )
+    `)
+    .order('fecha', { ascending: false })
+    .order('entrada', { ascending: true })
+  if (desde)      q = q.gte('fecha', desde)
+  if (hasta)      q = q.lte('fecha', hasta)
+  if (projectId)  q = q.eq('project_id', projectId)
+  const { data, error } = await q
+  if (error) throw error
+  return data ?? []
 }
 
 export async function getAllTodayAttendance() {
