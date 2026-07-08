@@ -802,6 +802,20 @@ export async function getAllTodayAttendance() {
   return data
 }
 
+// Registros con entrada marcada pero sin salida, de días anteriores a hoy
+// (el trabajador se olvidó de marcar "Me voy" y nunca volvió a marcar)
+export async function getRegistrosAbiertosAnteriores() {
+  const today = localDateString()
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('id, worker_id, project_id, fecha, entrada, workers(nombre, avatar), projects(nombre)')
+    .is('salida', null)
+    .lt('fecha', today)
+    .order('fecha', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
 /*
   ── Supabase Schema ──────────────────────────────────────────
   Run this SQL in Supabase SQL Editor to create all tables:

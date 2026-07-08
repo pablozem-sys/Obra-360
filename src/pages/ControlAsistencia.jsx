@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, Pencil, Eye, EyeOff, Hash, Trash2 } from 'lucide-react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Hash, Trash2 } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import {
@@ -16,6 +16,7 @@ import {
   createObra,
   registrarAsistenciaManual,
   actualizarSalidaManual,
+  getRegistrosAbiertosAnteriores,
 } from '../lib/supabase'
 
 /* ── Time Picker ─────────────────────────────────────────────── */
@@ -150,6 +151,8 @@ export default function ControlAsistencia() {
   const [loading, setLoading]       = useState(true)
   const [filtroObra, setFiltroObra] = useState('all')
   const [filtroFecha, setFiltroFecha] = useState(HOY)
+  const [soloAbiertos, setSoloAbiertos] = useState(false)
+  const [abiertosAnteriores, setAbiertosAnteriores] = useState([])
 
   // Nuevo trabajador
   const [showForm, setShowForm]     = useState(false)
@@ -235,9 +238,17 @@ export default function ControlAsistencia() {
       loadWorkers(),
       getProjectsList().then(setProjects).catch(() => setProjects([])),
       getObrasActivas().then(setObrasActivas).catch(() => setObrasActivas([])),
+      getRegistrosAbiertosAnteriores().then(setAbiertosAnteriores).catch(() => setAbiertosAnteriores([])),
     ]).finally(() => { clearTimeout(timeout); setLoading(false) })
     return () => clearTimeout(timeout)
   }, [])
+
+  const verAbiertosAnteriores = () => {
+    setFiltroFecha('')
+    setFiltroObra('all')
+    setSoloAbiertos(true)
+    setTab('registros')
+  }
 
   useEffect(() => {
     if (!loading) loadRegistros()
@@ -269,6 +280,7 @@ export default function ControlAsistencia() {
   const enObra     = registros.filter(r => !r.salida).length
   const totalHoras = registros.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0)
   const totalCosto = registros.reduce((s, r) => s + (r.costo_total ?? 0), 0)
+  const registrosVisibles = soloAbiertos ? registros.filter(r => !r.salida) : registros
 
   // Costo por proyecto
   const costoPorObra = projects
@@ -526,6 +538,23 @@ export default function ControlAsistencia() {
         </div>
       </div>
 
+      {/* Aviso: registros de días anteriores sin salida marcada */}
+      {abiertosAnteriores.length > 0 && (
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'rgba(255,149,0,0.08)', border: '1px solid rgba(255,149,0,0.3)' }}
+        >
+          <AlertTriangle size={16} style={{ color: 'var(--amber)' }} className="flex-shrink-0" />
+          <p className="text-sm flex-1" style={{ color: 'var(--text)' }}>
+            <span className="font-semibold">{abiertosAnteriores.length}</span>{' '}
+            {abiertosAnteriores.length === 1 ? 'registro sin' : 'registros sin'} salida marcada (días anteriores)
+          </p>
+          <button onClick={verAbiertosAnteriores} className="btn-secondary text-xs flex-shrink-0" style={{ padding: '6px 12px' }}>
+            Ver
+          </button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         {[
@@ -571,6 +600,15 @@ export default function ControlAsistencia() {
               {filtroFecha && (
                 <button onClick={() => setFiltroFecha('')} className="btn-ghost text-sm" style={{ color: 'var(--muted)' }}>
                   Limpiar
+                </button>
+              )}
+              {soloAbiertos && (
+                <button
+                  onClick={() => setSoloAbiertos(false)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold"
+                  style={{ background: 'rgba(255,149,0,0.12)', color: 'var(--amber)', border: '1px solid rgba(255,149,0,0.3)' }}
+                >
+                  Solo sin cerrar <X size={12} />
                 </button>
               )}
             </div>
@@ -683,7 +721,7 @@ export default function ControlAsistencia() {
           {/* Records table */}
           <div className="card overflow-hidden">
             <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h2 className="section-title">Registros ({registros.length})</h2>
+              <h2 className="section-title">Registros ({registrosVisibles.length})</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[580px]">
@@ -697,7 +735,7 @@ export default function ControlAsistencia() {
                   </tr>
                 </thead>
                 <tbody>
-                  {registros.map(r => {
+                  {registrosVisibles.map(r => {
                     const abierto = !r.salida
                     const isEditing = editingRecord === r.id
                     return (
@@ -794,7 +832,7 @@ export default function ControlAsistencia() {
                       </>
                     )
                   })}
-                  {registros.length === 0 && (
+                  {registrosVisibles.length === 0 && (
                     <tr>
                       <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
                         Sin registros para este filtro

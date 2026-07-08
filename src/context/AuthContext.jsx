@@ -75,15 +75,18 @@ export function AuthProvider({ children }) {
       }
     } catch { /* ignorar */ }
 
-    const timeout = setTimeout(() => setLoading(false), 5000)
-    const sessionPromise = supabase.auth.getSession()
-    const fallback = new Promise(r => setTimeout(() => r({ data: { session: null } }), 4000))
-    Promise.race([sessionPromise, fallback]).then(async ({ data: { session: s } }) => {
-      clearTimeout(timeout)
+    // Red de seguridad: si getSession() se cuelga de verdad (caso raro), deja
+    // de mostrar el spinner — pero NUNCA asume "sin sesión" por un timeout.
+    // Antes había un fallback a los 4s que resolvía session:null y expulsaba
+    // al usuario a la Landing aunque su sesión fuera válida (condición de
+    // carrera). Ver docs/RUNBOOK.md sección 4.2.
+    const safetyTimeout = setTimeout(() => setLoading(false), 15000)
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (s) {
         const profile = await fetchUserProfile(s.user.id, s.user)
         setSession({ user: profile })
       }
+      clearTimeout(safetyTimeout)
       setLoading(false)
     })
 
