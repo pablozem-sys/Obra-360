@@ -1070,7 +1070,7 @@ export default function ControlAsistencia() {
             </div>
           ) : (
             <div>
-              {workers.map(w => (
+              {workers.map((w, i) => (
                 <div
                   key={w.id}
                   style={{
@@ -1080,6 +1080,14 @@ export default function ControlAsistencia() {
                 >
                   {/* Fila principal */}
                   <div className="flex items-center gap-3 px-5 py-4">
+                    {/* N° */}
+                    <span
+                      className="w-5 flex-shrink-0 text-center num text-[12px] font-semibold"
+                      style={{ color: 'var(--subtle)' }}
+                    >
+                      {i + 1}
+                    </span>
+
                     {/* Avatar */}
                     <div
                       className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-display font-bold text-sm"
