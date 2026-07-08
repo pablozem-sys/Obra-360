@@ -161,3 +161,8 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 ## Nueva categoría "Retiros" en Gastos Generales (2026-07-08)
 
 - Al subir un egreso tipo "Gasto General" (GAV), ahora se puede elegir la categoría "Retiros"
+
+## Aviso de asistencias sin cerrar + fix de sesión (2026-07-08)
+
+- Si un trabajador marca "Llegué" y se olvida de marcar "Me voy", antes ese registro quedaba invisible para el administrador. Ahora Control de Asistencia muestra un aviso permanente con la cantidad de registros pendientes de días anteriores, con un botón para verlos y cerrarlos a mano
+- Se corrigió un bug de fondo que a veces cerraba la sesión del usuario sin motivo al recargar la página completa
