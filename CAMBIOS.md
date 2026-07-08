@@ -146,3 +146,9 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 - **Causa raíz encontrada:** el bucket de Storage `documents` no tenía política de seguridad (RLS) que permitiera subir archivos a usuarios logueados — por eso toda subida fallaba, en cualquier obra
 - Se agregó la política en Supabase (INSERT/SELECT/DELETE para usuarios autenticados)
 - Además, en "Subir Egreso" y en "Venta Adicional" (dentro de una obra): si el documento no se puede adjuntar, ahora se muestra una advertencia clara — antes el egreso/venta se guardaba igual pero sin avisar que el archivo se había perdido
+
+## Fix: documentos de Egresos y Venta Adicional no aparecían en Biblioteca (2026-07-08)
+
+- **Causa raíz:** "Subir Egreso" y "Venta Adicional" guardaban el archivo solo en su propio registro, pero nunca lo agregaban a Biblioteca — solo el botón "Subir documento" de la card de Obras lo hacía
+- Ahora los 3 lugares donde se puede subir un documento (Obras, Subir Egreso, Venta Adicional) lo dejan visible en Biblioteca
+- El documento que ya habías subido hoy ("Programa POLPAICO 2026.jpg") ya aparece en Biblioteca — se corrigió a mano
