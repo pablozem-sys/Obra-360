@@ -277,37 +277,37 @@ export default function Obras() {
                 {/* Métricas */}
                 <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Venta</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Venta</p>
                     <p className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Saldo Pend.</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Saldo</p>
                     <p className="num text-sm font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>CDO</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>CDO</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.cdo > 0 ? formatCLP(m.cdo) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>M.O.</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>M.O.</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.mod > 0 ? formatCLP(m.mod) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>% Margen</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>% Margen</p>
                     <p className="num text-[11px] font-semibold" style={{ color: margenColor }}>
                       {margenPct !== null ? `${margenPct}%` : '—'}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Inicio</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Inicio</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_inicio)}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Término</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Término</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_termino)}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>N° Días</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>N° Días</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{dias !== null ? dias : '—'}</p>
                   </div>
                 </div>
