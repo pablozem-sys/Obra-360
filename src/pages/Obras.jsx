@@ -275,13 +275,11 @@ export default function Obras() {
                 </div>
 
                 {/* Métricas */}
-                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
-                  <div>
+                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
+                  <div className="col-span-2 sm:col-span-1">
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Venta</p>
                     <p className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Saldo</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5 mt-2 whitespace-nowrap" style={labelStyle}>Saldo</p>
                     <p className="num text-sm font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
                   </div>
                   <div>
