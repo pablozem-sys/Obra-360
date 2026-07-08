@@ -157,3 +157,7 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 
 - Cada documento en Biblioteca ahora tiene un botón de eliminar (ícono de basurero al pasar el mouse), con confirmación antes de borrar
 - Borra tanto el archivo en Storage como el registro, para no dejar basura
+
+## Nueva categoría "Retiros" en Gastos Generales (2026-07-08)
+
+- Al subir un egreso tipo "Gasto General" (GAV), ahora se puede elegir la categoría "Retiros"
