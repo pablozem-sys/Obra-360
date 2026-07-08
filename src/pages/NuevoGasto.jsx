@@ -4,7 +4,7 @@ import {
   ArrowLeft, ArrowRight, Upload, CheckCircle2,
   MapPin, Camera, X, Loader2
 } from 'lucide-react'
-import { getObras, createGasto, uploadDocumento, getProviders, upsertProvider } from '../lib/supabase'
+import { getObras, createGasto, uploadDocumento, createDocumento, getProviders, upsertProvider } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIAS_GASTO, TIPOS_OBRA, formatCLP } from '../lib/helpers'
 
@@ -106,6 +106,21 @@ export default function NuevoGasto() {
         estado: 'pendiente',
       }
       await createGasto(gastoPayload)
+
+      if (docUrl) {
+        try {
+          await createDocumento({
+            project_id: gastoPayload.project_id,
+            tipo: 'comprobante',
+            nombre: form.archivoNombre || 'Comprobante de egreso',
+            archivo_url: docUrl,
+            fecha: form.fecha,
+          })
+        } catch (err) {
+          console.error('Error al registrar documento en Biblioteca:', err)
+        }
+      }
+
       setSaved(true)
     } catch (err) {
       console.error('Error al guardar gasto:', err)

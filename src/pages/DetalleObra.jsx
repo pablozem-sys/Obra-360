@@ -11,7 +11,7 @@ import {
   getObras, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
   getAdditionalSales, createAdditionalSale, deleteAdditionalSale,
-  updateGasto, deleteGasto, uploadDocumento,
+  updateGasto, deleteGasto, uploadDocumento, createDocumento,
 } from '../lib/supabase'
 import {
   formatCLP, formatDate,
@@ -222,6 +222,22 @@ export default function DetalleObra() {
         documento_url: docUrl,
       })
       setAdditionalSales(prev => [nueva, ...prev])
+
+      if (docUrl) {
+        try {
+          const nuevoDoc = await createDocumento({
+            project_id: id,
+            tipo: 'comprobante',
+            nombre: ventaFileName || ventaDesc.trim(),
+            archivo_url: docUrl,
+            fecha: new Date().toISOString().split('T')[0],
+          })
+          setDocs(prev => [nuevoDoc, ...prev])
+        } catch (err) {
+          console.error('Error al registrar documento en Biblioteca:', err)
+        }
+      }
+
       setShowAddVenta(false)
       setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null)
     } catch (err) {
