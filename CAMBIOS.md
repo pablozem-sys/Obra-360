@@ -166,3 +166,8 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 
 - Si un trabajador marca "Llegué" y se olvida de marcar "Me voy", antes ese registro quedaba invisible para el administrador. Ahora Control de Asistencia muestra un aviso permanente con la cantidad de registros pendientes de días anteriores, con un botón para verlos y cerrarlos a mano
 - Se corrigió un bug de fondo que a veces cerraba la sesión del usuario sin motivo al recargar la página completa
+
+## Horarios en formato 24h (2026-07-08)
+
+- El registro manual de asistencia y la edición de hora de salida ya no usan AM/PM — ahora es formato 24 horas (ej. "17:30" en vez de "05:30 p. m.")
+- Los horarios mostrados en las tablas de asistencia también se actualizaron al mismo formato
