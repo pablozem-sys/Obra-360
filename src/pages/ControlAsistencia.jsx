@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Hash, Trash2 } from 'lucide-react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Hash, Trash2, Search } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import {
@@ -141,6 +141,15 @@ export default function ControlAsistencia() {
   const [pinError, setPinError]       = useState('')
   const [showPins, setShowPins]       = useState({})
 
+  // Nombre inline edit por worker
+  const [editingNombre, setEditingNombre] = useState(null)
+  const [nombreValue, setNombreValue]     = useState('')
+  const [nombreSaving, setNombreSaving]   = useState(false)
+  const [nombreError, setNombreError]     = useState('')
+
+  // Buscador de trabajadores
+  const [buscarWorker, setBuscarWorker] = useState('')
+
   // Obras asignadas por worker
   const [obrasActivas, setObrasActivas]       = useState([])
   const [expandedObras, setExpandedObras]     = useState(null)  // worker id
@@ -253,6 +262,9 @@ export default function ControlAsistencia() {
   const totalHoras = registros.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0)
   const totalCosto = registros.reduce((s, r) => s + (r.costo_total ?? 0), 0)
   const registrosVisibles = soloAbiertos ? registros.filter(r => !r.salida) : registros
+  const workersFiltrados = buscarWorker.trim()
+    ? workers.filter(w => w.nombre?.toLowerCase().includes(buscarWorker.trim().toLowerCase()))
+    : workers
 
   // Costo por proyecto
   const costoPorObra = projects
@@ -442,6 +454,20 @@ export default function ControlAsistencia() {
       setPinValue('')
     } catch { /* silent */ }
     finally { setPinSaving(false) }
+  }
+
+  const handleGuardarNombre = async (worker) => {
+    const nombre = nombreValue.trim()
+    if (!nombre) { setNombreError('Ingresa un nombre'); return }
+    setNombreError('')
+    setNombreSaving(true)
+    try {
+      const updated = await updateWorker(worker.id, { nombre, avatar: initials(nombre) })
+      setWorkers(prev => prev.map(w => w.id === worker.id ? { ...w, ...updated } : w))
+      setEditingNombre(null)
+      setNombreValue('')
+    } catch { setNombreError('Error al guardar') }
+    finally { setNombreSaving(false) }
   }
 
   const handleToggleActivo = async (worker) => {
@@ -988,7 +1014,7 @@ export default function ControlAsistencia() {
             style={{ borderBottom: '1px solid var(--border)' }}
           >
             <div>
-              <h2 className="section-title">Trabajadores ({workers.length})</h2>
+              <h2 className="section-title">Trabajadores ({workersFiltrados.length})</h2>
               <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
                 Solo los activos aparecen en el kiosco de asistencia
               </p>
@@ -1001,6 +1027,20 @@ export default function ControlAsistencia() {
               {showForm ? <X size={13} /> : <Plus size={13} />}
               {showForm ? 'Cancelar' : 'Nuevo'}
             </button>
+          </div>
+
+          {/* Buscador */}
+          <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="relative">
+              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--subtle)' }} />
+              <input
+                type="text"
+                placeholder="Buscar trabajador..."
+                value={buscarWorker}
+                onChange={e => setBuscarWorker(e.target.value)}
+                className="input pl-10 text-sm"
+              />
+            </div>
           </div>
 
           {/* Nuevo trabajador form */}
@@ -1073,14 +1113,18 @@ export default function ControlAsistencia() {
           )}
 
           {/* Workers list */}
-          {workers.length === 0 ? (
+          {workersFiltrados.length === 0 ? (
             <div className="py-14 text-center">
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay trabajadores registrados</p>
-              <p className="text-[12px] mt-1" style={{ color: 'var(--subtle)' }}>Agrega el primero con el botón "Nuevo"</p>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                {buscarWorker.trim() ? 'Sin resultados para tu búsqueda' : 'No hay trabajadores registrados'}
+              </p>
+              <p className="text-[12px] mt-1" style={{ color: 'var(--subtle)' }}>
+                {buscarWorker.trim() ? 'Prueba con otro nombre' : 'Agrega el primero con el botón "Nuevo"'}
+              </p>
             </div>
           ) : (
             <div>
-              {workers.map((w, i) => (
+              {workersFiltrados.map((w, i) => (
                 <div
                   key={w.id}
                   style={{
@@ -1112,7 +1156,42 @@ export default function ControlAsistencia() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{w.nombre}</p>
+                      {editingNombre === w.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            className="input"
+                            value={nombreValue}
+                            onChange={e => { setNombreValue(e.target.value); setNombreError('') }}
+                            onKeyDown={e => { if (e.key === 'Enter') handleGuardarNombre(w); if (e.key === 'Escape') { setEditingNombre(null); setNombreValue(''); setNombreError('') } }}
+                            autoFocus
+                            style={{ width: 180, fontSize: 13, padding: '3px 8px' }}
+                          />
+                          <button
+                            onClick={() => handleGuardarNombre(w)}
+                            disabled={nombreSaving}
+                            className="p-1 rounded-md disabled:opacity-40"
+                            style={{ background: 'var(--amber)', color: '#000' }}
+                          >
+                            {nombreSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                          </button>
+                          <button
+                            onClick={() => { setEditingNombre(null); setNombreValue(''); setNombreError('') }}
+                            className="p-1 rounded-md"
+                            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                          >
+                            <X size={11} style={{ color: 'var(--subtle)' }} />
+                          </button>
+                          {nombreError && <span style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'DM Mono' }}>{nombreError}</span>}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingNombre(w.id); setNombreValue(w.nombre); setNombreError('') }}
+                          className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
+                        >
+                          <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{w.nombre}</span>
+                          <Pencil size={10} style={{ color: 'var(--subtle)' }} />
+                        </button>
+                      )}
                       <p className="text-[12px] num" style={{ color: 'var(--muted)' }}>
                         {formatCLP(w.valor_hora)}/día
                       </p>
