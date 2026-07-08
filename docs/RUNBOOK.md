@@ -72,11 +72,11 @@ npm run preview    # sirve dist/ localmente para revisar antes de deployar
 - **Desktop:** hard refresh (`Cmd+Shift+R` en Mac). Si persiste: DevTools → Application → Service Workers → "Unregister" → recargar.
 - **Mobile / PWA instalada:** cerrar completamente la app (no solo minimizar) y reabrir. Si persiste: borrar datos de sitio/caché para `vaion.app`, o desinstalar y reinstalar el acceso directo.
 
-### 4.2 Pérdida de sesión al navegar con recarga completa
+### 4.2 Pérdida de sesión al navegar con recarga completa — **RESUELTO (2026-07-08)**
 
-**Síntoma:** el usuario tiene una sesión válida, pero al hacer una recarga completa de página (no un link interno de la app) termina en la Landing como si no estuviera logueado. Reproducido repetidamente tanto en local como en producción.
+**Síntoma:** el usuario tenía una sesión válida, pero al hacer una recarga completa de página (no un link interno de la app) terminaba en la Landing como si no estuviera logueado. Reproducido repetidamente tanto en local como en producción.
 
-**Causa raíz identificada en el código** (`src/context/AuthContext.jsx`):
+**Causa raíz que tenía el código** (`src/context/AuthContext.jsx`):
 
 ```js
 const timeout = setTimeout(() => setLoading(false), 5000)
@@ -88,11 +88,9 @@ Promise.race([sessionPromise, fallback]).then(async ({ data: { session: s } }) =
 })
 ```
 
-Si `supabase.auth.getSession()` tarda **más de 4 segundos** en resolver (red lenta, cold start, lo que sea), la carrera (`Promise.race`) la gana el `fallback`, que resuelve con `session: null` — y la app trata al usuario como si no tuviera sesión, aunque sí la tenga. Es una condición de carrera, no una expiración de sesión real.
+Si `supabase.auth.getSession()` tardaba **más de 4 segundos** en resolver (red lenta, cold start, lo que sea), la carrera (`Promise.race`) la ganaba el `fallback`, que resolvía con `session: null` — y la app trataba al usuario como si no tuviera sesión, aunque sí la tenga. Era una condición de carrera, no una expiración de sesión real.
 
-**Mitigación inmediata (workaround, no arreglado aún):** navegar por los links del Sidebar/BottomNav (navegación SPA) en vez de recargar la página o pegar URLs directamente — eso nunca dispara este código porque no vuelve a montar `AuthContext` desde cero.
-
-**Fix recomendado (pendiente de implementar):** eliminar el `fallback` de 4 segundos o aumentarlo considerablemente, y/o no tratar un timeout como "no hay sesión" sino como un estado de error distinto que reintente en vez de deslogear.
+**Fix aplicado:** se eliminó el `fallback` que asumía "sin sesión". Ahora se espera la respuesta real de `getSession()` sin límite artificial; un timeout de seguridad (15s) solo apaga el spinner en el caso extremo de que la promesa nunca resuelva, sin asumir "sin sesión" en ningún caso. Verificado con 3 recargas completas consecutivas a rutas distintas manteniendo sesión activa (antes fallaba de forma consistente).
 
 ### 4.3 Subida de documentos falla con "new row violates row-level security policy"
 
