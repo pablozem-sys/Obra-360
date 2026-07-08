@@ -81,6 +81,7 @@ export const CATEGORIAS_GASTO = {
   herramientas:     { label: 'Herramientas',     grupo: 'Gastos Generales',         color: '#34D399' },
   arriendo:         { label: 'Arriendo',         grupo: 'Gastos Generales',         color: '#60A5FA' },
   cuentas:          { label: 'Cuentas',          grupo: 'Gastos Generales',         color: '#94A3B8' },
+  retiros:          { label: 'Retiros',          grupo: 'Gastos Generales',         color: '#2DD4BF' },
   otros:            { label: 'Otros',            grupo: 'Gastos Generales',         color: '#64748B' },
   // Automático — generado desde Asistencia, no aparece en formularios
   mano_obra:        { label: 'Mano de obra',     grupo: 'Automático',               color: '#8B5CF6', auto: true },
