@@ -30,6 +30,7 @@ export default function NuevoGasto() {
   const [obras, setObras]       = useState([])
   const [obrasLoading, setObrasLoading] = useState(true)
   const [archivoFile, setArchivoFile] = useState(null)
+  const [docUploadFailed, setDocUploadFailed] = useState(false)
   const [providers, setProviders]     = useState([])
   const [provSuggestions, setProvSuggestions] = useState([])
   const [showProvDrop, setShowProvDrop] = useState(false)
@@ -73,6 +74,7 @@ export default function NuevoGasto() {
   const handleSave = async () => {
     setSaving(true)
     setSaveError('')
+    setDocUploadFailed(false)
     try {
       let docUrl = null
       if (archivoFile) {
@@ -80,7 +82,10 @@ export default function NuevoGasto() {
           const uploadPath = isGAV ? 'gav' : (form.obraId || 'sin-obra')
           const { url } = await uploadDocumento(uploadPath, archivoFile)
           docUrl = url
-        } catch { /* guarda el gasto igual, sin documento */ }
+        } catch (err) {
+          console.error('Error al subir documento:', err)
+          setDocUploadFailed(true)
+        }
       }
       if (form.proveedor.trim()) {
         try { await upsertProvider(form.proveedor.trim()) } catch { /* no bloquea */ }
@@ -111,7 +116,7 @@ export default function NuevoGasto() {
   }
 
   const reset = () => {
-    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError(''); setIsGAV(false)
+    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError(''); setDocUploadFailed(false); setIsGAV(false)
     setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'contado', plazoCredito:1, comentario:'' })
   }
 
@@ -135,6 +140,11 @@ export default function NuevoGasto() {
           ¡Egreso guardado!
         </h2>
         <p className="text-sm mb-1.5" style={{ color: 'var(--muted)' }}>El egreso fue registrado correctamente.</p>
+        {docUploadFailed && (
+          <p className="text-[12px] mb-1.5 px-3 py-1.5 rounded-lg" style={{ color: 'var(--red)', background: 'rgba(255,69,96,0.1)', border: '1px solid rgba(255,69,96,0.25)' }}>
+            ⚠ El documento no se pudo adjuntar. Intenta subirlo de nuevo más tarde.
+          </p>
+        )}
         {geo && (
           <p className="text-[11px] mb-10 flex items-center gap-1.5" style={{ color: 'var(--subtle)' }}>
             <MapPin size={10} />

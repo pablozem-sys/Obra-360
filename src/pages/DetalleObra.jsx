@@ -43,6 +43,7 @@ export default function DetalleObra() {
   const [ventaFileName, setVentaFileName] = useState(null)
   const [ventaSaving,   setVentaSaving]   = useState(false)
   const [ventaError,    setVentaError]    = useState('')
+  const [ventaDocFailed, setVentaDocFailed] = useState(false)
   const [confirmDeleteVentaId, setConfirmDeleteVentaId] = useState(null)
 
   // Editar / eliminar gasto
@@ -206,7 +207,13 @@ export default function DetalleObra() {
     try {
       let docUrl = null
       if (ventaFile) {
-        try { const { url } = await uploadDocumento(id, ventaFile); docUrl = url } catch { /* no bloquea */ }
+        try {
+          const { url } = await uploadDocumento(id, ventaFile)
+          docUrl = url
+        } catch (err) {
+          console.error('Error al subir documento:', err)
+          setVentaDocFailed(true)
+        }
       }
       const nueva = await createAdditionalSale({
         project_id:    id,
@@ -483,13 +490,20 @@ export default function DetalleObra() {
             <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>Extra-contratos y ampliaciones de obra</p>
           </div>
           <button
-            onClick={() => { setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaError(''); setShowAddVenta(true) }}
+            onClick={() => { setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaError(''); setVentaDocFailed(false); setShowAddVenta(true) }}
             className="btn-secondary text-sm"
             style={{ color: 'var(--amber)', borderColor: 'rgba(255,149,0,0.3)' }}
           >
             <Plus size={13} /> Agregar
           </button>
         </div>
+
+        {ventaDocFailed && (
+          <div className="mx-5 mt-4 px-3 py-2 rounded-lg flex items-center justify-between gap-2" style={{ color: 'var(--red)', background: 'rgba(255,69,96,0.1)', border: '1px solid rgba(255,69,96,0.25)' }}>
+            <p className="text-[12px]">⚠ La venta se guardó, pero el documento no se pudo adjuntar. Intenta subirlo de nuevo más tarde.</p>
+            <button onClick={() => setVentaDocFailed(false)} className="flex-shrink-0"><X size={13} /></button>
+          </div>
+        )}
 
         {additionalSales.length > 0 && (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
