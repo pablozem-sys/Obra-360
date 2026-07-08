@@ -233,7 +233,7 @@ export default function Obras() {
           <p className="font-medium" style={{ color: 'var(--muted)' }}>Sin obras para este filtro</p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="flex flex-col gap-4">
           {filtered.map(o => {
             const estadoInfo = ESTADOS_OBRA[o.estado]
             const tipoInfo   = TIPOS_OBRA[o.tipo]
@@ -247,78 +247,75 @@ export default function Obras() {
               : parseInt(margenPct) >= 20 ? 'var(--green)'
               : parseInt(margenPct) > 0   ? 'var(--amber)'
               : 'var(--red)'
+            const labelStyle = { color: 'var(--subtle)', fontFamily: 'Unbounded' }
             return (
               <div
                 key={o.id}
-                className="card-hover p-5 cursor-pointer group relative"
+                className="card-hover p-5 cursor-pointer group relative flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6"
                 onClick={() => navigate(`/obras/${o.id}`)}
               >
-                <div className="flex items-center justify-between mb-4">
-                  <Badge className={tipoInfo?.color}>{tipoInfo?.label ?? o.tipo}</Badge>
-                  <Badge className={estadoInfo?.color}>{estadoInfo?.label ?? o.estado}</Badge>
+                {/* Identidad */}
+                <div className="lg:w-56 lg:flex-shrink-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge className={tipoInfo?.color}>{tipoInfo?.label ?? o.tipo}</Badge>
+                    <Badge className={estadoInfo?.color}>{estadoInfo?.label ?? o.estado}</Badge>
+                  </div>
+                  <h3 className="font-display font-semibold text-base leading-tight mb-1" style={{ color: 'var(--text)' }}>
+                    {o.nombre}
+                  </h3>
+                  {o.clients?.nombre && (
+                    <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
+                  )}
+                  {o.direccion && (
+                    <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
+                      <MapPin size={11} />
+                      <span className="truncate">{o.direccion}</span>
+                    </div>
+                  )}
                 </div>
 
-                <h3 className="font-display font-semibold text-base leading-tight mb-1" style={{ color: 'var(--text)' }}>
-                  {o.nombre}
-                </h3>
-                {o.clients?.nombre && (
-                  <p className="text-sm mb-2" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
-                )}
-
-                {o.direccion && (
-                  <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: 'var(--subtle)' }}>
-                    <MapPin size={11} />
-                    <span className="truncate">{o.direccion}</span>
-                  </div>
-                )}
-
-                {/* Venta / Saldo Pendiente */}
-                <div className="grid grid-cols-2 gap-2 mb-3">
+                {/* Métricas */}
+                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Venta</p>
-                    <p className="num text-base font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Venta</p>
+                    <p className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Saldo Pendiente</p>
-                    <p className="num text-base font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Saldo Pend.</p>
+                    <p className="num text-sm font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
                   </div>
-                </div>
-
-                {/* Métricas CDO / MOD / % Margen */}
-                <div className="grid grid-cols-3 gap-2 mb-2 p-2.5 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>CDO</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>CDO</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.cdo > 0 ? formatCLP(m.cdo) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>M.O.</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>M.O.</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.mod > 0 ? formatCLP(m.mod) : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>% Margen</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>% Margen</p>
                     <p className="num text-[11px] font-semibold" style={{ color: margenColor }}>
                       {margenPct !== null ? `${margenPct}%` : '—'}
                     </p>
                   </div>
-                </div>
-
-                {/* Inicio / Término / N° Días */}
-                <div className="grid grid-cols-3 gap-2 mb-3 p-2.5 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Inicio</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Inicio</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_inicio)}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Término</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>Término</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_termino)}</p>
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>N° Días</p>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={labelStyle}>N° Días</p>
                     <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{dias !== null ? dias : '—'}</p>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-1.5 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                <div
+                  className="flex items-center justify-end gap-1.5 pt-3 lg:pt-0 lg:pl-4 lg:flex-shrink-0 border-t lg:border-t-0 lg:border-l"
+                  style={{ borderColor: 'var(--border)' }}
+                >
                   {confirmDeleteId === o.id ? (
                     <div
                       className="flex items-center gap-1.5"
