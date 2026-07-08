@@ -152,3 +152,8 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 - **Causa raíz:** "Subir Egreso" y "Venta Adicional" guardaban el archivo solo en su propio registro, pero nunca lo agregaban a Biblioteca — solo el botón "Subir documento" de la card de Obras lo hacía
 - Ahora los 3 lugares donde se puede subir un documento (Obras, Subir Egreso, Venta Adicional) lo dejan visible en Biblioteca
 - El documento que ya habías subido hoy ("Programa POLPAICO 2026.jpg") ya aparece en Biblioteca — se corrigió a mano
+
+## Eliminar documentos desde Biblioteca (2026-07-08)
+
+- Cada documento en Biblioteca ahora tiene un botón de eliminar (ícono de basurero al pasar el mouse), con confirmación antes de borrar
+- Borra tanto el archivo en Storage como el registro, para no dejar basura
