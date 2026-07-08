@@ -22,57 +22,46 @@ import {
 /* ── Time Picker ─────────────────────────────────────────────── */
 function TimePicker({ value, onChange }) {
   const parse = (v) => {
-    if (!v) return { h: '', m: '', ap: 'AM' }
+    if (!v) return { h: '', m: '' }
     const [hStr, mStr] = v.split(':')
-    const h24 = parseInt(hStr, 10)
-    const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24
-    return { h: String(h12), m: mStr ?? '00', ap: h24 >= 12 ? 'PM' : 'AM' }
+    return { h: hStr ?? '', m: mStr ?? '' }
   }
 
   const [h, setH] = useState(() => parse(value).h)
   const [m, setM] = useState(() => parse(value).m)
-  const [ap, setAp] = useState(() => parse(value).ap)
 
-  const to24 = (hv, mv, apv) => {
-    const hNum = parseInt(hv, 10)
-    if (!hNum || mv === '') return ''
-    let h24
-    if (apv === 'AM') h24 = hNum === 12 ? 0 : hNum
-    else h24 = hNum === 12 ? 12 : hNum + 12
-    return `${String(h24).padStart(2, '0')}:${mv.padStart(2, '0')}`
+  const build = (hv, mv) => {
+    if (hv === '' || mv === '') return ''
+    return `${hv.padStart(2, '0')}:${mv.padStart(2, '0')}`
   }
 
   const handleH = (v) => {
     const clean = v.replace(/\D/g, '').slice(0, 2)
     setH(clean)
     const num = parseInt(clean, 10)
-    if (clean && num >= 1 && num <= 12) onChange(to24(clean, m, ap))
+    if (clean !== '' && num >= 0 && num <= 23) onChange(build(clean, m))
     else onChange('')
   }
   const handleM = (v) => {
     const clean = v.replace(/\D/g, '').slice(0, 2)
     setM(clean)
     const num = parseInt(clean, 10)
-    if (clean && num >= 0 && num <= 59) onChange(to24(h, clean, ap))
+    if (clean !== '' && num >= 0 && num <= 59) onChange(build(h, clean))
     else onChange('')
-  }
-  const handleAp = (newAp) => {
-    setAp(newAp)
-    onChange(to24(h, m, newAp))
   }
   const blurH = () => {
     const num = parseInt(h, 10)
-    if (!h || isNaN(num)) { setH(''); onChange(''); return }
-    const clamped = String(Math.min(12, Math.max(1, num)))
+    if (h === '' || isNaN(num)) { setH(''); onChange(''); return }
+    const clamped = String(Math.min(23, Math.max(0, num))).padStart(2, '0')
     setH(clamped)
-    onChange(to24(clamped, m, ap))
+    onChange(build(clamped, m))
   }
   const blurM = () => {
     const num = parseInt(m, 10)
-    if (!m || isNaN(num)) { setM('00'); onChange(to24(h, '00', ap)); return }
+    if (m === '' || isNaN(num)) { setM('00'); onChange(build(h, '00')); return }
     const clamped = String(Math.min(59, Math.max(0, num))).padStart(2, '0')
     setM(clamped)
-    onChange(to24(h, clamped, ap))
+    onChange(build(h, clamped))
   }
 
   const btn = {
@@ -93,7 +82,7 @@ function TimePicker({ value, onChange }) {
     <div className="flex items-center gap-2">
       <input
         type="text" inputMode="numeric" maxLength={2}
-        placeholder="12" value={h}
+        placeholder="00" value={h}
         onChange={e => handleH(e.target.value)}
         onBlur={blurH}
         style={btn}
@@ -106,30 +95,13 @@ function TimePicker({ value, onChange }) {
         onBlur={blurM}
         style={btn}
       />
-      <div className="flex rounded-xl overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
-        {['AM', 'PM'].map(p => (
-          <button
-            key={p} type="button" onClick={() => handleAp(p)}
-            className="px-3 py-2 transition-all"
-            style={{
-              fontFamily: 'Unbounded',
-              fontSize: 11,
-              fontWeight: 700,
-              background: ap === p ? 'var(--amber)' : 'var(--bg-card)',
-              color: ap === p ? '#000' : 'var(--muted)',
-            }}
-          >
-            {p}
-          </button>
-        ))}
-      </div>
     </div>
   )
 }
 
 function formatHora(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function formatFecha(iso) {
