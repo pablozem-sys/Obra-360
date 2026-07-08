@@ -171,3 +171,8 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 
 - El registro manual de asistencia y la edición de hora de salida ya no usan AM/PM — ahora es formato 24 horas (ej. "17:30" en vez de "05:30 p. m.")
 - Los horarios mostrados en las tablas de asistencia también se actualizaron al mismo formato
+
+## Buscador y edición de nombre en Trabajadores (2026-07-08)
+
+- Se agregó un buscador para encontrar trabajadores por nombre
+- Ahora se puede editar el nombre de un trabajador (antes solo el Valor Día y el PIN eran editables) — el avatar con las iniciales se actualiza solo
