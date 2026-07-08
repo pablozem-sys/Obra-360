@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Building2, MapPin, Calendar, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
+import { Plus, Search, Building2, MapPin, Loader2, AlertCircle, Trash2, X, FolderOpen, Upload, Check } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
-import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
-import { getObras, createObra, deleteObra } from '../lib/supabase'
+import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA, CATEGORIAS_GASTO } from '../lib/helpers'
+import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getExpensasPorObraLite, getAttendanceCostsPorObra, getAllAdditionalSales, getIngresos } from '../lib/supabase'
 
 const FILTROS = [
   { key: 'all',          label: 'Todas' },
@@ -22,9 +22,30 @@ const FORM_INITIAL = {
   estado: 'cotizada', descripcion: '',
 }
 
+const TIPOS_DOC_DOC = ['foto', 'contrato', 'cotizacion', 'factura', 'boleta', 'permiso', 'comprobante']
+
+function diasEnObra(o) {
+  if (!o.fecha_inicio) return null
+  const [yi, mi, di] = o.fecha_inicio.split('-').map(Number)
+  const inicio = new Date(yi, mi - 1, di)
+  let fin
+  if (o.estado === 'finalizada') {
+    if (!o.fecha_termino) return null
+    const [yf, mf, df] = o.fecha_termino.split('-').map(Number)
+    fin = new Date(yf, mf - 1, df)
+  } else {
+    fin = new Date()
+    fin.setHours(0, 0, 0, 0)
+  }
+  const dias = Math.round((fin - inicio) / 86400000)
+  return dias >= 0 ? dias : null
+}
+
 export default function Obras() {
   const navigate = useNavigate()
+  const docFileRef = useRef()
   const [obras, setObras]       = useState([])
+  const [metricas, setMetricas] = useState({})
   const [loading, setLoading]   = useState(true)
   const [filtro, setFiltro]     = useState('all')
   const [search, setSearch]     = useState('')
@@ -34,13 +55,79 @@ export default function Obras() {
   const [formError, setFormError] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
+  // Subir documento
+  const [showDocModal, setShowDocModal]   = useState(false)
+  const [docObraId,    setDocObraId]      = useState(null)
+  const [docFile,      setDocFile]        = useState(null)
+  const [docFileName,  setDocFileName]    = useState('')
+  const [docNombre,    setDocNombre]      = useState('')
+  const [docTipo,      setDocTipo]        = useState('foto')
+  const [docSaving,    setDocSaving]      = useState(false)
+  const [docSaved,     setDocSaved]       = useState(false)
+  const [docError,     setDocError]       = useState('')
+
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
-    getObras()
-      .then(setObras)
-      .catch(() => setObras([]))
-      .finally(() => { clearTimeout(t); setLoading(false) })
+    Promise.all([
+      getObras(),
+      getExpensasPorObraLite().catch(() => []),
+      getAttendanceCostsPorObra().catch(() => []),
+      getAllAdditionalSales().catch(() => []),
+      getIngresos().catch(() => []),
+    ]).then(([obras, gastos, asistencia, adicionales, ingresos]) => {
+      setObras(obras)
+      const m = {}
+      const ensure = id => (m[id] ??= { cdo: 0, mod: 0, adicionales: 0, descuentos: 0, abonos: 0 })
+      gastos.forEach(g => {
+        if (g.project_id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra') {
+          ensure(g.project_id).cdo += g.monto ?? 0
+        }
+      })
+      asistencia.forEach(a => {
+        if (a.project_id) ensure(a.project_id).mod += a.costo_total ?? 0
+      })
+      adicionales.forEach(v => {
+        if (!v.project_id) return
+        if (v.tipo === 'descuento') ensure(v.project_id).descuentos += v.monto ?? 0
+        else ensure(v.project_id).adicionales += v.monto ?? 0
+      })
+      ingresos.forEach(i => {
+        if (i.project_id) ensure(i.project_id).abonos += i.monto ?? 0
+      })
+      setMetricas(m)
+    }).catch(() => {}).finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
+
+  const handleDocFile = e => {
+    const file = e.target.files?.[0]
+    if (file) { setDocFile(file); setDocFileName(file.name); if (!docNombre) setDocNombre(file.name) }
+  }
+
+  const handleUploadDoc = async () => {
+    if (!docFile) { setDocError('Selecciona un archivo'); return }
+    setDocSaving(true); setDocError('')
+    try {
+      const { url } = await uploadDocumento(docObraId, docFile)
+      await createDocumento({
+        project_id: docObraId,
+        tipo: docTipo,
+        nombre: docNombre || docFileName,
+        archivo_url: url,
+        fecha: new Date().toISOString().split('T')[0],
+      })
+      setDocSaved(true)
+    } catch (err) {
+      setDocError(err?.message || 'Error al subir')
+    } finally {
+      setDocSaving(false)
+    }
+  }
+
+  const resetDocModal = () => {
+    setShowDocModal(false); setDocObraId(null); setDocFile(null)
+    setDocFileName(''); setDocNombre(''); setDocTipo('foto')
+    setDocError(''); setDocSaved(false)
+  }
 
   const filtered = obras.filter(o => {
     const matchFiltro = filtro === 'all' || o.estado === filtro
@@ -150,6 +237,16 @@ export default function Obras() {
           {filtered.map(o => {
             const estadoInfo = ESTADOS_OBRA[o.estado]
             const tipoInfo   = TIPOS_OBRA[o.tipo]
+            const m          = metricas[o.id] || { cdo: 0, mod: 0, adicionales: 0, descuentos: 0, abonos: 0 }
+            const ventaTotal = (o.presupuesto || 0) + (m.adicionales - m.descuentos)
+            const saldoPendiente = ventaTotal - m.abonos
+            const saldoColor = saldoPendiente > 0 ? 'var(--amber)' : saldoPendiente < 0 ? 'var(--red)' : 'var(--green)'
+            const dias       = diasEnObra(o)
+            const margenPct  = ventaTotal > 0 ? ((ventaTotal - m.cdo - m.mod) / ventaTotal * 100).toFixed(0) : null
+            const margenColor = margenPct === null ? 'var(--subtle)'
+              : parseInt(margenPct) >= 20 ? 'var(--green)'
+              : parseInt(margenPct) > 0   ? 'var(--amber)'
+              : 'var(--red)'
             return (
               <div
                 key={o.id}
@@ -169,57 +266,160 @@ export default function Obras() {
                 )}
 
                 {o.direccion && (
-                  <div className="flex items-center gap-1.5 text-xs mb-4" style={{ color: 'var(--subtle)' }}>
+                  <div className="flex items-center gap-1.5 text-xs mb-3" style={{ color: 'var(--subtle)' }}>
                     <MapPin size={11} />
                     <span className="truncate">{o.direccion}</span>
                   </div>
                 )}
 
-                <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-                  <span className="num text-sm font-semibold" style={{ color: 'var(--amber)' }}>
-                    {o.presupuesto ? formatCLP(o.presupuesto) : '—'}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    {confirmDeleteId === o.id ? (
-                      <div
-                        className="flex items-center gap-1.5"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        <span className="text-[11px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
-                        <button
-                          onClick={() => handleDelete(o.id)}
-                          className="px-2 py-0.5 rounded-lg text-xs font-semibold"
-                          style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
-                        >Sí</button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="p-1 rounded-lg"
-                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                        ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
-                          <Calendar size={11} />
-                          {formatDate(o.fecha_termino)}
-                        </div>
-                        <button
-                          onClick={e => { e.stopPropagation(); setConfirmDeleteId(o.id) }}
-                          className="p-1.5 rounded-lg transition-all hover:opacity-80 ml-1"
-                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                          title="Eliminar obra"
-                        >
-                          <Trash2 size={11} style={{ color: 'var(--red)' }} />
-                        </button>
-                      </>
-                    )}
+                {/* Venta / Saldo Pendiente */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Venta</p>
+                    <p className="num text-base font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
                   </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Saldo Pendiente</p>
+                    <p className="num text-base font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
+                  </div>
+                </div>
+
+                {/* Métricas CDO / MOD / % Margen */}
+                <div className="grid grid-cols-3 gap-2 mb-2 p-2.5 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>CDO</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.cdo > 0 ? formatCLP(m.cdo) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>M.O.</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.mod > 0 ? formatCLP(m.mod) : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>% Margen</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: margenColor }}>
+                      {margenPct !== null ? `${margenPct}%` : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Inicio / Término / N° Días */}
+                <div className="grid grid-cols-3 gap-2 mb-3 p-2.5 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Inicio</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_inicio)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Término</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_termino)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>N° Días</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{dias !== null ? dias : '—'}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-1.5 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                  {confirmDeleteId === o.id ? (
+                    <div
+                      className="flex items-center gap-1.5"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <span className="text-[11px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                      <button
+                        onClick={() => handleDelete(o.id)}
+                        className="px-2 py-0.5 rounded-lg text-xs font-semibold"
+                        style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                      >Sí</button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="p-1 rounded-lg"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                      ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={e => { e.stopPropagation(); setDocObraId(o.id); setDocSaved(false); setDocError(''); setDocFile(null); setDocFileName(''); setDocNombre(''); setDocTipo('foto'); setShowDocModal(true) }}
+                        className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        title="Subir documento"
+                      >
+                        <FolderOpen size={11} style={{ color: 'var(--amber)' }} />
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); setConfirmDeleteId(o.id) }}
+                        className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        title="Eliminar obra"
+                      >
+                        <Trash2 size={11} style={{ color: 'var(--red)' }} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      {/* Modal subir documento */}
+      <input type="file" ref={docFileRef} onChange={handleDocFile} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" className="hidden" />
+      <Modal open={showDocModal} onClose={resetDocModal} title="Subir Documento" size="md">
+        {docSaved ? (
+          <div className="text-center py-6">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3"
+              style={{ background: 'var(--green-dim)', border: '1px solid rgba(0,196,140,0.3)' }}>
+              <Check size={28} style={{ color: 'var(--green)' }} />
+            </div>
+            <p className="font-semibold mb-1" style={{ color: 'var(--text)' }}>Documento subido</p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>El archivo fue guardado correctamente</p>
+            <button onClick={resetDocModal} className="btn-primary justify-center w-full">Cerrar</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="label">Tipo de documento</label>
+              <select className="select mt-1" value={docTipo} onChange={e => setDocTipo(e.target.value)}>
+                {TIPOS_DOC_DOC.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Nombre (opcional)</label>
+              <input className="input" placeholder="Ej: Contrato firmado" value={docNombre} onChange={e => setDocNombre(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Archivo</label>
+              {docFile ? (
+                <div className="flex items-center gap-3 p-3 rounded-xl mt-1" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                  <span className="text-xl">📎</span>
+                  <p className="flex-1 text-sm truncate" style={{ color: 'var(--text)' }}>{docFileName}</p>
+                  <button onClick={() => { setDocFile(null); setDocFileName('') }} style={{ color: 'var(--muted)' }}><X size={14} /></button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => docFileRef.current?.click()}
+                  className="rounded-xl p-6 text-center cursor-pointer mt-1 transition-all"
+                  style={{ border: '2px dashed var(--border)', background: 'var(--bg-surface)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,149,0,0.35)'; e.currentTarget.style.background = 'var(--amber-dim)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}
+                >
+                  <Upload size={22} className="mx-auto mb-2" style={{ color: 'var(--subtle)' }} />
+                  <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>Seleccionar archivo</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>PDF, imagen, Word, Excel</p>
+                </div>
+              )}
+            </div>
+            {docError && <p className="text-[11px]" style={{ color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ {docError}</p>}
+            <div className="flex gap-3 pt-1">
+              <button onClick={resetDocModal} className="btn-secondary flex-1 justify-center">Cancelar</button>
+              <button onClick={handleUploadDoc} disabled={docSaving || !docFile} className="btn-primary flex-1 justify-center disabled:opacity-60">
+                {docSaving ? <><Loader2 size={14} className="animate-spin" /> Subiendo...</> : <><Upload size={14} /> Subir</>}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Modal nueva obra */}
       <Modal open={showForm} onClose={() => { setShowForm(false); setFormError('') }} title="Nueva Obra" size="lg">
