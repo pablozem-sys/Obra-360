@@ -194,6 +194,19 @@ export async function createDocumento(doc) {
   return data
 }
 
+export async function deleteDocumento(doc) {
+  if (doc.archivo_url) {
+    const marker = '/object/public/documents/'
+    const idx = doc.archivo_url.indexOf(marker)
+    if (idx !== -1) {
+      const path = decodeURIComponent(doc.archivo_url.slice(idx + marker.length))
+      await supabase.storage.from('documents').remove([path]).catch(() => {})
+    }
+  }
+  const { error } = await supabase.from('documents').delete().eq('id', doc.id)
+  if (error) throw error
+}
+
 export async function getExpensasPorObraLite() {
   const { data, error } = await supabase
     .from('expenses')

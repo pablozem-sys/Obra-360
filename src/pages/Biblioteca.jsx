@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Search, FolderOpen, Download, Eye, Loader2 } from 'lucide-react'
+import { Search, FolderOpen, Download, Eye, Loader2, Trash2, X, Check } from 'lucide-react'
 import Badge from '../components/ui/Badge'
-import { getDocumentos, getObras } from '../lib/supabase'
+import { getDocumentos, getObras, deleteDocumento } from '../lib/supabase'
 import { formatCLP, formatDate, TIPOS_DOC } from '../lib/helpers'
 
 const TIPOS = ['todos', 'factura', 'boleta', 'contrato', 'cotizacion', 'foto', 'permiso', 'comprobante']
@@ -13,6 +13,8 @@ export default function Biblioteca() {
   const [obraFiltro, setObraFiltro] = useState('all')
   const [tipoFiltro, setTipoFiltro] = useState('todos')
   const [search,     setSearch]     = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deleting,   setDeleting]   = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
@@ -22,6 +24,19 @@ export default function Biblioteca() {
     ]).then(([d, o]) => { setDocs(d); setObras(o) })
       .finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
+
+  const handleDelete = async (doc) => {
+    setDeleting(true)
+    try {
+      await deleteDocumento(doc)
+      setDocs(prev => prev.filter(d => d.id !== doc.id))
+    } catch (err) {
+      console.error('Error al eliminar documento:', err)
+    } finally {
+      setDeleting(false)
+      setConfirmDeleteId(null)
+    }
+  }
 
   const filtered = docs.filter(d => {
     const matchObra   = obraFiltro === 'all' || d.project_id === obraFiltro
@@ -94,18 +109,50 @@ export default function Biblioteca() {
               <div key={d.id} className="card-hover p-4 group cursor-pointer">
                 <div className="w-full h-24 rounded-xl flex items-center justify-center mb-3 relative overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
                   <span className="text-4xl">{info?.icon ?? '📄'}</span>
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
-                    {d.archivo_url && (
-                      <>
-                        <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                          <Eye size={14} className="text-white" />
-                        </a>
-                        <a href={d.archivo_url} download className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                          <Download size={14} className="text-white" />
-                        </a>
-                      </>
-                    )}
-                  </div>
+                  {confirmDeleteId === d.id ? (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center gap-2 px-3"
+                      style={{ background: 'rgba(0,0,0,0.75)' }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <span className="text-[11px] font-semibold" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                      <button
+                        onClick={() => handleDelete(d)}
+                        disabled={deleting}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-50"
+                        style={{ background: 'rgba(255,69,96,0.2)', border: '1px solid rgba(255,69,96,0.4)' }}
+                      >
+                        {deleting ? <Loader2 size={13} className="animate-spin" style={{ color: 'var(--red)' }} /> : <Check size={13} style={{ color: 'var(--red)' }} />}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center"
+                        style={{ background: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <X size={13} className="text-white" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                      {d.archivo_url && (
+                        <>
+                          <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                            <Eye size={14} className="text-white" />
+                          </a>
+                          <a href={d.archivo_url} download className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                            <Download size={14} className="text-white" />
+                          </a>
+                        </>
+                      )}
+                      <button
+                        onClick={e => { e.stopPropagation(); setConfirmDeleteId(d.id) }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                        style={{ background: 'rgba(255,255,255,0.1)' }}
+                      >
+                        <Trash2 size={14} className="text-white" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-start justify-between gap-2 mb-2">
