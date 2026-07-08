@@ -128,3 +128,21 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
   - Obras finalizadas: días totales que duró la obra (fecha término − fecha inicio, ya no cambia)
   - Obras cotizadas o sin fecha de inicio: muestra "—"
 - El % Margen de cada card ahora se calcula sobre la Venta total (con adicionales), igual que en el detalle de la obra — antes solo consideraba el presupuesto aprobado
+
+---
+
+## Layout de Obras "a lo largo" (2026-07-08)
+
+- Las obras ahora se muestran una fila debajo de la otra (no en grid de columnas), aprovechando todo el ancho de la pantalla
+- Cada fila: nombre/cliente/dirección a la izquierda, todas las métricas (Venta, Saldo Pendiente, CDO, M.O., % Margen, Inicio, Término, N° Días) en el centro, acciones a la derecha
+- En mobile se acomoda en 2 columnas de datos, sin perder información
+
+## Trabajadores numerados (2026-07-08)
+
+- En Control de Asistencia → pestaña Trabajadores, cada trabajador ahora tiene un número (1, 2, 3...) para poder contar la nómina de un vistazo
+
+## Fix: subida de documentos (2026-07-08)
+
+- **Causa raíz encontrada:** el bucket de Storage `documents` no tenía política de seguridad (RLS) que permitiera subir archivos a usuarios logueados — por eso toda subida fallaba, en cualquier obra
+- Se agregó la política en Supabase (INSERT/SELECT/DELETE para usuarios autenticados)
+- Además, en "Subir Egreso" y en "Venta Adicional" (dentro de una obra): si el documento no se puede adjuntar, ahora se muestra una advertencia clara — antes el egreso/venta se guardaba igual pero sin avisar que el archivo se había perdido
