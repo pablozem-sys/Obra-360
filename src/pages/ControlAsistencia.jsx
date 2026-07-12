@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Hash, Trash2, Search } from 'lucide-react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import {
@@ -7,15 +7,14 @@ import {
   createWorker,
   updateWorker,
   deleteWorker,
-  updateObra,
-  getAttendance,
-  getProjectsList,
   getObrasActivas,
   getWorkerProjectIds,
   toggleWorkerProject,
-  createObra,
+  getAttendance,
+  getAttendanceRange,
   registrarAsistenciaManual,
-  actualizarSalidaManual,
+  actualizarTurno,
+  deleteAttendance,
   getRegistrosAbiertosAnteriores,
 } from '../lib/supabase'
 
@@ -109,14 +108,172 @@ function formatFecha(iso) {
   return new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
 }
 
+function formatFechaDate(dateStr) {
+  if (!dateStr) return '—'
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
 function initials(nombre = '') {
   return nombre.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase()
+}
+
+/* ── Fila de turno (reusada en Registros, Por Obra, Hora Entrada/Salida) ── */
+function TurnoRow({
+  r, isEditing, editEntrada, editSalida, editBono, editSaving, editError,
+  onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onGuardar,
+  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete,
+}) {
+  const abierto = !r.salida
+  const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < 8
+
+  return (
+    <Fragment>
+      <tr
+        className="table-row"
+        style={alerta ? { background: 'var(--red-dim)' } : {}}
+      >
+        <td className="px-4 py-3.5">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+              style={{ background: alerta ? 'rgba(255,69,96,0.2)' : 'var(--amber)', color: alerta ? 'var(--red)' : '#000' }}
+            >
+              {r.workers?.avatar}
+            </div>
+            <span className="text-sm font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>{r.workers?.nombre}</span>
+          </div>
+        </td>
+        <td className="px-4 py-3.5">
+          <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+        </td>
+        <td className="px-4 py-3.5">
+          <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
+        </td>
+        <td className="px-4 py-3.5">
+          <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
+        </td>
+        <td className="px-4 py-3.5">
+          {abierto ? (
+            <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
+              EN OBRA
+            </span>
+          ) : (
+            <span className="num text-[13px] font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--muted)' }}>{formatHora(r.salida)}</span>
+          )}
+        </td>
+        <td className="px-4 py-3.5">
+          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : (alerta ? 'var(--red)' : 'var(--amber)') }}>
+            {r.horas_trabajadas != null ? `${Number(r.horas_trabajadas).toFixed(1)}h` : '—'}
+          </span>
+        </td>
+        <td className="px-4 py-3.5">
+          <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : (alerta ? 'var(--red)' : 'var(--green)') }}>
+            {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
+          </span>
+          {r.bono > 0 && (
+            <p className="text-[10px] num" style={{ color: 'var(--amber)' }}>+{formatCLP(r.bono)} bono</p>
+          )}
+        </td>
+        <td className="px-4 py-3.5">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => isEditing ? onCancelEdit() : onStartEdit(r)}
+              title="Editar turno"
+              className="p-1.5 rounded-lg transition-all hover:opacity-80"
+              style={{
+                background: isEditing ? 'var(--amber-dim)' : 'var(--bg-elevated)',
+                border: `1px solid ${isEditing ? 'rgba(255,149,0,0.4)' : 'var(--border)'}`,
+              }}
+            >
+              <Pencil size={12} style={{ color: isEditing ? 'var(--amber)' : 'var(--subtle)' }} />
+            </button>
+            {confirmDelete ? (
+              <div className="flex items-center gap-1">
+                <span className="text-[10px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                <button
+                  onClick={() => onConfirmDelete(r.id)}
+                  disabled={deletingRecord}
+                  className="px-2 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-50"
+                  style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                >Sí</button>
+                <button
+                  onClick={onCancelDelete}
+                  className="p-1 rounded-lg"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onRequestDelete(r.id)}
+                title="Eliminar turno"
+                className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+              >
+                <Trash2 size={12} style={{ color: 'var(--red)' }} />
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {isEditing && (
+        <tr style={{ background: 'var(--bg-surface)' }}>
+          <td colSpan={8} className="px-6 py-4">
+            <div className="flex items-end gap-4 flex-wrap">
+              <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0, marginBottom: 8 }}>
+                // editar turno — {r.workers?.nombre}
+              </p>
+              <div>
+                <label className="label">Entrada</label>
+                <TimePicker value={editEntrada} onChange={onChangeEntrada} />
+              </div>
+              <div>
+                <label className="label">Salida <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
+                <TimePicker value={editSalida} onChange={onChangeSalida} />
+              </div>
+              <div>
+                <label className="label">Bono ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="input num w-28"
+                  placeholder="0"
+                  value={editBono}
+                  onChange={e => onChangeBono(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={() => onGuardar(r)}
+                disabled={!editEntrada || editSaving}
+                className="btn-primary gap-1 text-xs disabled:opacity-40"
+                style={{ padding: '8px 14px', flexShrink: 0 }}
+              >
+                {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                Guardar
+              </button>
+              <button
+                onClick={onCancelEdit}
+                className="btn-ghost text-xs"
+                style={{ color: 'var(--muted)', flexShrink: 0 }}
+              >
+                <X size={12} />
+              </button>
+              {editError && (
+                <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)' }}>⚠ {editError}</p>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  )
 }
 
 const HOY = new Date().toISOString().split('T')[0]
 
 export default function ControlAsistencia() {
-  const [tab, setTab]               = useState('registros') // registros | trabajadores | quincena
+  const [tab, setTab]               = useState('registros') // registros | por_fecha | trabajadores
   const [registros, setRegistros]   = useState([])
   const [workers, setWorkers]       = useState([])
   const [projects, setProjects]     = useState([])
@@ -139,6 +296,12 @@ export default function ControlAsistencia() {
   const [pinValue, setPinValue]       = useState('')
   const [pinSaving, setPinSaving]     = useState(false)
   const [pinError, setPinError]       = useState('')
+
+  // Valor día inline edit por worker
+  const [editingValor, setEditingValor] = useState(null)
+  const [valorValue, setValorValue]     = useState('')
+  const [valorSaving, setValorSaving]   = useState(false)
+  const [valorError, setValorError]     = useState('')
   const [showPins, setShowPins]       = useState({})
 
   // Nombre inline edit por worker
@@ -152,50 +315,54 @@ export default function ControlAsistencia() {
 
   // Obras asignadas por worker
   const [obrasActivas, setObrasActivas]       = useState([])
-  const [expandedObras, setExpandedObras]     = useState(null)  // worker id
-  const [workerObras, setWorkerObras]         = useState({})    // { [workerId]: Set<projectId> }
+  const [expandedObras, setExpandedObras]     = useState(null)
+  const [workerObras, setWorkerObras]         = useState({})
   const [obrasLoading, setObrasLoading]       = useState(false)
   const [obrasToggling, setObrasToggling]     = useState({})
+  const [addObraId, setAddObraId]             = useState('')
+  const [obrasPanel, setObrasPanel]           = useState([]) // obras frescas cargadas al abrir panel
 
   // Registro manual de asistencia
   const [showManual, setShowManual]           = useState(false)
   const [manualWorker, setManualWorker]       = useState('')
   const [manualObra, setManualObra]           = useState('')
   const [manualFecha, setManualFecha]         = useState(HOY)
-  const [manualEntrada, setManualEntrada]     = useState('')
-  const [manualSalida, setManualSalida]       = useState('')
+  const [manualEntrada, setManualEntrada]     = useState('08:30')
+  const [manualSalida, setManualSalida]       = useState('17:30')
+  const [manualBono, setManualBono]           = useState('')
   const [manualSaving, setManualSaving]       = useState(false)
   const [manualError, setManualError]         = useState('')
 
-  // Editar salida de un registro
+  // Editar turno (entrada, salida y bono) de un registro
   const [editingRecord, setEditingRecord]   = useState(null)
+  const [editEntrada, setEditEntrada]       = useState('')
   const [editSalida, setEditSalida]         = useState('')
+  const [editBono, setEditBono]             = useState('')
   const [editSaving, setEditSaving]         = useState(false)
   const [editError, setEditError]           = useState('')
+  const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState(null)
+  const [deletingRecord, setDeletingRecord] = useState(false)
 
-  // Quincena
+  // Vista compartida: Por Obra / Hora Entrada / Hora Salida (un solo día)
+  const [vistaFecha, setVistaFecha]         = useState(HOY)
+  const [registrosVista, setRegistrosVista] = useState([])
+  const [loadingVista, setLoadingVista]     = useState(true)
+
+  // Por Fecha
   const now = new Date()
-  const [quinMes, setQuinMes]       = useState(now.getMonth())
-  const [quinAnio, setQuinAnio]     = useState(now.getFullYear())
-  const [quinPeriodo, setQuinPeriodo] = useState(now.getDate() <= 15 ? '1' : '2')
-  const [quinRegistros, setQuinRegistros] = useState([])
-  const [quinLoading, setQuinLoading] = useState(false)
+  const pad2 = n => String(n).padStart(2, '0')
+  const [rangoMode, setRangoMode]       = useState('mes')
+  const [rangoMes, setRangoMes]         = useState(now.getMonth())
+  const [rangoAnio, setRangoAnio]       = useState(now.getFullYear())
+  const [rangoDesde, setRangoDesde]     = useState(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`)
+  const [rangoHasta, setRangoHasta]     = useState(HOY)
+  const [rangoObra, setRangoObra]       = useState('all')
+  const [registrosFecha, setRegistrosFecha] = useState([])
+  const [loadingFecha, setLoadingFecha]     = useState(false)
 
-  // Crear nueva obra desde el panel de asignación
-  const [newObraWorker, setNewObraWorker]     = useState(null)  // worker id
-  const [newObraNombre, setNewObraNombre]     = useState('')
-  const [newObraDireccion, setNewObraDireccion] = useState('')
-  const [newObraClave, setNewObraClave]       = useState('')
-  const [newObraSaving, setNewObraSaving]     = useState(false)
 
   // Eliminar trabajador
   const [confirmDeleteWorkerId, setConfirmDeleteWorkerId] = useState(null)
-
-  // Editar clave de obra existente
-  const [editingClave, setEditingClave]   = useState(null)  // obra id
-  const [claveValue, setClaveValue]       = useState('')
-  const [claveSaving, setClaveSaving]     = useState(false)
-  const [claveError, setClaveError]       = useState('')
 
   const loadRegistros = useCallback(async () => {
     try {
@@ -217,8 +384,7 @@ export default function ControlAsistencia() {
     Promise.allSettled([
       loadRegistros(),
       loadWorkers(),
-      getProjectsList().then(setProjects).catch(() => setProjects([])),
-      getObrasActivas().then(setObrasActivas).catch(() => setObrasActivas([])),
+      getObrasActivas().then(data => { setProjects(data); setObrasActivas(data) }).catch(() => { setProjects([]); setObrasActivas([]) }),
       getRegistrosAbiertosAnteriores().then(setAbiertosAnteriores).catch(() => setAbiertosAnteriores([])),
     ]).finally(() => { clearTimeout(timeout); setLoading(false) })
     return () => clearTimeout(timeout)
@@ -236,26 +402,36 @@ export default function ControlAsistencia() {
   }, [filtroFecha, filtroObra])
 
   useEffect(() => {
-    if (tab !== 'quincena') return
-    const mes = quinMes
-    const anio = quinAnio
-    const diasDesde = quinPeriodo === '1' ? 1 : 16
-    const diasHasta = quinPeriodo === '1' ? 15 : new Date(anio, mes + 1, 0).getDate()
+    setLoadingVista(true)
+    getAttendance({ fecha: vistaFecha })
+      .then(setRegistrosVista)
+      .catch(() => setRegistrosVista([]))
+      .finally(() => setLoadingVista(false))
+  }, [vistaFecha])
+
+  useEffect(() => {
+    if (tab !== 'por_fecha') return
     const pad = n => String(n).padStart(2, '0')
-    const desde = `${anio}-${pad(mes + 1)}-${pad(diasDesde)}`
-    const hasta  = `${anio}-${pad(mes + 1)}-${pad(diasHasta)}`
-    setQuinLoading(true)
-    supabase
-      .from('attendance')
-      .select(`id, worker_id, project_id, fecha, horas_trabajadas, valor_hora, costo_total, workers(nombre), projects(nombre)`)
-      .gte('fecha', desde)
-      .lte('fecha', hasta)
-      .not('salida', 'is', null)
-      .order('fecha', { ascending: true })
-      .then(({ data }) => setQuinRegistros(data ?? []))
-      .catch(() => setQuinRegistros([]))
-      .finally(() => setQuinLoading(false))
-  }, [tab, quinMes, quinAnio, quinPeriodo])
+    let desde, hasta
+    if (rangoMode === 'mes') {
+      desde = `${rangoAnio}-${pad(rangoMes + 1)}-01`
+      const lastDay = new Date(rangoAnio, rangoMes + 1, 0).getDate()
+      hasta = `${rangoAnio}-${pad(rangoMes + 1)}-${pad(lastDay)}`
+    } else {
+      desde = rangoDesde
+      hasta = rangoHasta
+      if (!desde || !hasta) return
+    }
+    setLoadingFecha(true)
+    getAttendanceRange({
+      desde,
+      hasta,
+      projectId: rangoObra !== 'all' ? rangoObra : undefined,
+    })
+      .then(setRegistrosFecha)
+      .catch(() => setRegistrosFecha([]))
+      .finally(() => setLoadingFecha(false))
+  }, [tab, rangoMode, rangoMes, rangoAnio, rangoDesde, rangoHasta, rangoObra])
 
   // Summary stats
   const enObra     = registros.filter(r => !r.salida).length
@@ -265,6 +441,15 @@ export default function ControlAsistencia() {
   const workersFiltrados = buscarWorker.trim()
     ? workers.filter(w => w.nombre?.toLowerCase().includes(buscarWorker.trim().toLowerCase()))
     : workers
+
+  // PINs duplicados entre trabajadores activos (colisión en login de kiosco)
+  const pinCounts = workers.reduce((acc, w) => {
+    if (w.pin && w.activo) acc[w.pin] = (acc[w.pin] ?? 0) + 1
+    return acc
+  }, {})
+  const workersPinDuplicado = new Set(
+    workers.filter(w => w.pin && w.activo && pinCounts[w.pin] > 1).map(w => w.id)
+  )
 
   // Costo por proyecto
   const costoPorObra = projects
@@ -295,14 +480,16 @@ export default function ControlAsistencia() {
         horaEntrada: manualEntrada,
         horaSalida:  manualSalida || null,
         valorHora:  worker?.valor_hora ?? 5000,
+        bono:       manualBono ? parseInt(manualBono) : 0,
       })
       await loadRegistros()
       setShowManual(false)
       setManualWorker('')
       setManualObra('')
       setManualFecha(HOY)
-      setManualEntrada('')
-      setManualSalida('')
+      setManualEntrada('08:30')
+      setManualSalida('17:30')
+      setManualBono('')
     } catch (err) {
       setManualError(err.message || 'Error al guardar')
     } finally {
@@ -310,27 +497,86 @@ export default function ControlAsistencia() {
     }
   }
 
-  const handleGuardarSalida = async (record) => {
-    if (!editSalida) { setEditError('Ingresa la hora de salida'); return }
+  const handleStartEdit = (r) => {
+    setEditingRecord(r.id)
+    setEditEntrada(formatHora(r.entrada))
+    setEditSalida(r.salida ? formatHora(r.salida) : '')
+    setEditBono(r.bono > 0 ? String(r.bono) : '')
+    setEditError('')
+  }
+
+  const handleCancelEdit = () => {
+    setEditingRecord(null)
+    setEditEntrada('')
+    setEditSalida('')
+    setEditBono('')
+    setEditError('')
+  }
+
+  const handleGuardarTurno = async (record, setList) => {
+    if (!editEntrada) { setEditError('Ingresa la hora de entrada'); return }
+    if (editSalida && editSalida <= editEntrada) {
+      setEditError('La salida debe ser después de la entrada')
+      return
+    }
     setEditSaving(true)
     setEditError('')
     try {
-      const updated = await actualizarSalidaManual(
-        record.id,
-        record.entrada,
-        record.fecha,
-        editSalida,
-        record.valor_hora ?? 5000,
-      )
-      setRegistros(prev => prev.map(r => r.id === record.id ? { ...r, ...updated } : r))
+      const updated = await actualizarTurno(record.id, {
+        horaEntrada: editEntrada,
+        fecha:       record.fecha,
+        horaSalida:  editSalida || null,
+        valorHora:   record.valor_hora ?? 5000,
+        bono:        editBono ? parseInt(editBono) : 0,
+      })
+      setList(prev => prev.map(r => r.id === record.id ? { ...r, ...updated } : r))
       setEditingRecord(null)
+      setEditEntrada('')
       setEditSalida('')
+      setEditBono('')
     } catch (err) {
       setEditError(err.message || 'Error al guardar')
     } finally {
       setEditSaving(false)
     }
   }
+
+  const handleEliminarTurno = async (recordId, setList) => {
+    setDeletingRecord(true)
+    try {
+      await deleteAttendance(recordId)
+      setList(prev => prev.filter(r => r.id !== recordId))
+      setConfirmDeleteRecordId(null)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletingRecord(false)
+    }
+  }
+
+  const renderTurnoRow = (r, setList) => (
+    <TurnoRow
+      key={r.id}
+      r={r}
+      isEditing={editingRecord === r.id}
+      editEntrada={editEntrada}
+      editSalida={editSalida}
+      editBono={editBono}
+      editSaving={editSaving}
+      editError={editError}
+      onStartEdit={handleStartEdit}
+      onCancelEdit={handleCancelEdit}
+      onChangeEntrada={v => { setEditEntrada(v); setEditError('') }}
+      onChangeSalida={v => { setEditSalida(v); setEditError('') }}
+      onChangeBono={setEditBono}
+      onGuardar={rec => handleGuardarTurno(rec, setList)}
+      confirmDelete={confirmDeleteRecordId === r.id}
+      deletingRecord={deletingRecord}
+      onRequestDelete={id => setConfirmDeleteRecordId(id)}
+      onConfirmDelete={id => handleEliminarTurno(id, setList)}
+      onCancelDelete={() => setConfirmDeleteRecordId(null)}
+    />
+  )
 
   const handleGuardarWorker = async () => {
     if (!formNombre.trim()) { setFormError('Ingresa un nombre'); return }
@@ -363,11 +609,14 @@ export default function ControlAsistencia() {
   const handleExpandObras = async (worker) => {
     if (expandedObras === worker.id) { setExpandedObras(null); return }
     setExpandedObras(worker.id)
-    if (workerObras[worker.id]) return  // ya cargado
     setObrasLoading(true)
     try {
-      const ids = await getWorkerProjectIds(worker.id)
+      const [ids, todas] = await Promise.all([
+        getWorkerProjectIds(worker.id),
+        getObrasActivas(),
+      ])
       setWorkerObras(prev => ({ ...prev, [worker.id]: new Set(ids) }))
+      setObrasPanel(todas)
     } catch { /* silent */ }
     finally { setObrasLoading(false) }
   }
@@ -376,7 +625,6 @@ export default function ControlAsistencia() {
     const key = `${worker.id}-${projectId}`
     const current = workerObras[worker.id] ?? new Set()
     const assign = !current.has(projectId)
-    // Optimistic
     setWorkerObras(prev => {
       const next = new Set(prev[worker.id] ?? [])
       assign ? next.add(projectId) : next.delete(projectId)
@@ -386,7 +634,6 @@ export default function ControlAsistencia() {
     try {
       await toggleWorkerProject(worker.id, projectId, assign)
     } catch {
-      // Revert
       setWorkerObras(prev => {
         const next = new Set(prev[worker.id] ?? [])
         assign ? next.delete(projectId) : next.add(projectId)
@@ -394,51 +641,6 @@ export default function ControlAsistencia() {
       })
     }
     setObrasToggling(prev => ({ ...prev, [key]: false }))
-  }
-
-  const handleCrearObra = async (worker) => {
-    if (!newObraNombre.trim()) return
-    setNewObraSaving(true)
-    try {
-      const nueva = await createObra({
-        nombre:    newObraNombre.trim(),
-        direccion: newObraDireccion.trim() || null,
-        clave:     newObraClave.trim() || null,
-        estado:    'en_ejecucion',
-      })
-      setObrasActivas(prev => [...prev, nueva].sort((a, b) => a.nombre.localeCompare(b.nombre)))
-      await toggleWorkerProject(worker.id, nueva.id, true)
-      setWorkerObras(prev => {
-        const next = new Set(prev[worker.id] ?? [])
-        next.add(nueva.id)
-        return { ...prev, [worker.id]: next }
-      })
-      setNewObraWorker(null)
-      setNewObraNombre('')
-      setNewObraDireccion('')
-      setNewObraClave('')
-    } catch (err) {
-      console.error('createObra:', err)
-      alert(err.message || 'Error al crear la obra. Revisa los permisos en Supabase.')
-    } finally {
-      setNewObraSaving(false)
-    }
-  }
-
-  const handleGuardarClave = async (obraId) => {
-    const val = claveValue.trim()
-    if (!val) return
-    const duplicada = obrasActivas.find(o => o.id !== obraId && o.clave === val)
-    if (duplicada) { setClaveError(`Clave usada en "${duplicada.nombre}"`); return }
-    setClaveError('')
-    setClaveSaving(true)
-    try {
-      await updateObra(obraId, { clave: val })
-      setObrasActivas(prev => prev.map(o => o.id === obraId ? { ...o, clave: val } : o))
-      setEditingClave(null)
-      setClaveValue('')
-    } catch { /* silent */ }
-    finally { setClaveSaving(false) }
   }
 
   const handleGuardarPin = async (worker) => {
@@ -454,6 +656,20 @@ export default function ControlAsistencia() {
       setPinValue('')
     } catch { /* silent */ }
     finally { setPinSaving(false) }
+  }
+
+  const handleGuardarValor = async (worker) => {
+    const val = parseInt(valorValue)
+    if (!val || val < 1000) { setValorError('Mínimo $1.000'); return }
+    setValorError('')
+    setValorSaving(true)
+    try {
+      const updated = await updateWorker(worker.id, { valor_hora: val })
+      setWorkers(prev => prev.map(w => w.id === worker.id ? { ...w, ...updated } : w))
+      setEditingValor(null)
+      setValorValue('')
+    } catch { setValorError('Error al guardar') }
+    finally { setValorSaving(false) }
   }
 
   const handleGuardarNombre = async (worker) => {
@@ -476,7 +692,7 @@ export default function ControlAsistencia() {
     try {
       await updateWorker(worker.id, { activo: !worker.activo })
     } catch {
-      setWorkers(workers) // revert
+      setWorkers(workers)
     }
   }
 
@@ -522,9 +738,9 @@ export default function ControlAsistencia() {
         <div className="card p-4">
           <div className="flex items-center gap-2 mb-2">
             <Clock size={13} style={{ color: 'var(--green)' }} />
-            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total días</span>
+            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total horas</span>
           </div>
-          <p className="num font-medium text-2xl" style={{ color: 'var(--green)' }}>{(totalHoras / 9).toFixed(2)}</p>
+          <p className="num font-medium text-2xl" style={{ color: 'var(--green)' }}>{totalHoras.toFixed(1)}</p>
         </div>
         <div className="card p-4 col-span-2">
           <div className="flex items-center gap-2 mb-2">
@@ -556,9 +772,12 @@ export default function ControlAsistencia() {
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         {[
-          { key: 'registros',    label: 'Registros' },
-          { key: 'trabajadores', label: 'Trabajadores' },
-          { key: 'quincena',     label: 'Quincena' },
+          { key: 'registros',     label: 'Registros' },
+          { key: 'por_fecha',     label: 'Por Fecha' },
+          { key: 'por_obra',      label: 'Por Obra' },
+          { key: 'hora_entrada',  label: 'Hora Entrada' },
+          { key: 'hora_salida',   label: 'Hora Salida' },
+          { key: 'trabajadores',  label: 'Trabajadores' },
         ].map(t => (
           <button
             key={t.key}
@@ -574,6 +793,14 @@ export default function ControlAsistencia() {
           </button>
         ))}
       </div>
+
+      {/* Selector de fecha compartido — Por Obra / Hora Entrada / Hora Salida */}
+      {['por_obra', 'hora_entrada', 'hora_salida'].includes(tab) && (
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>DÍA</span>
+          <input type="date" className="input" value={vistaFecha} onChange={e => setVistaFecha(e.target.value)} />
+        </div>
+      )}
 
       {/* ── TAB: REGISTROS ─────────────────────────────────────── */}
       {tab === 'registros' && (
@@ -679,20 +906,37 @@ export default function ControlAsistencia() {
                     onChange={v => { setManualSalida(v); setManualError('') }}
                   />
                 </div>
+                <div>
+                  <label className="label">Bono ($) <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="input num"
+                    placeholder="0"
+                    value={manualBono}
+                    onChange={e => setManualBono(e.target.value)}
+                  />
+                </div>
                 {manualWorker && manualEntrada && manualSalida && manualSalida > manualEntrada && (
                   <div className="flex flex-col justify-end pb-0.5">
                     <label className="label">Costo estimado</label>
-                    <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
-                      {(() => {
-                        const horas = (new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000
-                        const dias = horas / 9
-                        const valorDia = workers.find(w => w.id === manualWorker)?.valor_hora ?? 50000
-                        return formatCLP(Math.round(dias * valorDia))
-                      })()}
-                    </p>
-                    <p className="text-[10px] mt-0.5" style={{ color: 'var(--subtle)', fontFamily: 'DM Mono' }}>
-                      {((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000).toFixed(1)}h = {((new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 32400000).toFixed(2)} días
-                    </p>
+                    {(() => {
+                      const horas = (new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000
+                      const valorDia = workers.find(w => w.id === manualWorker)?.valor_hora ?? 50000
+                      const bonoNum = manualBono ? parseInt(manualBono) : 0
+                      const costo = (horas >= 8 ? valorDia : Math.round((horas / 8) * valorDia)) + bonoNum
+                      const alerta = horas < 8
+                      return (
+                        <>
+                          <p className="num font-bold text-base" style={{ color: alerta ? 'var(--red)' : 'var(--green)' }}>
+                            {formatCLP(costo)}
+                          </p>
+                          <p className="text-[10px] mt-0.5" style={{ color: alerta ? 'var(--red)' : 'var(--subtle)', fontFamily: 'DM Mono' }}>
+                            {horas.toFixed(1)}h{alerta ? ' ⚠ menos de 8h' : ''}{bonoNum > 0 ? ` · +${formatCLP(bonoNum)} bono` : ''}
+                          </p>
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
               </div>
@@ -725,7 +969,7 @@ export default function ControlAsistencia() {
               <table className="w-full min-w-[580px]">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Días', 'Costo', ''].map(h => (
+                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
                       <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                         {h}
                       </th>
@@ -733,103 +977,7 @@ export default function ControlAsistencia() {
                   </tr>
                 </thead>
                 <tbody>
-                  {registrosVisibles.map(r => {
-                    const abierto = !r.salida
-                    const isEditing = editingRecord === r.id
-                    return (
-                      <>
-                        <tr key={r.id} className="table-row">
-                          <td className="px-4 py-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <div
-                                className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0"
-                                style={{ background: 'var(--amber)', color: '#000' }}
-                              >
-                                {r.workers?.avatar}
-                              </div>
-                              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{r.workers?.nombre}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            {abierto ? (
-                              <span className="flex items-center gap-1.5 text-[12px] font-semibold" style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}>
-                                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--amber)' }} />
-                                EN OBRA
-                              </span>
-                            ) : (
-                              <span className="num text-[13px] font-medium" style={{ color: 'var(--red)' }}>{formatHora(r.salida)}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--amber)' }}>
-                              {r.horas_trabajadas != null ? `${(r.horas_trabajadas / 9).toFixed(2)}d` : '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="num text-[13px] font-semibold" style={{ color: abierto ? 'var(--muted)' : 'var(--green)' }}>
-                              {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <button
-                              onClick={() => {
-                                if (isEditing) { setEditingRecord(null); setEditSalida(''); setEditError('') }
-                                else { setEditingRecord(r.id); setEditSalida(''); setEditError('') }
-                              }}
-                              title="Ingresar / editar salida"
-                              className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                              style={{
-                                background: isEditing ? 'var(--amber-dim)' : 'var(--bg-elevated)',
-                                border: `1px solid ${isEditing ? 'rgba(255,149,0,0.4)' : 'var(--border)'}`,
-                              }}
-                            >
-                              <Pencil size={12} style={{ color: isEditing ? 'var(--amber)' : 'var(--subtle)' }} />
-                            </button>
-                          </td>
-                        </tr>
-                        {isEditing && (
-                          <tr style={{ background: 'var(--bg-surface)' }}>
-                            <td colSpan={8} className="px-6 py-4">
-                              <div className="flex items-center gap-4 flex-wrap">
-                                <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0 }}>
-                                  // hora de salida — {r.workers?.nombre}
-                                </p>
-                                <TimePicker value={editSalida} onChange={v => { setEditSalida(v); setEditError('') }} />
-                                <button
-                                  onClick={() => handleGuardarSalida(r)}
-                                  disabled={!editSalida || editSaving}
-                                  className="btn-primary gap-1 text-xs disabled:opacity-40"
-                                  style={{ padding: '8px 14px', flexShrink: 0 }}
-                                >
-                                  {editSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                                  Guardar salida
-                                </button>
-                                <button
-                                  onClick={() => { setEditingRecord(null); setEditSalida(''); setEditError('') }}
-                                  className="btn-ghost text-xs"
-                                  style={{ color: 'var(--muted)', flexShrink: 0 }}
-                                >
-                                  <X size={12} />
-                                </button>
-                                {editError && (
-                                  <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)' }}>⚠ {editError}</p>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    )
-                  })}
+                  {registrosVisibles.map(r => renderTurnoRow(r, setRegistros))}
                   {registrosVisibles.length === 0 && (
                     <tr>
                       <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
@@ -859,7 +1007,7 @@ export default function ControlAsistencia() {
                     <div>
                       <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{p.nombre}</p>
                       <p className="text-[11px] num" style={{ color: 'var(--muted)' }}>
-                        {(p.horasTotales / 9).toFixed(2)} días · {p.nRegistros} turnos
+                        {p.horasTotales.toFixed(1)} hrs · {p.nRegistros} turnos
                       </p>
                     </div>
                     <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>
@@ -873,81 +1021,213 @@ export default function ControlAsistencia() {
         </>
       )}
 
-      {/* ── TAB: QUINCENA ─────────────────────────────────────── */}
-      {tab === 'quincena' && (() => {
-        const MESES_LABELS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+      {/* ── TAB: POR FECHA ─────────────────────────────────────── */}
+      {tab === 'por_fecha' && (() => {
+        const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
         const aniosDisp = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i)
 
-        // Agrupar por obra → trabajador
-        const porObra = {}
-        quinRegistros.forEach(r => {
-          const obraKey  = r.project_id
-          const obraNombre = r.projects?.nombre ?? '—'
-          if (!porObra[obraKey]) porObra[obraKey] = { nombre: obraNombre, workers: {} }
-          const wKey = r.worker_id
-          const wNombre = r.workers?.nombre ?? '—'
-          if (!porObra[obraKey].workers[wKey]) porObra[obraKey].workers[wKey] = { nombre: wNombre, horas: 0, costo: 0 }
-          porObra[obraKey].workers[wKey].horas += r.horas_trabajadas ?? 0
-          porObra[obraKey].workers[wKey].costo += r.costo_total ?? 0
+        // Agrupar por fecha → obra
+        const porFechaGrupos = {}
+        registrosFecha.forEach(r => {
+          const f   = r.fecha
+          const pid = r.project_id
+          if (!porFechaGrupos[f]) porFechaGrupos[f] = { obras: {} }
+          if (!porFechaGrupos[f].obras[pid]) {
+            porFechaGrupos[f].obras[pid] = { nombre: r.projects?.nombre ?? '—', registros: [] }
+          }
+          porFechaGrupos[f].obras[pid].registros.push(r)
         })
+        const fechasOrdenadas = Object.keys(porFechaGrupos).sort((a, b) => b.localeCompare(a))
+
+        // Resumen por trabajador
+        const resumenMap = {}
+        registrosFecha.forEach(r => {
+          const wid = r.worker_id
+          if (!resumenMap[wid]) resumenMap[wid] = {
+            nombre: r.workers?.nombre ?? '—',
+            avatar: r.workers?.avatar ?? '?',
+            dias: 0, horas: 0, costo: 0,
+          }
+          resumenMap[wid].dias  += 1
+          resumenMap[wid].horas += r.horas_trabajadas ?? 0
+          resumenMap[wid].costo += r.costo_total ?? 0
+        })
+        const resumenList = Object.values(resumenMap).sort((a, b) => b.costo - a.costo)
+        const totalCostoGeneral = resumenList.reduce((s, w) => s + w.costo, 0)
 
         return (
           <div className="space-y-4">
             {/* Selectores */}
             <div className="flex gap-3 flex-wrap items-center">
               <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                {[{ key: '1', label: '1ra (1–15)' }, { key: '2', label: '2da (16–fin)' }].map(p => (
+                {[{ key: 'mes', label: 'Por mes' }, { key: 'rango', label: 'Rango' }].map(m => (
                   <button
-                    key={p.key}
-                    onClick={() => setQuinPeriodo(p.key)}
+                    key={m.key}
+                    onClick={() => setRangoMode(m.key)}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
                     style={{
-                      background: quinPeriodo === p.key ? 'var(--amber)' : 'transparent',
-                      color:      quinPeriodo === p.key ? '#000' : 'var(--muted)',
-                      fontFamily: 'Instrument Sans, sans-serif',
+                      background: rangoMode === m.key ? 'var(--amber)' : 'transparent',
+                      color:      rangoMode === m.key ? '#000' : 'var(--muted)',
+                      fontFamily: 'Instrument Sans',
                     }}
-                  >
-                    {p.label}
-                  </button>
+                  >{m.label}</button>
                 ))}
               </div>
-              <select className="select" value={quinMes} onChange={e => setQuinMes(parseInt(e.target.value))}>
-                {MESES_LABELS.map((m, i) => <option key={i} value={i}>{m}</option>)}
-              </select>
-              <select className="select" value={quinAnio} onChange={e => setQuinAnio(parseInt(e.target.value))}>
-                {aniosDisp.map(a => <option key={a} value={a}>{a}</option>)}
+
+              {rangoMode === 'mes' ? (
+                <>
+                  <select className="select" value={rangoMes} onChange={e => setRangoMes(parseInt(e.target.value))}>
+                    {MESES.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                  </select>
+                  <select className="select" value={rangoAnio} onChange={e => setRangoAnio(parseInt(e.target.value))}>
+                    {aniosDisp.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>DESDE</span>
+                    <input type="date" className="input" value={rangoDesde} onChange={e => setRangoDesde(e.target.value)} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>HASTA</span>
+                    <input type="date" className="input" value={rangoHasta} onChange={e => setRangoHasta(e.target.value)} />
+                  </div>
+                </>
+              )}
+
+              <select className="select" value={rangoObra} onChange={e => setRangoObra(e.target.value)}>
+                <option value="all">Todas las obras</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
               </select>
             </div>
 
-            {quinLoading ? (
+            {loadingFecha ? (
               <div className="flex justify-center py-10">
                 <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
               </div>
-            ) : Object.keys(porObra).length === 0 ? (
+            ) : fechasOrdenadas.length === 0 ? (
               <div className="card p-10 text-center">
-                <p className="text-sm" style={{ color: 'var(--muted)' }}>Sin registros para esta quincena</p>
+                <p className="text-sm" style={{ color: 'var(--muted)' }}>Sin registros para este período</p>
               </div>
             ) : (
-              Object.entries(porObra).map(([obraId, obra]) => {
-                const workers = Object.values(obra.workers)
-                const totalCostoObra = workers.reduce((s, w) => s + w.costo, 0)
-                const totalDiasObra  = workers.reduce((s, w) => s + w.horas, 0) / 9
+              <>
+                {/* Agrupado por fecha */}
+                {fechasOrdenadas.map(fecha => {
+                  const grupo = porFechaGrupos[fecha]
+                  const obras = Object.entries(grupo.obras)
+                  const totalRegistros = obras.reduce((s, [, o]) => s + o.registros.length, 0)
+                  const totalHorasFecha = obras.reduce((s, [, o]) => s + o.registros.reduce((ss, r) => ss + (r.horas_trabajadas ?? 0), 0), 0)
+                  const totalCostoFecha = obras.reduce((s, [, o]) => s + o.registros.reduce((ss, r) => ss + (r.costo_total ?? 0), 0), 0)
 
-                return (
-                  <div key={obraId} className="card overflow-hidden">
-                    <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                      <div>
-                        <h3 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{obra.nombre}</h3>
-                        <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
-                          {totalDiasObra.toFixed(2)} días · {workers.length} trabajadores
-                        </p>
+                  return (
+                    <div key={fecha} className="space-y-2">
+                      {/* Fecha header */}
+                      <div
+                        className="flex items-center justify-between px-4 py-3 rounded-xl"
+                        style={{ background: 'var(--amber-dim)', border: '1px solid rgba(255,149,0,0.25)' }}
+                      >
+                        <div>
+                          <p style={{ fontFamily: 'Unbounded', fontSize: 11, fontWeight: 700, color: 'var(--amber)', textTransform: 'capitalize', letterSpacing: '0.04em' }}>
+                            {formatFechaDate(fecha)}
+                          </p>
+                          <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                            {totalRegistros} trabajadores · {totalHorasFecha.toFixed(1)} hrs
+                          </p>
+                        </div>
+                        <p className="num font-bold text-sm" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoFecha)}</p>
                       </div>
-                      <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>{formatCLP(totalCostoObra)}</p>
+
+                      {/* Obras */}
+                      {obras.map(([obraId, obra]) => (
+                        <div key={obraId} className="card overflow-hidden" style={{ marginLeft: 12 }}>
+                          <div className="px-4 py-2.5" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                            <p style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                              {obra.nombre}
+                            </p>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[520px]">
+                              <thead>
+                                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                                  {['Trabajador', 'Entrada', 'Salida', 'Horas', 'Valor Día', 'Costo'].map(h => (
+                                    <th key={h} className="px-4 py-2 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {obra.registros.map(r => {
+                                  const alerta = r.horas_trabajadas != null && r.salida && r.horas_trabajadas < 8
+                                  return (
+                                    <tr
+                                      key={r.id}
+                                      className="table-row"
+                                      style={alerta ? { background: 'var(--red-dim)' } : {}}
+                                    >
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                          <div
+                                            className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                                            style={{ background: alerta ? 'rgba(255,69,96,0.2)' : 'var(--amber)', color: alerta ? 'var(--red)' : '#000' }}
+                                          >
+                                            {r.workers?.avatar}
+                                          </div>
+                                          <span className="text-sm font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>
+                                            {r.workers?.nombre}
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span className="num text-[12px]" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        {r.salida
+                                          ? <span className="num text-[12px]" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>{formatHora(r.salida)}</span>
+                                          : <span style={{ fontSize: 11, fontFamily: 'Unbounded', fontWeight: 700, color: 'var(--amber)' }}>EN OBRA</span>
+                                        }
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span className="num text-[13px] font-semibold" style={{ color: alerta ? 'var(--red)' : 'var(--amber)' }}>
+                                          {r.horas_trabajadas != null ? `${Number(r.horas_trabajadas).toFixed(1)}h` : '—'}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>
+                                          {r.valor_hora != null ? formatCLP(r.valor_hora) : '—'}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span className="num text-[13px] font-semibold" style={{ color: alerta ? 'var(--red)' : 'var(--green)' }}>
+                                          {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+
+                {/* Resumen general del período */}
+                {resumenList.length > 0 && (
+                  <div className="card overflow-hidden">
+                    <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                      <h2 className="section-title">Resumen del período</h2>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                        {resumenList.length} trabajadores
+                      </p>
                     </div>
                     <table className="w-full">
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                          {['Trabajador', 'Días', 'Valor Día', 'Total'].map(h => (
+                          {['Trabajador', 'Días', 'Horas', 'Total a Pagar'].map(h => (
                             <th key={h} className="px-5 py-2.5 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                               {h}
                             </th>
@@ -955,50 +1235,195 @@ export default function ControlAsistencia() {
                         </tr>
                       </thead>
                       <tbody>
-                        {workers.sort((a, b) => b.costo - a.costo).map(w => {
-                          const dias = w.horas / 9
-                          const valorDia = dias > 0 ? Math.round(w.costo / dias) : 0
-                          return (
-                            <tr key={w.nombre} className="table-row">
-                              <td className="px-5 py-3">
+                        {resumenList.map(w => (
+                          <tr key={w.nombre} className="table-row">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0" style={{ background: 'var(--amber)', color: '#000' }}>
+                                  {w.avatar}
+                                </div>
                                 <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{w.nombre}</span>
-                              </td>
-                              <td className="px-5 py-3">
-                                <span className="num text-[13px]" style={{ color: 'var(--amber)' }}>{dias.toFixed(2)}</span>
-                              </td>
-                              <td className="px-5 py-3">
-                                <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatCLP(valorDia)}</span>
-                              </td>
-                              <td className="px-5 py-3">
-                                <span className="num text-[13px] font-semibold" style={{ color: 'var(--green)' }}>{formatCLP(w.costo)}</span>
-                              </td>
-                            </tr>
-                          )
-                        })}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px] font-semibold" style={{ color: 'var(--amber)' }}>{w.dias}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{w.horas.toFixed(1)}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px] font-bold" style={{ color: 'var(--green)' }}>{formatCLP(w.costo)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div
+                      className="flex items-center justify-between px-5 py-4"
+                      style={{ borderTop: '1px solid var(--border)', background: 'var(--amber-dim)' }}
+                    >
+                      <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+                        Total período
+                      </p>
+                      <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoGeneral)}</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ── TAB: POR OBRA ───────────────────────────────────────── */}
+      {tab === 'por_obra' && (() => {
+        const resumenPorObra = [...obrasActivas]
+          .sort((a, b) => a.nombre.localeCompare(b.nombre))
+          .map(p => {
+            const regs = registrosVista.filter(r => r.project_id === p.id)
+            const cerrados = regs.filter(r => r.costo_total != null)
+            return {
+              ...p,
+              nTrabajadores: new Set(regs.map(r => r.worker_id)).size,
+              horasTotales: cerrados.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0),
+              costoManoObra: cerrados.reduce((s, r) => s + (r.costo_total ?? 0), 0),
+              registros: regs,
+            }
+          })
+
+        if (loadingVista) {
+          return (
+            <div className="flex justify-center py-10">
+              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
+            </div>
+          )
+        }
+
+        return (
+          <div className="space-y-4">
+            {resumenPorObra.map(obra => (
+              <div key={obra.id} className="card overflow-hidden">
+                <div
+                  className="flex items-center justify-between px-5 py-4"
+                  style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}
+                >
+                  <div>
+                    <h2 className="section-title">{obra.nombre}</h2>
+                    <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                      {obra.nTrabajadores} trabajadores · {obra.horasTotales.toFixed(1)} hrs
+                    </p>
+                  </div>
+                  <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>{formatCLP(obra.costoManoObra)}</p>
+                </div>
+                {obra.registros.length === 0 ? (
+                  <p className="text-center py-8 text-sm" style={{ color: 'var(--muted)' }}>Sin trabajadores este día</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[580px]">
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                          {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
+                            <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {obra.registros.map(r => renderTurnoRow(r, setRegistrosVista))}
                       </tbody>
                     </table>
                   </div>
-                )
-              })
+                )}
+              </div>
+            ))}
+            {resumenPorObra.length === 0 && (
+              <div className="card p-10 text-center">
+                <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay obras activas</p>
+              </div>
             )}
+          </div>
+        )
+      })()}
 
-            {/* Total general quincena */}
-            {Object.keys(porObra).length > 0 && !quinLoading && (
-              <div
-                className="rounded-2xl p-4 flex items-center justify-between"
-                style={{ background: 'var(--amber-dim)', border: '1px solid rgba(255,149,0,0.25)' }}
-              >
-                <div>
-                  <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase', opacity: 0.7 }}>
-                    Total quincena
-                  </p>
-                  <p className="text-[11px] mt-0.5 num" style={{ color: 'var(--muted)' }}>
-                    {(quinRegistros.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0) / 9).toFixed(2)} días · {Object.keys(porObra).length} obras
-                  </p>
-                </div>
-                <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>
-                  {formatCLP(quinRegistros.reduce((s, r) => s + (r.costo_total ?? 0), 0))}
-                </p>
+      {/* ── TAB: HORA ENTRADA ───────────────────────────────────── */}
+      {tab === 'hora_entrada' && (() => {
+        const porEntrada = [...registrosVista].sort((a, b) => new Date(a.entrada) - new Date(b.entrada))
+        return (
+          <div className="card overflow-hidden">
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h2 className="section-title">Ordenado por hora de entrada ({porEntrada.length})</h2>
+            </div>
+            {loadingVista ? (
+              <div className="flex justify-center py-10">
+                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[580px]">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                      {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
+                        <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porEntrada.map(r => renderTurnoRow(r, setRegistrosVista))}
+                    {porEntrada.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
+                          Sin registros este día
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ── TAB: HORA SALIDA ────────────────────────────────────── */}
+      {tab === 'hora_salida' && (() => {
+        const conSalida = registrosVista.filter(r => r.salida).sort((a, b) => new Date(a.salida) - new Date(b.salida))
+        const sinSalida = registrosVista.filter(r => !r.salida)
+        const porSalida = [...conSalida, ...sinSalida]
+        return (
+          <div className="card overflow-hidden">
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h2 className="section-title">Ordenado por hora de salida ({porSalida.length})</h2>
+            </div>
+            {loadingVista ? (
+              <div className="flex justify-center py-10">
+                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[580px]">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                      {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
+                        <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porSalida.map(r => renderTurnoRow(r, setRegistrosVista))}
+                    {porSalida.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
+                          Sin registros este día
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -1028,6 +1453,24 @@ export default function ControlAsistencia() {
               {showForm ? 'Cancelar' : 'Nuevo'}
             </button>
           </div>
+
+          {/* Aviso: trabajadores con el mismo PIN */}
+          {workersPinDuplicado.size > 0 && (
+            <div
+              className="flex items-center gap-3 px-5 py-3"
+              style={{ background: 'rgba(255,69,96,0.08)', borderBottom: '1px solid rgba(255,69,96,0.3)' }}
+            >
+              <AlertTriangle size={16} style={{ color: 'var(--red)' }} className="flex-shrink-0" />
+              <p className="text-sm flex-1" style={{ color: 'var(--text)' }}>
+                <span className="font-semibold" style={{ color: 'var(--red)' }}>
+                  {workersPinDuplicado.size} trabajador{workersPinDuplicado.size !== 1 ? 'es' : ''}
+                </span>{' '}
+                {workersPinDuplicado.size === 1 ? 'tiene' : 'tienen'} el mismo PIN que otro trabajador
+                ({workers.filter(w => workersPinDuplicado.has(w.id)).map(w => w.nombre).join(', ')}).
+                Cámbialo para evitar que uno marque asistencia a nombre del otro.
+              </p>
+            </div>
+          )}
 
           {/* Buscador */}
           <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1065,7 +1508,7 @@ export default function ControlAsistencia() {
                   />
                 </div>
                 <div className="w-36">
-                  <label className="label">Valor día ($)</label>
+                  <label className="label">Valor Día ($)</label>
                   <input
                     className="input num"
                     type="number"
@@ -1192,9 +1635,43 @@ export default function ControlAsistencia() {
                           <Pencil size={10} style={{ color: 'var(--subtle)' }} />
                         </button>
                       )}
-                      <p className="text-[12px] num" style={{ color: 'var(--muted)' }}>
-                        {formatCLP(w.valor_hora)}/día
-                      </p>
+                      {editingValor === w.id ? (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <input
+                            className="input num"
+                            type="number"
+                            value={valorValue}
+                            onChange={e => { setValorValue(e.target.value); setValorError('') }}
+                            onKeyDown={e => { if (e.key === 'Enter') handleGuardarValor(w); if (e.key === 'Escape') { setEditingValor(null); setValorValue(''); setValorError('') } }}
+                            autoFocus
+                            style={{ width: 110, fontSize: 12, padding: '3px 8px' }}
+                          />
+                          <button
+                            onClick={() => handleGuardarValor(w)}
+                            disabled={valorSaving}
+                            className="p-1 rounded-md disabled:opacity-40"
+                            style={{ background: 'var(--amber)', color: '#000' }}
+                          >
+                            {valorSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                          </button>
+                          <button
+                            onClick={() => { setEditingValor(null); setValorValue(''); setValorError('') }}
+                            className="p-1 rounded-md"
+                            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                          >
+                            <X size={11} style={{ color: 'var(--subtle)' }} />
+                          </button>
+                          {valorError && <span style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'DM Mono' }}>{valorError}</span>}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingValor(w.id); setValorValue(String(w.valor_hora)); setValorError('') }}
+                          className="flex items-center gap-1 mt-0.5 transition-opacity hover:opacity-70"
+                        >
+                          <span className="text-[12px] num" style={{ color: 'var(--muted)' }}>{formatCLP(w.valor_hora)}/día</span>
+                          <Pencil size={10} style={{ color: 'var(--subtle)' }} />
+                        </button>
+                      )}
                     </div>
 
                     {/* PIN badge */}
@@ -1203,7 +1680,7 @@ export default function ControlAsistencia() {
                         <>
                           <span
                             className="num text-[13px] tracking-widest"
-                            style={{ color: showPins[w.id] ? 'var(--text)' : 'var(--subtle)' }}
+                            style={{ color: workersPinDuplicado.has(w.id) ? 'var(--red)' : (showPins[w.id] ? 'var(--text)' : 'var(--subtle)') }}
                           >
                             {showPins[w.id] ? w.pin : '••••'}
                           </span>
@@ -1217,6 +1694,20 @@ export default function ControlAsistencia() {
                               : <Eye    size={13} style={{ color: 'var(--subtle)' }} />
                             }
                           </button>
+                          {workersPinDuplicado.has(w.id) && (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-md font-semibold"
+                              style={{
+                                fontFamily: 'Unbounded',
+                                background: 'rgba(255,69,96,0.1)',
+                                color: 'var(--red)',
+                                border: '1px solid rgba(255,69,96,0.2)',
+                              }}
+                              title="Otro trabajador usa el mismo PIN"
+                            >
+                              DUPLICADO
+                            </span>
+                          )}
                         </>
                       ) : (
                         <span
@@ -1242,22 +1733,6 @@ export default function ControlAsistencia() {
                         <Pencil size={13} style={{ color: 'var(--subtle)' }} />
                       </button>
                     </div>
-
-                    {/* Obras asignadas */}
-                    <button
-                      onClick={() => handleExpandObras(w)}
-                      className="text-[10px] font-semibold px-2 py-1 rounded-lg transition-all flex-shrink-0"
-                      style={{
-                        fontFamily: 'Unbounded',
-                        letterSpacing: '0.06em',
-                        background: expandedObras === w.id ? 'var(--amber-dim)' : 'var(--bg-elevated)',
-                        color:      expandedObras === w.id ? 'var(--amber)' : 'var(--subtle)',
-                        border:     `1px solid ${expandedObras === w.id ? 'rgba(255,149,0,0.3)' : 'var(--border)'}`,
-                      }}
-                      title="Gestionar obras asignadas"
-                    >
-                      OBRAS
-                    </button>
 
                     {/* Toggle activo */}
                     <button
@@ -1298,184 +1773,94 @@ export default function ControlAsistencia() {
                     )}
                   </div>
 
-                  {/* Obras asignadas panel */}
+                  {/* Obras asignadas — fila secundaria con botón siempre visible */}
+                  <div
+                    className="px-5 pb-3 flex items-center gap-2"
+                    style={{ marginTop: -4 }}
+                  >
+                    <button
+                      onClick={() => handleExpandObras(w)}
+                      className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-lg transition-all"
+                      style={{
+                        fontFamily: 'Unbounded',
+                        letterSpacing: '0.05em',
+                        background: expandedObras === w.id ? 'var(--amber-dim)' : 'var(--bg-elevated)',
+                        color:      expandedObras === w.id ? 'var(--amber)' : 'var(--subtle)',
+                        border:     `1px solid ${expandedObras === w.id ? 'rgba(255,149,0,0.3)' : 'var(--border)'}`,
+                      }}
+                    >
+                      <Plus size={10} />
+                      Obras asignadas
+                    </button>
+                    {workerObras[w.id] && workerObras[w.id].size > 0 && (
+                      <span className="text-[11px]" style={{ color: 'var(--muted)' }}>
+                        {workerObras[w.id].size} asignada{workerObras[w.id].size !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+
                   {expandedObras === w.id && (
                     <div
                       className="px-5 pb-4"
                       style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', paddingTop: 14 }}
                     >
-                      <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', marginBottom: 10 }}>
-                        // obras asignadas — sin asignación ve todas las activas
-                      </p>
-                      {obrasLoading && !workerObras[w.id] ? (
+                      {obrasLoading ? (
                         <div className="flex justify-center py-4">
                           <Loader2 size={18} className="animate-spin" style={{ color: 'var(--amber)' }} />
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {obrasActivas.length === 0 && newObraWorker !== w.id && (
-                            <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>No hay obras activas. Crea una abajo.</p>
-                          )}
-                          {obrasActivas.map(o => {
-                            const assigned = workerObras[w.id]?.has(o.id) ?? false
-                            const toggling = obrasToggling[`${w.id}-${o.id}`]
-                            const editandoClave = editingClave === o.id
-                            return (
-                              <div key={o.id} className="space-y-1">
-                                <button
-                                  onClick={() => handleToggleObra(w, o.id)}
-                                  disabled={toggling}
-                                  className="w-full flex items-center gap-3 rounded-xl px-4 py-3 transition-all text-left disabled:opacity-60"
-                                  style={{
-                                    background: assigned ? 'var(--amber-dim)' : 'var(--bg-card)',
-                                    border: `1px solid ${assigned ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
-                                  }}
-                                >
-                                  <div
-                                    className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0"
-                                    style={{
-                                      background: assigned ? 'var(--amber)' : 'transparent',
-                                      border: `2px solid ${assigned ? 'var(--amber)' : 'var(--border)'}`,
-                                    }}
-                                  >
-                                    {assigned && <Check size={10} color="#000" strokeWidth={3} />}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate" style={{ color: assigned ? 'var(--amber)' : 'var(--text)' }}>
-                                      {o.nombre}
-                                    </p>
-                                    {o.direccion && (
-                                      <p className="text-[11px] truncate" style={{ color: 'var(--subtle)' }}>{o.direccion}</p>
-                                    )}
-                                  </div>
-                                  {toggling && <Loader2 size={14} className="animate-spin flex-shrink-0" style={{ color: 'var(--amber)' }} />}
-                                </button>
-
-                                {/* Clave de la obra */}
-                                {editandoClave ? (
-                                  <div className="flex items-center gap-2 px-1">
-                                    <input
-                                      className="input num text-sm w-28 text-center"
-                                      placeholder="ej: 1234"
-                                      value={claveValue}
-                                      maxLength={6}
-                                      onChange={e => { setClaveValue(e.target.value.replace(/\D/g, '').slice(0, 6)); setClaveError('') }}
-                                      onKeyDown={e => { if (e.key === 'Enter') handleGuardarClave(o.id); if (e.key === 'Escape') { setEditingClave(null); setClaveValue(''); setClaveError('') } }}
-                                      autoFocus
-                                      style={{ fontSize: 16, letterSpacing: '0.15em', padding: '6px 10px' }}
-                                    />
-                                    <button
-                                      onClick={() => handleGuardarClave(o.id)}
-                                      disabled={!claveValue.trim() || claveSaving}
-                                      className="btn-primary gap-1 text-xs disabled:opacity-40"
-                                      style={{ padding: '6px 10px' }}
-                                    >
-                                      {claveSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                                    </button>
-                                    <button
-                                      onClick={() => { setEditingClave(null); setClaveValue(''); setClaveError('') }}
-                                      className="btn-ghost text-xs"
-                                      style={{ color: 'var(--muted)' }}
-                                    >
-                                      <X size={11} />
-                                    </button>
-                                    {claveError && (
-                                      <p style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'DM Mono' }}>{claveError}</p>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => { setEditingClave(o.id); setClaveValue(o.clave ?? ''); setClaveError('') }}
-                                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg transition-opacity hover:opacity-70 text-left"
-                                    style={{ marginLeft: 4 }}
-                                  >
-                                    <Hash size={11} style={{ color: o.clave ? 'var(--amber)' : 'var(--subtle)', flexShrink: 0 }} />
-                                    {o.clave ? (
-                                      <span className="num text-[12px] font-semibold" style={{ color: 'var(--amber)', letterSpacing: '0.1em' }}>
-                                        {o.clave}
-                                      </span>
-                                    ) : (
-                                      <span className="text-[11px]" style={{ color: 'var(--subtle)', fontFamily: 'DM Mono' }}>
-                                        sin clave — asignar
-                                      </span>
-                                    )}
-                                    <Pencil size={10} style={{ color: 'var(--subtle)', marginLeft: 2 }} />
-                                  </button>
-                                )}
+                      ) : (() => {
+                        const asignadas   = obrasPanel.filter(o =>  workerObras[w.id]?.has(o.id))
+                        const disponibles = obrasPanel.filter(o => !workerObras[w.id]?.has(o.id))
+                        return (
+                          <div className="space-y-3">
+                            {/* Chips de obras asignadas */}
+                            {asignadas.length === 0 ? (
+                              <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>Sin obras asignadas</p>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {asignadas.map(o => {
+                                  const toggling = obrasToggling[`${w.id}-${o.id}`]
+                                  return (
+                                    <div key={o.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+                                      style={{ background: 'var(--amber-dim)', border: '1px solid rgba(255,149,0,0.35)' }}>
+                                      <span className="text-sm font-medium" style={{ color: 'var(--amber)' }}>{o.nombre}</span>
+                                      <button onClick={() => handleToggleObra(w, o.id)} disabled={toggling}
+                                        className="disabled:opacity-40 hover:opacity-70 transition-opacity">
+                                        {toggling
+                                          ? <Loader2 size={12} className="animate-spin" style={{ color: 'var(--amber)' }} />
+                                          : <X size={12} style={{ color: 'var(--amber)' }} />}
+                                      </button>
+                                    </div>
+                                  )
+                                })}
                               </div>
-                            )
-                          })}
-
-                          {/* Inline: nueva obra */}
-                          {newObraWorker === w.id ? (
-                            <div
-                              className="rounded-xl px-4 py-3 space-y-2"
-                              style={{ background: 'var(--bg-card)', border: '1px solid rgba(255,149,0,0.35)' }}
-                            >
-                              <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase' }}>
-                                // nueva obra
-                              </p>
-                              <input
-                                className="input text-sm"
-                                placeholder="Nombre de la obra"
-                                value={newObraNombre}
-                                onChange={e => setNewObraNombre(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
-                                autoFocus
-                              />
-                              <input
-                                className="input text-sm"
-                                placeholder="Dirección (opcional)"
-                                value={newObraDireccion}
-                                onChange={e => setNewObraDireccion(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
-                              />
-                              <input
-                                className="input num text-sm"
-                                placeholder="Clave numérica (ej: 1234)"
-                                value={newObraClave}
-                                maxLength={6}
-                                onChange={e => setNewObraClave(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                                onKeyDown={e => e.key === 'Enter' && handleCrearObra(w)}
-                                style={{ letterSpacing: '0.1em' }}
-                              />
+                            )}
+                            {/* Dropdown para agregar obra */}
+                            {disponibles.length > 0 && (
                               <div className="flex gap-2">
+                                <select className="select flex-1 text-sm" value={addObraId}
+                                  onChange={e => setAddObraId(e.target.value)}>
+                                  <option value="">Agregar obra...</option>
+                                  {disponibles.map(o => (
+                                    <option key={o.id} value={o.id}>{o.nombre}</option>
+                                  ))}
+                                </select>
                                 <button
-                                  onClick={() => handleCrearObra(w)}
-                                  disabled={!newObraNombre.trim() || newObraSaving}
-                                  className="btn-primary gap-1 text-xs disabled:opacity-40"
-                                  style={{ padding: '7px 12px' }}
+                                  onClick={async () => { if (!addObraId) return; await handleToggleObra(w, addObraId); setAddObraId('') }}
+                                  disabled={!addObraId}
+                                  className="btn-primary gap-1 text-xs disabled:opacity-40 flex-shrink-0"
+                                  style={{ padding: '8px 14px' }}
                                 >
-                                  {newObraSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                                  {newObraSaving ? 'Guardando...' : 'Crear y asignar'}
-                                </button>
-                                <button
-                                  onClick={() => { setNewObraWorker(null); setNewObraNombre(''); setNewObraDireccion('') }}
-                                  className="btn-ghost text-xs"
-                                  style={{ color: 'var(--muted)' }}
-                                >
-                                  <X size={12} />
+                                  <Plus size={13} /> Agregar
                                 </button>
                               </div>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setNewObraWorker(w.id); setNewObraNombre(''); setNewObraDireccion('') }}
-                              className="w-full flex items-center gap-2 rounded-xl px-4 py-2.5 transition-all"
-                              style={{
-                                background: 'transparent',
-                                border: '1px dashed var(--border)',
-                                color: 'var(--subtle)',
-                              }}
-                            >
-                              <Plus size={13} />
-                              <span className="text-[11px] font-semibold" style={{ fontFamily: 'Unbounded', letterSpacing: '0.06em' }}>
-                                NUEVA OBRA
-                              </span>
-                            </button>
-                          )}
-                        </div>
-                      )}
+                            )}
+                            {obrasPanel.length === 0 && (
+                              <p className="text-[12px]" style={{ color: 'var(--subtle)' }}>No hay obras en ejecución</p>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   )}
 

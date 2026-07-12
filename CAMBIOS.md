@@ -176,3 +176,85 @@ Pedido del cliente: ver más información por obra sin entrar al detalle.
 
 - Se agregó un buscador para encontrar trabajadores por nombre
 - Ahora se puede editar el nombre de un trabajador (antes solo el Valor Día y el PIN eran editables) — el avatar con las iniciales se actualiza solo
+
+## Alerta de PIN duplicado en Trabajadores (2026-07-09)
+
+- Si dos trabajadores activos quedan con el mismo PIN, ahora aparece un aviso en Control de Asistencia → Trabajadores indicando cuáles son y por qué cambiarlo (riesgo de que uno marque asistencia a nombre del otro)
+- Cada trabajador afectado muestra además una etiqueta "DUPLICADO" junto a su PIN
+- Esto se suma a la validación que ya existía al crear o cambiar un PIN (que impide guardar uno repetido) — ahora también se detectan duplicados que ya estaban en la base de datos
+
+## N° de Días de obra: de corridos a hábiles (2026-07-09)
+
+- El "N° de Días" que se muestra en cada card de Obras ahora cuenta solo días hábiles (lunes a viernes) — antes contaba días corridos, incluyendo sábados y domingos
+- Aplica tanto a obras en ejecución/pausadas (días transcurridos desde el inicio) como a obras finalizadas (días totales que duró la obra)
+
+## Colores de números unificados en todos los módulos (2026-07-09)
+
+Antes cada pantalla (Dashboard, Obras, Detalle de Obra, Estado de Resultados) coloreaba las mismas cifras de manera distinta y sin criterio común. Se definió un estándar único y se aplicó en las 4 pantallas:
+
+- **Venta** → azul
+- **Costo Directo (CDO)** → rojo
+- **Mano de Obra (MOD)** → amarillo/ámbar
+- **Gastos Generales (GAV)** → violeta (color nuevo)
+- **Abonos / plata cobrada** → verde
+- **Egresos totales y Costo Total Obra** (sumas que mezclan CDO+MOD+GAV) → rojo fijo
+- **Margen / Utilidad / % Margen / % Utilidad** → semáforo: verde si ≥20%, ámbar si está entre 0-20%, rojo si es negativo (mismo corte en las 4 pantallas — antes Dashboard usaba 15% y el resto 20%; Estado de Resultados no tenía ámbar, solo verde/rojo)
+- De paso se corrigieron 3 colores que estaban hardcodeados en vez de usar el sistema de diseño (afectaba modo claro/oscuro): el azul y el naranja de Estado de Resultados, y el naranja de "Próximo a vencer" en Cuentas por Pagar
+
+## Fix: no se podían cargar gastos a una obra recién creada (2026-07-09)
+
+**Causa raíz:** toda obra nueva se creaba con estado "Cotizada" por defecto, y la pantalla de "Subir Egreso" excluye a propósito las obras en ese estado (para no cargar gastos reales a una obra que todavía es solo una cotización sin confirmar). Como nunca se cambiaba el estado al crearla, la obra nueva quedaba invisible en el selector de "Subir Egreso".
+**Fix:** el estado inicial de una obra nueva ahora es "En ejecución" por defecto — se puede cargar gastos apenas se crea. Si de verdad es solo una cotización sin trabajo real todavía, se puede elegir "Cotizada" manualmente en el mismo formulario de creación.
+
+## Fix: la app no se actualizaba sola tras cada deploy (2026-07-09)
+
+**Causa raíz:** el service worker (lo que permite instalar VAION como app y usarla offline) se actualizaba en segundo plano en cada deploy, pero nunca le avisaba a la pestaña/app ya abierta que había una versión nueva — se quedaba corriendo la versión vieja en memoria indefinidamente. "Limpiar cache" del navegador no soluciona esto porque no fuerza a una app ya abierta a recargarse, solo cerrarla del todo y reabrirla.
+**Fix:** ahora la app detecta cuando hay una versión nueva disponible y se recarga sola automáticamente, sin que el usuario tenga que hacer nada. Aplica desde este deploy en adelante — por esta única vez, quien tenga la app ya abierta necesita cerrarla del todo y reabrirla una vez más para recibir este mismo arreglo.
+
+## VR Asociados separado en su propia plataforma: VRION (2026-07-10)
+
+Pedido del cliente: separar VR Asociados de VAION en una plataforma totalmente aparte (login, base de datos y todo independiente de VAION).
+
+- **VRION ya está en producción:** https://vrion.vercel.app
+- Es exactamente la misma app que VAION (mismo diseño, mismas funciones) — solo cambia el nombre de marca y que ahora tiene su propia base de datos, separada al 100% de VAION
+- Se migró todo lo que ya existía de VR: las 9 obras, los 9 trabajadores, los 77 egresos, asistencia, baños químicos y los 87 proveedores — nada se perdió
+- Los 4 usuarios de VR (Felipe Vazquez, Pedro Torres, Pablo Zemelman, Constanza Balbi) tienen cuenta nueva en VRION con contraseña temporal — deben cambiarla la primera vez que entren
+- VAION sigue funcionando exactamente igual que antes, sin ningún cambio para sus usuarios
+- Pendiente: dominio propio para VRION (por ahora usa uno provisorio gratis de Vercel)
+
+## VAION ya no tiene selector de empresa (2026-07-10)
+
+Pedido del cliente: que en VAION solo se pueda ver y trabajar con VA, sin ninguna posibilidad de cambiarse a otra empresa desde adentro de la app (aunque los datos viejos de VR sigan guardados como respaldo en la base de datos).
+
+- Se eliminó por completo el selector de empresa ("Tus empresas") de la barra lateral — ahora solo se muestra el nombre de la empresa activa, sin botón para cambiar
+- Se eliminó la pantalla "Selecciona tu empresa" que aparecía después del login cuando una cuenta tenía acceso a más de una empresa
+- Cada plataforma (VAION y VRION) ahora queda fija a su propia empresa por diseño — VAION siempre carga VA Constructora, VRION siempre carga VR Asociados, sin importar qué otras membresías tenga la cuenta en la base de datos
+- Los datos de VR siguen guardados en la base de VAION como respaldo (no se borraron), pero ya no son accesibles desde ningún lado de la app
+
+## Editar/eliminar turno y bono por día en Control de Asistencia (2026-07-09)
+
+En la tabla "Registros" de Control de Asistencia, cada turno ahora permite:
+
+- **Editar entrada y salida**: antes solo se podía corregir la hora de salida de un turno abierto; ahora se pueden corregir ambas horas de cualquier turno, esté abierto o cerrado
+- **Eliminar el turno**: nuevo botón con confirmación (igual que en Trabajadores/Obras)
+- **Agregar un bono**: monto extra opcional en $ que se suma al costo calculado por horas de ese turno específico — aparece como "+ $X bono" debajo del costo en la tabla
+- El bono queda incluido automáticamente en todos los totales de Mano de Obra (Dashboard, Estado de Resultados, Egresos) sin necesidad de tocar nada más
+- Disponible en ambas plataformas (VAION y VRION)
+
+## Fix: trabajadores de VR aparecían en el kiosco de VAION (2026-07-12)
+
+**Causa raíz:** el kiosco donde el trabajador ingresa su PIN buscaba el PIN en toda la base de datos sin distinguir empresa. Como los datos viejos de VR seguían guardados de respaldo en la base de VAION (ver entrada del 2026-07-10), si el PIN de un trabajador de VA coincidía con el de un trabajador de VR ya inactivo, el kiosco podía mostrar el nombre equivocado.
+**Fix:**
+- Se borraron de la base de VAION los 9 trabajadores de VR que quedaban de respaldo (ya estaban migrados y a salvo en la base propia de VRION)
+- El kiosco ahora valida el PIN solo dentro de la empresa de esa plataforma — VAION nunca puede devolver un trabajador de VR, ni de ninguna otra empresa que se agregue en el futuro
+- Aplicado y verificado en ambas plataformas (VAION y VRION)
+
+## Nuevas vistas en Control de Asistencia: Por Obra, Hora Entrada y Hora Salida (2026-07-12)
+
+Pedido del cliente: poder ver la asistencia agrupada por obra y ordenada por hora, para detectar atrasos/salidas tempranas y ver de un vistazo cuánta gente hay en cada obra.
+
+- **Por Obra**: una sección por cada obra activa (incluso las que no tuvieron nadie ese día) con resumen de trabajadores/horas/costo y el detalle de cada turno
+- **Hora Entrada**: todos los turnos del día ordenados de más temprano a más tarde
+- **Hora Salida**: igual, ordenado por hora de salida — los turnos que todavía no marcaron salida aparecen al final
+- Las 3 pestañas comparten un mismo selector de día (por defecto hoy) y permiten editar/eliminar un turno igual que en "Registros"
+- Disponible en ambas plataformas (VAION y VRION)
