@@ -76,25 +76,30 @@ export function AuthProvider({ children }) {
   // datos históricos de una migración), se ignoran por completo.
   async function loadEmpresa(userId) {
     try {
-      const { data: co, error: e1 } = await supabase
-        .from('companies')
-        .select('id, nombre, slug')
-        .eq('slug', COMPANY_SLUG)
-        .single()
-      if (e1 || !co) return null
-
-      const { data: uc, error: e2 } = await supabase
-        .from('user_companies')
-        .select('rol')
-        .eq('user_id', userId)
-        .eq('empresa_id', co.id)
-        .maybeSingle()
-      if (e2 || !uc) return null
-
-      return { empresa_id: co.id, nombre: co.nombre, slug: co.slug, rol: uc.rol }
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+      return await Promise.race([loadEmpresaQuery(userId), timeout])
     } catch {
       return null
     }
+  }
+
+  async function loadEmpresaQuery(userId) {
+    const { data: co, error: e1 } = await supabase
+      .from('companies')
+      .select('id, nombre, slug')
+      .eq('slug', COMPANY_SLUG)
+      .single()
+    if (e1 || !co) return null
+
+    const { data: uc, error: e2 } = await supabase
+      .from('user_companies')
+      .select('rol')
+      .eq('user_id', userId)
+      .eq('empresa_id', co.id)
+      .maybeSingle()
+    if (e2 || !uc) return null
+
+    return { empresa_id: co.id, nombre: co.nombre, slug: co.slug, rol: uc.rol }
   }
 
   useEffect(() => {

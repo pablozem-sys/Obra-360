@@ -293,4 +293,8 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - El pago también se corrigió: antes un sábado completo pagaba solo ~81% del valor día (prorrateado sobre 8h); ahora un sábado de 6.5h paga el valor día completo. Si se trabajan menos de 6.5h un sábado, se sigue prorrateando, pero sobre la base de 6.5h
 - Aplica en las 3 vistas de Control de Asistencia (Registros, Por Obra, formulario de registro manual) y en el kiosco de trabajador (marcar salida)
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Bug: login se quedaba pegado en "AUTENTICANDO..." (2026-07-15)
+- Root cause: la función `loadEmpresa()` (agregada el 2026-07-14 junto con la separación VAION/VRION) hacía 2 consultas a Supabase sin ningún timeout. Si esa consulta se colgaba por red lenta o inestable, el login nunca terminaba ni mostraba error — el botón quedaba pegado para siempre
+- Fix: se agregó un timeout de 8s a `loadEmpresa()` (mismo patrón ya usado en `fetchUserProfile()`) — si la consulta no responde a tiempo, el login falla de forma visible en vez de colgarse
 - Disponible en ambas plataformas (VAION y VRION)
