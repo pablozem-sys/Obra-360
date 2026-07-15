@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Plus, Loader2, Eye, Download, Pencil, AlertCircle,
   TrendingDown, TrendingUp, Clock, CheckCircle2, X, Info, Trash2,
-  Upload, Camera
+  Upload, Camera, DollarSign, ChevronDown,
 } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -34,9 +34,12 @@ export default function DetalleObra() {
   const [additionalSales, setAdditionalSales] = useState([])
   const [loading,         setLoading]         = useState(true)
 
-  // Ventas adicionales
-  const ventaFileRef = useRef()
+  // Ventas adicionales / alcance no ejecutado
+  const ventaFileRef  = useRef()
+  const dropdownRef   = useRef()
+  const [showDropdown, setShowDropdown] = useState(false)
   const [showAddVenta,  setShowAddVenta]  = useState(false)
+  const [ventaTipo,     setVentaTipo]     = useState('adicional')
   const [ventaDesc,     setVentaDesc]     = useState('')
   const [ventaMonto,    setVentaMonto]    = useState('')
   const [ventaFile,     setVentaFile]     = useState(null)
@@ -78,6 +81,14 @@ export default function DetalleObra() {
   const [editAbonoDesc,   setEditAbonoDesc]   = useState('')
   const [editAbonoSaving, setEditAbonoSaving] = useState(false)
   const [editAbonoError,  setEditAbonoError]  = useState('')
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setShowDropdown(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
@@ -206,7 +217,7 @@ export default function DetalleObra() {
     setVentaError('')
     try {
       let docUrl = null
-      if (ventaFile) {
+      if (ventaFile && ventaTipo === 'adicional') {
         try {
           const { url } = await uploadDocumento(id, ventaFile)
           docUrl = url
@@ -220,6 +231,7 @@ export default function DetalleObra() {
         descripcion:   ventaDesc.trim(),
         monto:         parseInt(ventaMonto),
         documento_url: docUrl,
+        tipo:          ventaTipo,
       })
       setAdditionalSales(prev => [nueva, ...prev])
 
@@ -237,9 +249,8 @@ export default function DetalleObra() {
           console.error('Error al registrar documento en Biblioteca:', err)
         }
       }
-
       setShowAddVenta(false)
-      setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null)
+      setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaTipo('adicional')
     } catch (err) {
       setVentaError(err.message || 'Error al guardar')
     } finally {
@@ -320,7 +331,9 @@ export default function DetalleObra() {
   const gastosObra       = gastos.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo !== 'Gastos Generales')
 
   const ventaAprobada    = obra.presupuesto ?? 0
-  const ventaAdicional   = additionalSales.reduce((s, v) => s + (v.monto ?? 0), 0)
+  const sumaAdicionales  = additionalSales.filter(v => v.tipo !== 'descuento').reduce((s, v) => s + (v.monto ?? 0), 0)
+  const sumaDescuentos   = additionalSales.filter(v => v.tipo === 'descuento').reduce((s, v) => s + (v.monto ?? 0), 0)
+  const ventaAdicional   = sumaAdicionales - sumaDescuentos
   const ventaTotal       = ventaAprobada + ventaAdicional
   const abonosRealizados = ingresos.reduce((s, i) => s + (i.monto ?? 0), 0)
   const faltante         = ventaTotal - abonosRealizados
@@ -333,8 +346,6 @@ export default function DetalleObra() {
   const totalGastos      = gastosObra.reduce((s, g) => s + (g.monto ?? 0), 0)
   const margenPlata      = ventaTotal - costoDirecto - manoObra
   const pctMargen        = ventaTotal > 0 ? (margenPlata / ventaTotal * 100).toFixed(1) : 0
-
-  const sobrecosto       = ventaTotal > 0 && totalGastos > ventaTotal
 
   const gastosCat = gastosObra.reduce((acc, g) => {
     acc[g.categoria] = (acc[g.categoria] || 0) + (g.monto ?? 0)
@@ -383,13 +394,56 @@ export default function DetalleObra() {
             <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>{obra.nombre}</h1>
             <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{obra.clients?.nombre ?? '—'}</p>
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 flex-shrink-0 items-center">
             <button onClick={openEdit} className="btn-secondary text-sm">
               <Pencil size={14} /> Editar
             </button>
-            <button onClick={() => navigate('/gastos/nuevo')} className="btn-primary text-sm">
-              <Plus size={15} /> Gasto
-            </button>
+            {/* Dropdown acciones rápidas */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowDropdown(p => !p)}
+                className="btn-primary text-sm"
+              >
+                <Plus size={15} /> <ChevronDown size={13} />
+              </button>
+              {showDropdown && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 rounded-xl overflow-hidden z-50 min-w-[180px]"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}
+                >
+                  <button
+                    onClick={() => { setShowDropdown(false); navigate('/gastos/nuevo') }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors hover:opacity-80 text-left"
+                    style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,69,96,0.12)' }}>
+                      <TrendingDown size={13} style={{ color: 'var(--red)' }} />
+                    </span>
+                    Nuevo gasto
+                  </button>
+                  <button
+                    onClick={() => { setShowDropdown(false); setShowAbono(true); setAbonoError('') }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors hover:opacity-80 text-left"
+                    style={{ color: 'var(--text)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(0,196,140,0.12)' }}>
+                      <DollarSign size={13} style={{ color: 'var(--green)' }} />
+                    </span>
+                    Nuevo abono
+                  </button>
+                  <button
+                    onClick={() => { setShowDropdown(false); setVentaTipo('adicional'); setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaError(''); setShowAddVenta(true) }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors hover:opacity-80 text-left"
+                    style={{ color: 'var(--text)' }}
+                  >
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,149,0,0.12)' }}>
+                      <TrendingUp size={13} style={{ color: 'var(--amber)' }} />
+                    </span>
+                    Venta adicional
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -401,12 +455,14 @@ export default function DetalleObra() {
             <TrendingUp size={13} style={{ color: 'var(--amber)' }} />
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Venta Total</p>
           </div>
-          <p className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>
+          <p className="font-display font-bold text-2xl" style={{ color: 'var(--blue)' }}>
             {ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}
           </p>
-          {ventaAdicional > 0 && (
+          {(sumaAdicionales > 0 || sumaDescuentos > 0) && (
             <p className="text-xs mt-1 num" style={{ color: 'var(--subtle)' }}>
-              Base {formatCLP(ventaAprobada)} + {formatCLP(ventaAdicional)}
+              Base {formatCLP(ventaAprobada)}
+              {sumaAdicionales > 0 && ` + ${formatCLP(sumaAdicionales)}`}
+              {sumaDescuentos > 0 && ` − ${formatCLP(sumaDescuentos)}`}
             </p>
           )}
           {ventaTotal > 0 && (
@@ -452,24 +508,41 @@ export default function DetalleObra() {
         </div>
       </div>
 
-      {/* ── Gastos / Margen ───────────────────────── */}
-      <div className="grid sm:grid-cols-3 gap-3">
+      {/* ── Costos / Margen ──────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* Costo Total Obra */}
         <div className="card p-5 overflow-visible">
           <div className="flex items-center gap-1.5 mb-1">
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Total Gastos</p>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Costo Total Obra</p>
             <span className="relative group inline-flex cursor-default">
               <Info size={12} style={{ color: 'var(--subtle)' }} />
               <span
                 className="absolute left-1/2 -translate-x-1/2 top-5 z-50 w-52 px-3 py-2 rounded-xl text-xs pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"
                 style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--muted)', fontFamily: 'Instrument Sans', lineHeight: 1.5 }}
               >
-                Gastos directos de la obra: materiales, subcontratos y mano de obra
+                CDO + Mano de Obra Directa. No incluye GAV.
               </span>
             </span>
           </div>
-          <p className="font-display font-bold text-2xl" style={{ color: sobrecosto ? 'var(--red)' : 'var(--text)' }}>{formatCLP(costoDirecto + manoObra)}</p>
-          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>{gastosObra.length} gastos registrados</p>
+          <p className="font-display font-bold text-2xl" style={{ color: 'var(--red)' }}>{formatCLP(costoDirecto + manoObra)}</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>{gastosObra.length} registros CDO</p>
         </div>
+
+        {/* CDO */}
+        <div className="card p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Costo Directo</p>
+          <p className="font-display font-bold text-2xl" style={{ color: 'var(--red)' }}>{formatCLP(costoDirecto)}</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>Materiales y subcontratos</p>
+        </div>
+
+        {/* MOD */}
+        <div className="card p-5">
+          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Mano de Obra</p>
+          <p className="font-display font-bold text-2xl" style={{ color: 'var(--amber)' }}>{formatCLP(manoObra)}</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>Costo asistencia obra</p>
+        </div>
+
+        {/* Margen $ */}
         <div className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>Margen</p>
           <p className="font-display font-bold text-2xl" style={{
@@ -478,9 +551,11 @@ export default function DetalleObra() {
             {ventaAprobada > 0 ? formatCLP(margenPlata) : '—'}
           </p>
           <p className="text-xs mt-2 num" style={{ color: 'var(--muted)' }}>
-            {ventaAprobada > 0 ? 'Venta − CDO − MO' : 'Sin venta aprobada'}
+            {ventaAprobada > 0 ? 'Venta − CDO − MOD' : 'Sin venta aprobada'}
           </p>
         </div>
+
+        {/* % Margen */}
         <div className="card p-5">
           <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.08em' }}>% Margen</p>
           <p className="font-display font-bold text-2xl num" style={{
@@ -503,10 +578,10 @@ export default function DetalleObra() {
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: additionalSales.length > 0 ? '1px solid var(--border)' : 'none' }}>
           <div>
             <h2 className="section-title">Ventas Adicionales</h2>
-            <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>Extra-contratos y ampliaciones de obra</p>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>Extra-contratos, ampliaciones y ajustes de alcance</p>
           </div>
           <button
-            onClick={() => { setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaError(''); setVentaDocFailed(false); setShowAddVenta(true) }}
+            onClick={() => { setVentaTipo('adicional'); setVentaDesc(''); setVentaMonto(''); setVentaFile(null); setVentaFileName(null); setVentaError(''); setVentaDocFailed(false); setShowAddVenta(true) }}
             className="btn-secondary text-sm"
             style={{ color: 'var(--amber)', borderColor: 'rgba(255,149,0,0.3)' }}
           >
@@ -523,43 +598,53 @@ export default function DetalleObra() {
 
         {additionalSales.length > 0 && (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {additionalSales.map(v => (
-              <div key={v.id} className="flex items-center justify-between px-5 py-3">
-                <div>
-                  <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>{v.descripcion}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="num text-sm font-semibold" style={{ color: 'var(--amber)' }}>+{formatCLP(v.monto)}</span>
-                  {confirmDeleteVentaId === v.id ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+            {additionalSales.map(v => {
+              const esDescuento = v.tipo === 'descuento'
+              return (
+                <div key={v.id} className="flex items-center justify-between px-5 py-3">
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>{v.descripcion}</p>
+                    {esDescuento && (
+                      <p className="text-[10px] uppercase font-bold mt-0.5" style={{ color: 'var(--red)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>Alcance no ejecutado</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="num text-sm font-semibold" style={{ color: esDescuento ? 'var(--red)' : 'var(--amber)' }}>
+                      {esDescuento ? '−' : '+'}{formatCLP(v.monto)}
+                    </span>
+                    {confirmDeleteVentaId === v.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                        <button
+                          onClick={() => handleDeleteVenta(v.id)}
+                          className="px-2 py-0.5 rounded-lg text-xs font-semibold"
+                          style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                        >Sí</button>
+                        <button
+                          onClick={() => setConfirmDeleteVentaId(null)}
+                          className="p-1 rounded-lg"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={() => handleDeleteVenta(v.id)}
-                        className="px-2 py-0.5 rounded-lg text-xs font-semibold"
-                        style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
-                      >Sí</button>
-                      <button
-                        onClick={() => setConfirmDeleteVentaId(null)}
-                        className="p-1 rounded-lg"
+                        onClick={() => setConfirmDeleteVentaId(v.id)}
+                        className="p-1.5 rounded-lg transition-all hover:opacity-80"
                         style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                      ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDeleteVentaId(v.id)}
-                      className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                      title="Eliminar venta adicional"
-                    >
-                      <Trash2 size={11} style={{ color: 'var(--red)' }} />
-                    </button>
-                  )}
+                        title="Eliminar"
+                      >
+                        <Trash2 size={11} style={{ color: 'var(--red)' }} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             <div className="flex items-center justify-between px-5 py-3" style={{ background: 'var(--bg-surface)' }}>
-              <span className="text-xs font-semibold uppercase" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.06em' }}>Total adicional</span>
-              <span className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{formatCLP(ventaAdicional)}</span>
+              <span className="text-xs font-semibold uppercase" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.06em' }}>Neto contratos</span>
+              <span className="num text-sm font-bold" style={{ color: ventaAdicional >= 0 ? 'var(--amber)' : 'var(--red)' }}>
+                {ventaAdicional >= 0 ? '+' : '−'}{formatCLP(Math.abs(ventaAdicional))}
+              </span>
             </div>
           </div>
         )}
@@ -574,7 +659,7 @@ export default function DetalleObra() {
       {/* ── Gastos por categoría ─────────────────── */}
       {Object.keys(gastosCat).length > 0 && (
         <div className="card p-5">
-          <h2 className="section-title mb-4">Gastos por Categoría</h2>
+          <h2 className="section-title mb-4">Costo Directo por Categoría</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {Object.entries(gastosCat).map(([cat, monto]) => {
               const info = CATEGORIAS_GASTO[cat]
@@ -599,7 +684,7 @@ export default function DetalleObra() {
       {/* ── Registro de Gastos y Abonos ──────────── */}
       <div className="card overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <h2 className="section-title">Registro de Gastos y Abonos</h2>
+          <h2 className="section-title">Costo Directo y Abonos</h2>
           <div className="flex gap-2">
             <button
               onClick={() => { setShowAbono(true); setAbonoError('') }}
@@ -901,16 +986,51 @@ export default function DetalleObra() {
         </div>
       </Modal>
 
-      {/* ── Modal: Venta Adicional ───────────────────── */}
-      <Modal open={showAddVenta} onClose={() => { setShowAddVenta(false); setVentaError('') }} title="Venta Adicional">
+      {/* ── Modal: Venta Adicional / Alcance no ejecutado ── */}
+      <Modal
+        open={showAddVenta}
+        onClose={() => { setShowAddVenta(false); setVentaError('') }}
+        title={ventaTipo === 'adicional' ? 'Venta Adicional' : 'Alcance no ejecutado'}
+      >
         <input ref={ventaFileRef} type="file" accept="image/*,.pdf" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) { setVentaFile(f); setVentaFileName(f.name) } }} />
+
+        {/* Toggle tipo */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { value: 'adicional',  label: 'Venta adicional' },
+            { value: 'descuento',  label: 'Alcance no ejecutado' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { setVentaTipo(opt.value); setVentaError('') }}
+              className="flex-1 py-2 rounded-xl text-[11px] font-semibold transition-all"
+              style={{
+                fontFamily: 'Unbounded',
+                letterSpacing: '0.04em',
+                background: ventaTipo === opt.value
+                  ? opt.value === 'adicional' ? 'rgba(255,149,0,0.15)' : 'rgba(255,69,96,0.15)'
+                  : 'var(--bg-surface)',
+                color: ventaTipo === opt.value
+                  ? opt.value === 'adicional' ? 'var(--amber)' : 'var(--red)'
+                  : 'var(--muted)',
+                border: `1px solid ${ventaTipo === opt.value
+                  ? opt.value === 'adicional' ? 'rgba(255,149,0,0.35)' : 'rgba(255,69,96,0.35)'
+                  : 'var(--border)'}`,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className="space-y-4">
           <div>
             <label className="label">Descripción *</label>
             <input
               className="input"
-              placeholder="Ej: Extra pavimentación, Ampliación terraza..."
+              placeholder={ventaTipo === 'adicional' ? 'Ej: Extra pavimentación, Ampliación terraza...' : 'Ej: Jardín, Terraza, Electricidad...'}
               value={ventaDesc}
               onChange={e => { setVentaDesc(e.target.value); setVentaError('') }}
               autoFocus
@@ -927,36 +1047,40 @@ export default function DetalleObra() {
               onChange={e => { setVentaMonto(e.target.value); setVentaError('') }}
             />
             {ventaMonto && parseInt(ventaMonto) > 0 && (
-              <p className="num text-xs mt-1.5 font-medium" style={{ color: 'var(--amber)' }}>{formatCLP(parseInt(ventaMonto))}</p>
+              <p className="num text-xs mt-1.5 font-medium" style={{ color: ventaTipo === 'adicional' ? 'var(--amber)' : 'var(--red)' }}>
+                {ventaTipo === 'adicional' ? '+' : '−'}{formatCLP(parseInt(ventaMonto))}
+              </p>
             )}
           </div>
-          <div>
-            <label className="label">Documento <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
-            {ventaFileName ? (
-              <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
-                <span className="text-lg">📎</span>
-                <p className="text-sm flex-1 truncate font-medium" style={{ color: 'var(--text)' }}>{ventaFileName}</p>
-                <button onClick={() => { setVentaFile(null); setVentaFileName(null) }} style={{ color: 'var(--muted)' }}>
-                  <X size={14} />
-                </button>
-              </div>
-            ) : (
-              <div
-                onClick={() => ventaFileRef.current?.click()}
-                className="rounded-xl p-6 text-center cursor-pointer transition-all"
-                style={{ border: '2px dashed var(--border)', background: 'var(--bg-surface)' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,149,0,0.3)'; e.currentTarget.style.background = 'var(--amber-dim)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}
-              >
-                <Upload size={20} className="mx-auto mb-2" style={{ color: 'var(--subtle)' }} />
-                <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>Subir factura, cotización o foto</p>
-                <p className="text-[11px] mt-0.5" style={{ color: 'var(--subtle)' }}>PDF, JPG, PNG</p>
-              </div>
-            )}
-            <button onClick={() => ventaFileRef.current?.click()} className="btn-secondary w-full justify-center mt-2 text-sm">
-              <Camera size={13} /> Tomar foto
-            </button>
-          </div>
+          {ventaTipo === 'adicional' && (
+            <div>
+              <label className="label">Documento <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
+              {ventaFileName ? (
+                <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+                  <span className="text-lg">📎</span>
+                  <p className="text-sm flex-1 truncate font-medium" style={{ color: 'var(--text)' }}>{ventaFileName}</p>
+                  <button onClick={() => { setVentaFile(null); setVentaFileName(null) }} style={{ color: 'var(--muted)' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => ventaFileRef.current?.click()}
+                  className="rounded-xl p-6 text-center cursor-pointer transition-all"
+                  style={{ border: '2px dashed var(--border)', background: 'var(--bg-surface)' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,149,0,0.3)'; e.currentTarget.style.background = 'var(--amber-dim)' }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}
+                >
+                  <Upload size={20} className="mx-auto mb-2" style={{ color: 'var(--subtle)' }} />
+                  <p className="text-sm font-medium" style={{ color: 'var(--text)' }}>Subir factura, cotización o foto</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--subtle)' }}>PDF, JPG, PNG</p>
+                </div>
+              )}
+              <button onClick={() => ventaFileRef.current?.click()} className="btn-secondary w-full justify-center mt-2 text-sm">
+                <Camera size={13} /> Tomar foto
+              </button>
+            </div>
+          )}
         </div>
         {ventaError && (
           <div className="flex items-center gap-2 mt-3">
@@ -972,9 +1096,12 @@ export default function DetalleObra() {
             onClick={handleAgregarVenta}
             disabled={ventaSaving || !ventaDesc || !ventaMonto}
             className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'var(--amber)' }}
+            style={{ background: ventaTipo === 'adicional' ? 'var(--amber)' : 'var(--red)' }}
           >
-            {ventaSaving ? <><Loader2 size={15} className="animate-spin" /> Guardando...</> : <><CheckCircle2 size={15} /> Guardar venta</>}
+            {ventaSaving
+              ? <><Loader2 size={15} className="animate-spin" /> Guardando...</>
+              : <><CheckCircle2 size={15} /> {ventaTipo === 'adicional' ? 'Guardar venta' : 'Guardar descuento'}</>
+            }
           </button>
         </div>
       </Modal>

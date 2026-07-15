@@ -19,7 +19,7 @@ const TIPOS = ['piscina', 'quincho', 'ampliacion', 'remodelacion', '360', 'otro'
 const FORM_INITIAL = {
   nombre: '', direccion: '', tipo: 'piscina',
   fecha_inicio: '', fecha_termino: '', presupuesto: '',
-  estado: 'cotizada', descripcion: '',
+  estado: 'en_ejecucion', descripcion: '',
 }
 
 const TIPOS_DOC_DOC = ['foto', 'contrato', 'cotizacion', 'factura', 'boleta', 'permiso', 'comprobante']
@@ -37,8 +37,16 @@ function diasEnObra(o) {
     fin = new Date()
     fin.setHours(0, 0, 0, 0)
   }
-  const dias = Math.round((fin - inicio) / 86400000)
-  return dias >= 0 ? dias : null
+  if (fin < inicio) return null
+  // Días hábiles (lun-vie), excluye sábados y domingos
+  let dias = 0
+  const cur = new Date(inicio)
+  while (cur < fin) {
+    const diaSemana = cur.getDay()
+    if (diaSemana !== 0 && diaSemana !== 6) dias++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return dias
 }
 
 export default function Obras() {
@@ -278,17 +286,17 @@ export default function Obras() {
                 <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div className="col-span-2 sm:col-span-1">
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Venta</p>
-                    <p className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
+                    <p className="num text-sm font-bold" style={{ color: 'var(--blue)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 mt-2 whitespace-nowrap" style={labelStyle}>Saldo</p>
                     <p className="num text-sm font-bold" style={{ color: saldoColor }}>{ventaTotal > 0 ? formatCLP(Math.abs(saldoPendiente)) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>CDO</p>
-                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.cdo > 0 ? formatCLP(m.cdo) : '—'}</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--red)' }}>{m.cdo > 0 ? formatCLP(m.cdo) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>M.O.</p>
-                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{m.mod > 0 ? formatCLP(m.mod) : '—'}</p>
+                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--amber)' }}>{m.mod > 0 ? formatCLP(m.mod) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>% Margen</p>
@@ -446,8 +454,8 @@ export default function Obras() {
           <div>
             <label className="label">Estado inicial</label>
             <select className="select" value={form.estado} onChange={e => setForm(p => ({ ...p, estado: e.target.value }))}>
-              <option value="cotizada">Cotizada</option>
               <option value="en_ejecucion">En ejecución</option>
+              <option value="cotizada">Cotizada</option>
             </select>
           </div>
           <div>

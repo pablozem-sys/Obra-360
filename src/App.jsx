@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from './context/AuthContext'
 import { Loader2 } from 'lucide-react'
 
@@ -20,16 +21,56 @@ import Biblioteca        from './pages/Biblioteca'
 import Gastos           from './pages/Gastos'
 import ControlAsistencia from './pages/ControlAsistencia'
 import Usuarios         from './pages/Usuarios'
+import ResetPassword    from './pages/ResetPassword'
+import BanosQuimicos    from './pages/BanosQuimicos'
+import Gestion         from './pages/Gestion'
 
-// Protege rutas admin — redirige al landing si no hay sesión
-function ProtectedRoute({ children, roles }) {
-  const { isAuth, rol, loading } = useAuth()
-  if (loading) return (
+// Detecta token de recovery en cualquier ruta y redirige a /reset-password
+function RecoveryRedirect() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  useEffect(() => {
+    if (location.pathname === '/reset-password') return
+    const code = new URLSearchParams(location.search).get('code')
+    const hash = new URLSearchParams(window.location.hash.replace('#', '?'))
+    if (code || hash.get('type') === 'recovery') {
+      navigate('/reset-password' + location.search + window.location.hash, { replace: true })
+    }
+  }, [location])
+  return null
+}
+
+function Spinner() {
+  return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-base)' }}>
       <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
     </div>
   )
+}
+
+function SinAcceso() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center text-center px-6" style={{ background: 'var(--bg-base)' }}>
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 text-3xl"
+        style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,69,96,0.25)' }}>
+        🔒
+      </div>
+      <h2 className="font-display font-bold text-xl mb-2" style={{ color: 'var(--text)', letterSpacing: '-0.03em' }}>
+        Sin acceso
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
+        Tu cuenta no tiene acceso a esta empresa.
+      </p>
+    </div>
+  )
+}
+
+// Protege rutas admin — redirige al landing si no hay sesión, muestra "sin acceso" si el usuario no pertenece a la empresa de este despliegue
+function ProtectedRoute({ children, roles }) {
+  const { isAuth, rol, loading, empresa } = useAuth()
+  if (loading) return <Spinner />
   if (!isAuth) return <Navigate to="/" replace />
+  if (!empresa) return <SinAcceso />
   if (roles && !roles.includes(rol)) return <Navigate to="/dashboard" replace />
   return children
 }
@@ -58,10 +99,13 @@ function DuenoRoute({ children }) {
 
 export default function App() {
   return (
+    <>
+    <RecoveryRedirect />
     <Routes>
       {/* ── Públicas ──────────────────────────────── */}
       <Route path="/"                      element={<Landing />} />
       <Route path="/login"                 element={<Login />} />
+      <Route path="/reset-password"         element={<ResetPassword />} />
       <Route path="/trabajador"            element={<AccesoTrabajador />} />
       <Route path="/trabajador/asistencia" element={<Asistencia />} />
 
@@ -75,6 +119,8 @@ export default function App() {
         <Route path="/asistencia-control" element={<ControlAsistencia />} />
         <Route path="/gastos"           element={<Gastos />} />
         <Route path="/documentos"       element={<Biblioteca />} />
+        <Route path="/banos-quimicos"   element={<BanosQuimicos />} />
+        <Route path="/gestion"          element={<Gestion />} />
 
         {/* Solo dueño */}
         <Route path="/cuentas-cobrar"   element={<DuenoRoute><CuentasCobrar /></DuenoRoute>} />
@@ -87,5 +133,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   )
 }

@@ -4,3 +4,8 @@ dist
 .env.local
 .env.*.local
 .vercel
+.gstack/
+.agents/
+.claude/
+.playwright-cli/
+supabase/.temp/

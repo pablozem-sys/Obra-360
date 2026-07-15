@@ -17,6 +17,10 @@ AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.users
     WHERE id = auth.uid() AND rol = 'dueno'
+  )
+  OR EXISTS (
+    SELECT 1 FROM public.user_companies
+    WHERE user_id = auth.uid() AND rol = 'dueno'
   );
 $$;
 
@@ -151,10 +155,15 @@ CREATE POLICY "accounts_receivable_rls" ON accounts_receivable
   );
 
 -- ── Documents ────────────────────────────────────────────────
+-- 2026-07-13: se agregó la excepción "project_id IS NULL AND is_administrativo()"
+-- para permitir subir/ver documentos generales de la empresa desde Biblioteca
+-- sin asociarlos a una obra (antes solo is_dueno() podía tocar esas filas).
+DROP POLICY IF EXISTS "documents_rls" ON documents;
 CREATE POLICY "documents_rls" ON documents
   FOR ALL TO authenticated
   USING (
     is_dueno()
+    OR (documents.project_id IS NULL AND is_administrativo())
     OR EXISTS (
       SELECT 1 FROM projects p
       WHERE p.id = documents.project_id
@@ -163,6 +172,7 @@ CREATE POLICY "documents_rls" ON documents
   )
   WITH CHECK (
     is_dueno()
+    OR (documents.project_id IS NULL AND is_administrativo())
     OR EXISTS (
       SELECT 1 FROM projects p
       WHERE p.id = documents.project_id
@@ -172,10 +182,34 @@ CREATE POLICY "documents_rls" ON documents
 
 -- ── Attendance (authenticated) ────────────────────────────────
 -- Las políticas anon (kiosco trabajadores) se mantienen sin cambios
+--
+-- 2026-07-13: se agregó is_administrativo() para que un usuario
+-- administrativo pueda reasignar la obra de un turno de asistencia
+-- (ControlAsistencia.jsx, panel de edición) hacia CUALQUIER obra,
+-- no solo aquellas donde es responsable_id. Antes solo dueno tenía
+-- ese alcance sin restricción de obra.
+CREATE OR REPLACE FUNCTION public.is_administrativo()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users
+    WHERE id = auth.uid() AND rol = 'administrativo'
+  )
+  OR EXISTS (
+    SELECT 1 FROM public.user_companies
+    WHERE user_id = auth.uid() AND rol = 'administrativo'
+  );
+$$;
+
+DROP POLICY IF EXISTS "attendance_auth_rls" ON attendance;
 CREATE POLICY "attendance_auth_rls" ON attendance
   FOR ALL TO authenticated
   USING (
     is_dueno()
+    OR is_administrativo()
     OR EXISTS (
       SELECT 1 FROM projects p
       WHERE p.id = attendance.project_id
@@ -184,6 +218,7 @@ CREATE POLICY "attendance_auth_rls" ON attendance
   )
   WITH CHECK (
     is_dueno()
+    OR is_administrativo()
     OR EXISTS (
       SELECT 1 FROM projects p
       WHERE p.id = attendance.project_id

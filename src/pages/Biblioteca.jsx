@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Search, FolderOpen, Download, Eye, Loader2, Trash2, X, Check } from 'lucide-react'
+import { Search, FolderOpen, Download, Eye, Loader2, Trash2, X, Check, Plus, Upload, AlertCircle } from 'lucide-react'
 import Badge from '../components/ui/Badge'
-import { getDocumentos, getObras, deleteDocumento } from '../lib/supabase'
+import { getDocumentos, getObras, deleteDocumento, uploadDocumento, createDocumento } from '../lib/supabase'
 import { formatCLP, formatDate, TIPOS_DOC } from '../lib/helpers'
 
 const TIPOS = ['todos', 'factura', 'boleta', 'contrato', 'cotizacion', 'foto', 'permiso', 'comprobante']
@@ -15,6 +15,16 @@ export default function Biblioteca() {
   const [search,     setSearch]     = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting,   setDeleting]   = useState(false)
+
+  // Subir documento
+  const [showUpload,   setShowUpload]   = useState(false)
+  const [uploadNombre, setUploadNombre] = useState('')
+  const [uploadTipo,   setUploadTipo]   = useState('contrato')
+  const [uploadObra,   setUploadObra]   = useState('')
+  const [uploadFecha,  setUploadFecha]  = useState(() => new Date().toISOString().split('T')[0])
+  const [uploadFile,   setUploadFile]   = useState(null)
+  const [uploading,    setUploading]    = useState(false)
+  const [uploadError,  setUploadError]  = useState('')
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
@@ -38,6 +48,32 @@ export default function Biblioteca() {
     }
   }
 
+  const handleUpload = async () => {
+    if (!uploadFile) { setUploadError('Selecciona un archivo'); return }
+    if (!uploadNombre.trim()) { setUploadError('Ingresa un nombre'); return }
+    setUploading(true)
+    setUploadError('')
+    try {
+      const { url } = await uploadDocumento(uploadObra || 'sin-obra', uploadFile)
+      const nuevoDoc = await createDocumento({
+        project_id: uploadObra || null,
+        tipo: uploadTipo,
+        nombre: uploadNombre.trim(),
+        archivo_url: url,
+        fecha: uploadFecha,
+      })
+      setDocs(prev => [nuevoDoc, ...prev])
+      setShowUpload(false)
+      setUploadNombre('')
+      setUploadObra('')
+      setUploadFile(null)
+    } catch (err) {
+      setUploadError(err.message || 'Error al subir el documento')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const filtered = docs.filter(d => {
     const matchObra   = obraFiltro === 'all' || d.project_id === obraFiltro
     const matchTipo   = tipoFiltro === 'todos' || d.tipo === tipoFiltro
@@ -53,10 +89,91 @@ export default function Biblioteca() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>Biblioteca Documental</h1>
-        <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{filtered.length} documentos</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>Biblioteca Documental</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{filtered.length} documentos</p>
+        </div>
+        <button
+          onClick={() => { setShowUpload(f => !f); setUploadError('') }}
+          className="btn-primary gap-1.5 text-xs flex-shrink-0"
+          style={{ padding: '8px 14px' }}
+        >
+          {showUpload ? <X size={13} /> : <Plus size={13} />}
+          {showUpload ? 'Cancelar' : 'Subir documento'}
+        </button>
       </div>
+
+      {/* Formulario subir documento */}
+      {showUpload && (
+        <div className="rounded-2xl p-5 space-y-4" style={{ background: 'var(--bg-card)', border: '1px solid rgba(255,149,0,0.25)' }}>
+          <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+            // subir documento
+          </p>
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div>
+              <label className="label">Nombre</label>
+              <input
+                className="input"
+                placeholder="Ej. Contrato de arriendo"
+                value={uploadNombre}
+                onChange={e => { setUploadNombre(e.target.value); setUploadError('') }}
+              />
+            </div>
+            <div>
+              <label className="label">Tipo</label>
+              <select className="select" value={uploadTipo} onChange={e => setUploadTipo(e.target.value)}>
+                {TIPOS.filter(t => t !== 'todos').map(t => (
+                  <option key={t} value={t}>{TIPOS_DOC[t]?.label || t}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Obra <span style={{ color: 'var(--subtle)' }}>(opcional)</span></label>
+              <select className="select" value={uploadObra} onChange={e => setUploadObra(e.target.value)}>
+                <option value="">Sin obra</option>
+                {obras.map(o => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Fecha</label>
+              <input type="date" className="input" value={uploadFecha} onChange={e => setUploadFecha(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Archivo</label>
+              <label
+                className="input flex items-center gap-2 cursor-pointer"
+                style={{ color: uploadFile ? 'var(--text)' : 'var(--subtle)' }}
+              >
+                <Upload size={14} />
+                <span className="truncate">{uploadFile?.name ?? 'Seleccionar archivo...'}</span>
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={e => { setUploadFile(e.target.files?.[0] ?? null); setUploadError('') }}
+                />
+              </label>
+            </div>
+          </div>
+          {uploadError && (
+            <div className="flex items-center gap-2">
+              <AlertCircle size={12} style={{ color: 'var(--red)' }} />
+              <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)', letterSpacing: '0.06em' }}>
+                {uploadError.toUpperCase()}
+              </p>
+            </div>
+          )}
+          <button
+            onClick={handleUpload}
+            disabled={uploading}
+            className="btn-primary gap-1.5 text-xs disabled:opacity-50"
+            style={{ padding: '9px 16px' }}
+          >
+            {uploading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            {uploading ? 'Subiendo...' : 'Guardar documento'}
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="space-y-3">

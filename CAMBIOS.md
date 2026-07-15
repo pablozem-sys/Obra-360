@@ -258,3 +258,32 @@ Pedido del cliente: poder ver la asistencia agrupada por obra y ordenada por hor
 - **Hora Salida**: igual, ordenado por hora de salida — los turnos que todavía no marcaron salida aparecen al final
 - Las 3 pestañas comparten un mismo selector de día (por defecto hoy) y permiten editar/eliminar un turno igual que en "Registros"
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Reasignar la obra de un turno ya marcado (2026-07-13)
+
+Pedido del cliente: si un trabajador es derivado a una obra distinta a las que tiene asignadas, el trabajador marca su entrada normal en el kiosco (con sus obras de siempre) y el administrador corrige la obra del turno después, desde el panel de edición.
+
+- En Control de Asistencia → cualquier vista (Registros, Por Obra, Hora Entrada, Hora Salida), el panel de editar turno ahora incluye un selector de **Obra**, con todas las obras activas de la empresa — no solo las asignadas formalmente al trabajador
+- La hora de entrada, salida y el bono del turno no se ven afectados por este cambio
+- El costo de mano de obra (MOD) se mueve automáticamente a la obra nueva en todos los reportes (Dashboard, Estado de Resultados, Costo por Obra)
+- No modifica las obras asignadas del trabajador — la derivación es puntual para ese turno; si se vuelve algo permanente, se debe agregar la obra al trabajador aparte
+- Disponible para dueño y administrativo (antes un administrativo solo podía tocar turnos de sus propias obras; ahora puede reasignar hacia cualquier obra activa)
+- Disponible en ambas plataformas (VAION y VRION)
+
+## Filtrar por obra con un click en Control de Asistencia → Registros (2026-07-13)
+- En la tabla "Registros", el nombre de la obra de cualquier fila ahora es clickeable (cambia a color ámbar al pasar el mouse)
+- Un click filtra al instante toda la tabla a esa obra, mostrando solo los trabajadores que estuvieron ahí — mismo filtro que el selector "Todas las obras" de arriba, que queda sincronizado
+- Para volver a ver todas las obras, se usa ese mismo selector
+- Disponible en ambas plataformas (VAION y VRION)
+
+## Subir documentos generales desde Biblioteca, sin asociarlos a una obra (2026-07-13)
+- Nuevo botón "Subir documento" en Biblioteca — antes la única forma de agregar un documento era desde Egresos o Venta Adicional, siempre ligado a una obra
+- El formulario pide nombre, tipo (Factura, Contrato, Permiso, etc.), fecha y archivo — la Obra es opcional, con "Sin obra" por defecto para documentos generales de la empresa (ej. un contrato marco, un seguro)
+- Estos documentos quedan visibles para dueño y administrativo, no solo para quien los subió
+- Disponible en ambas plataformas (VAION y VRION)
+
+## Desglose por categoría desplegable y filtro en Egresos (2026-07-14)
+- "Desglose por categoría" en Egresos ahora es un menú desplegable (colapsado por defecto) en vez de ocupar siempre toda la pantalla
+- Al abrirlo, cada categoría es clickeable: un click filtra la tabla "Registros" de abajo a esa categoría (como el filtro por obra de Control de Asistencia); un chip permite quitar el filtro
+- "Costo Total por Obra" ya no muestra obras finalizadas — solo obras activas, para no acumular obras viejas en la lista
+- Disponible en ambas plataformas (VAION y VRION)

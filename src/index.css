@@ -19,6 +19,10 @@
     --red-dim:     rgba(255,69,96,0.12);
     --blue:        #4361EE;
     --blue-dim:    rgba(67,97,238,0.12);
+    --violet:      #8B5CF6;
+    --violet-dim:  rgba(139,92,246,0.12);
+    --orange:      #F97316;
+    --orange-dim:  rgba(249,115,22,0.12);
     --text:        #ECEEF8;
     --muted:       #596085;
     --subtle:      #353A57;
@@ -40,6 +44,8 @@
     --green-dim:   rgba(0,196,140,0.10);
     --red-dim:     rgba(255,69,96,0.10);
     --blue-dim:    rgba(67,97,238,0.10);
+    --violet-dim:  rgba(139,92,246,0.10);
+    --orange-dim:  rgba(249,115,22,0.10);
   }
 
   * { box-sizing: border-box; }
@@ -254,17 +260,25 @@
   .text-amber  { color: var(--amber);  }
   .text-green  { color: var(--green);  }
   .text-red    { color: var(--red);    }
+  .text-blue   { color: var(--blue);   }
+  .text-violet { color: var(--violet); }
+  .text-orange { color: var(--orange); }
   .text-muted  { color: var(--muted);  }
   .text-subtle { color: var(--subtle); }
 
-  .bg-amber-dim { background: var(--amber-dim); }
-  .bg-green-dim { background: var(--green-dim); }
-  .bg-red-dim   { background: var(--red-dim);   }
-  .bg-blue-dim  { background: var(--blue-dim);  }
+  .bg-amber-dim  { background: var(--amber-dim);  }
+  .bg-green-dim  { background: var(--green-dim);  }
+  .bg-red-dim    { background: var(--red-dim);    }
+  .bg-blue-dim   { background: var(--blue-dim);   }
+  .bg-violet-dim { background: var(--violet-dim); }
+  .bg-orange-dim { background: var(--orange-dim); }
 
-  .border-amber { border-color: rgba(255,149,0,0.3); }
-  .border-green { border-color: rgba(0,196,140,0.3); }
-  .border-red   { border-color: rgba(255,69,96,0.3); }
+  .border-amber  { border-color: rgba(255,149,0,0.3);  }
+  .border-green  { border-color: rgba(0,196,140,0.3);  }
+  .border-red    { border-color: rgba(255,69,96,0.3);  }
+  .border-blue   { border-color: rgba(67,97,238,0.3);  }
+  .border-violet { border-color: rgba(139,92,246,0.3); }
+  .border-orange { border-color: rgba(249,115,22,0.3); }
 }
 
 /* ── Animations ──────────────────────────────────── */

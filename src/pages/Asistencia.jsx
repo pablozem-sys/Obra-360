@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, MapPin, Clock, CheckCircle2, Loader2 } from 'lucide-react'
+import { LogOut, Clock, CheckCircle2, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
   getTodayOpenAttendance,
@@ -8,6 +8,7 @@ import {
   registrarSalida,
   getWorkerObras,
 } from '../lib/supabase'
+import { BRAND_NAME } from '../lib/helpers'
 
 function useClock() {
   const [time, setTime] = useState(new Date())
@@ -19,15 +20,13 @@ function useClock() {
 }
 
 function getGeo() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('GPS no disponible en este dispositivo'))
-      return
-    }
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return }
+    const timer = setTimeout(() => resolve(null), 5000)
     navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      err => reject(err),
-      { timeout: 8000, enableHighAccuracy: true }
+      p => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude }) },
+      () => { clearTimeout(timer); resolve(null) },
+      { timeout: 5000, enableHighAccuracy: true }
     )
   })
 }
@@ -58,7 +57,6 @@ export default function Asistencia() {
   const [loading, setLoading]                 = useState(false)
   const [initLoading, setInitLoading]         = useState(true)
   const [lastAction, setLastAction]           = useState(null)
-  const [geoError, setGeoError]               = useState(false)
 
   const [obras, setObras]                   = useState([])
   const [obraSeleccionada, setObraSeleccionada] = useState(null)
@@ -90,27 +88,18 @@ export default function Asistencia() {
 
   const handleLlegue = async () => {
     if (!obraSeleccionada) return
-    setGeoError(false)
     setLoading(true)
-    let geo
-    try {
-      geo = await getGeo()
-    } catch {
-      setLoading(false)
-      setGeoError(true)
-      return
-    }
+    const geo = await getGeo()
     try {
       const [record, address] = await Promise.all([
         registrarEntrada(user.id, obraSeleccionada.id, geo, valorHora),
-        reverseGeocode(geo.lat, geo.lng),
+        geo ? reverseGeocode(geo.lat, geo.lng) : Promise.resolve(null),
       ])
       setRegistroAbierto({ ...record, projects: obraSeleccionada })
       setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra: obraSeleccionada, address })
       setStep('confirmado')
     } catch (err) {
       console.error('registrarEntrada:', err)
-      setGeoError(true)
     } finally {
       setLoading(false)
     }
@@ -118,16 +107,8 @@ export default function Asistencia() {
 
   const handleMeVoy = async () => {
     if (!tieneEntrada) return
-    setGeoError(false)
     setLoading(true)
-    let geo
-    try {
-      geo = await getGeo()
-    } catch {
-      setLoading(false)
-      setGeoError(true)
-      return
-    }
+    const geo = await getGeo()
     let horas, costo
     try {
       const updated = await registrarSalida(registroAbierto.id, registroAbierto.entrada, geo, valorHora)
@@ -243,7 +224,7 @@ export default function Asistencia() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <p className="font-display text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--muted)' }}>
-            VAION
+            {BRAND_NAME}
           </p>
           <p className="font-semibold text-lg mt-0.5" style={{ color: 'var(--text)' }}>{user?.nombre}</p>
         </div>
@@ -265,29 +246,6 @@ export default function Asistencia() {
           {time.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
-
-      {/* Error GPS */}
-      {geoError && (
-        <div
-          className="rounded-2xl p-4 mb-4 flex items-start gap-3"
-          style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,69,96,0.3)' }}
-        >
-          <MapPin size={18} style={{ color: 'var(--red)', flexShrink: 0, marginTop: 1 }} />
-          <div className="flex-1">
-            <p className="font-semibold text-sm" style={{ color: 'var(--red)' }}>Activa tu ubicación para continuar</p>
-            <p className="text-[12px] mt-0.5" style={{ color: 'var(--muted)' }}>
-              Ve a Ajustes → Privacidad → Ubicación y permite el acceso al navegador.
-            </p>
-            <button
-              onClick={tieneEntrada ? handleMeVoy : handleLlegue}
-              className="mt-2 text-[12px] font-semibold underline underline-offset-2"
-              style={{ color: 'var(--red)' }}
-            >
-              Reintentar
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Si ya tiene entrada → mostrar estado y ME VOY */}
       {tieneEntrada && obraActual ? (
@@ -398,11 +356,6 @@ export default function Asistencia() {
         </>
       )}
 
-      {/* Geo */}
-      <div className="flex items-center justify-center gap-2 mt-6" style={{ color: 'var(--subtle)' }}>
-        <MapPin size={12} />
-        <span className="text-[11px]" style={{ fontFamily: 'DM Mono' }}>Ubicación GPS activa</span>
-      </div>
     </div>
   )
 }

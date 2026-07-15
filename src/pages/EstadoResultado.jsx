@@ -19,7 +19,7 @@ const CTooltip = ({ active, payload, label }) => {
 
 function calcObraData(obra, gastos, asistencia, additionalSales) {
   const ventaAprobada  = obra.presupuesto ?? 0
-  const ventaAdicional = additionalSales.filter(a => a.project_id === obra.id).reduce((s, a) => s + (a.monto ?? 0), 0)
+  const ventaAdicional = additionalSales.filter(a => a.project_id === obra.id).reduce((s, a) => s + (a.tipo === 'descuento' ? -(a.monto ?? 0) : (a.monto ?? 0)), 0)
   const ventaTotal     = ventaAprobada + ventaAdicional
   const cdo            = gastos
     .filter(g => g.project_id === obra.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra')
@@ -80,25 +80,25 @@ export default function EstadoResultado() {
   const resultadoValor = isAll ? totales.utilidad   : totales.margen
   const resultadoPct   = isAll ? totales.pctUtilidad : totales.pctMargen
   const resultadoLabel = isAll ? 'Utilidad'          : 'Margen'
-  const resultadoColor = resultadoPct >= 20 ? 'var(--green)' : resultadoPct > 0 ? 'var(--amber)' : 'var(--red)'
+  const resultadoColor = resultadoPct >= 20 ? 'var(--green)' : resultadoValor > 0 ? 'var(--amber)' : 'var(--red)'
 
   const chartData = [
-    { name: 'Venta',         value: totales.ventaTotal,            fill: 'var(--green)' },
-    { name: 'CDO',           value: totales.cdo,                   fill: '#3B82F6' },
-    { name: 'MOD',           value: totales.mod,                   fill: '#8B5CF6' },
-    ...(isAll ? [{ name: 'GAV', value: totales.gav,                fill: '#F59E0B' }] : []),
+    { name: 'Venta',         value: totales.ventaTotal,            fill: 'var(--blue)'  },
+    { name: 'CDO',           value: totales.cdo,                   fill: 'var(--red)'   },
+    { name: 'MOD',           value: totales.mod,                   fill: 'var(--amber)' },
+    ...(isAll ? [{ name: 'GAV', value: totales.gav,                fill: 'var(--violet)' }] : []),
     { name: resultadoLabel,  value: Math.abs(resultadoValor),      fill: resultadoColor },
   ]
 
   const eerrPorObra = obras.map(o => ({ ...o, ...calcObraData(o, gastos, asistencia, additionalSales) }))
 
   const eerrFilas = [
-    { label: 'Venta Total',             value: totales.ventaTotal, color: 'var(--green)', bold: false },
-    { label: '↳ Costos Directos (CDO)', value: totales.cdo,        color: '#3B82F6',      bold: false, indent: true },
-    { label: '↳ Mano de Obra (MOD)',    value: totales.mod,        color: '#8B5CF6',      bold: false, indent: true },
-    ...(isAll ? [{ label: '↳ GAV',     value: totales.gav,        color: '#F59E0B',      bold: false, indent: true }] : []),
-    { label: resultadoLabel,            value: resultadoValor,     color: resultadoColor, bold: true },
-    { label: `% ${resultadoLabel}`,     value: null,               color: resultadoColor, bold: true, pct: resultadoPct },
+    { label: 'Venta Total',             value: totales.ventaTotal, color: 'var(--blue)',   bold: false },
+    { label: '↳ Costos Directos (CDO)', value: totales.cdo,        color: 'var(--red)',    bold: false, indent: true },
+    { label: '↳ Mano de Obra (MOD)',    value: totales.mod,        color: 'var(--amber)',  bold: false, indent: true },
+    ...(isAll ? [{ label: '↳ GAV',     value: totales.gav,        color: 'var(--violet)', bold: false, indent: true }] : []),
+    { label: resultadoLabel,            value: resultadoValor,     color: resultadoColor,  bold: true },
+    { label: `% ${resultadoLabel}`,     value: null,               color: resultadoColor,  bold: true, pct: resultadoPct },
   ]
 
   if (loading) return (
@@ -124,9 +124,9 @@ export default function EstadoResultado() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { icon: TrendingUp,   label: 'Venta Total',    value: formatCLP(totales.ventaTotal), color: 'var(--green)' },
-          { icon: TrendingDown, label: 'CDO',            value: formatCLP(totales.cdo),        color: '#3B82F6'      },
-          { icon: TrendingDown, label: 'MOD',            value: formatCLP(totales.mod),        color: '#8B5CF6'      },
+          { icon: TrendingUp,   label: 'Venta Total',    value: formatCLP(totales.ventaTotal), color: 'var(--blue)'  },
+          { icon: TrendingDown, label: 'CDO',            value: formatCLP(totales.cdo),        color: 'var(--red)'  },
+          { icon: TrendingDown, label: 'MOD',            value: formatCLP(totales.mod),        color: 'var(--amber)'},
           { icon: DollarSign,   label: resultadoLabel,   value: formatCLP(resultadoValor),     color: resultadoColor },
         ].map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="card p-5">
@@ -221,7 +221,7 @@ export default function EstadoResultado() {
               </thead>
               <tbody>
                 {eerrPorObra.map(o => {
-                  const mColor = o.pctMargen >= 20 ? 'var(--green)' : o.pctMargen > 0 ? 'var(--amber)' : 'var(--red)'
+                  const mColor = o.pctMargen >= 20 ? 'var(--green)' : o.margen > 0 ? 'var(--amber)' : 'var(--red)'
                   return (
                     <tr key={o.id} className="table-row">
                       <td className="px-5 py-3.5">
@@ -229,16 +229,16 @@ export default function EstadoResultado() {
                         <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{o.clients?.nombre ?? '—'}</p>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <span className="num text-sm font-semibold" style={{ color: 'var(--green)' }}>{formatCLP(o.ventaTotal)}</span>
+                        <span className="num text-sm font-semibold" style={{ color: 'var(--blue)' }}>{formatCLP(o.ventaTotal)}</span>
                         {o.ventaAdicional > 0 && (
                           <p className="num text-[10px]" style={{ color: 'var(--muted)' }}>+{formatCLP(o.ventaAdicional)} adicional</p>
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <span className="num text-sm" style={{ color: '#3B82F6' }}>{formatCLP(o.cdo)}</span>
+                        <span className="num text-sm" style={{ color: 'var(--red)' }}>{formatCLP(o.cdo)}</span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        <span className="num text-sm" style={{ color: '#8B5CF6' }}>{formatCLP(o.mod)}</span>
+                        <span className="num text-sm" style={{ color: 'var(--amber)' }}>{formatCLP(o.mod)}</span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <span className="num text-sm font-semibold" style={{ color: mColor }}>{formatCLP(o.margen)}</span>

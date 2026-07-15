@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import { Building2 } from 'lucide-react'
+import { BRAND_NAME } from '../../lib/helpers'
 
 export default function AppLayout() {
   return (
@@ -25,7 +26,7 @@ export default function AppLayout() {
             <Building2 size={14} color="#000" strokeWidth={2.5} />
           </div>
           <div className="font-display text-[13px] font-bold" style={{ letterSpacing: '-0.03em', fontFamily: 'Unbounded, sans-serif' }}>
-            <span style={{ color: 'var(--amber)' }}>VAION</span>
+            <span style={{ color: 'var(--amber)' }}>{BRAND_NAME}</span>
           </div>
         </div>
       </header>

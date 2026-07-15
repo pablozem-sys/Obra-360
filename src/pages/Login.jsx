@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Eye, EyeOff, ArrowRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { BRAND_NAME } from '../lib/helpers'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -11,6 +12,15 @@ export default function Login() {
   const [show, setShow]     = useState(false)
   const [error, setError]   = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Si Supabase redirige aquí con un token de recovery, ir a /reset-password
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('code')
+    const hash = new URLSearchParams(window.location.hash.replace('#', '?'))
+    if (code || hash.get('type') === 'recovery') {
+      navigate('/reset-password' + window.location.search + window.location.hash, { replace: true })
+    }
+  }, [])
 
   const handleLogin = async () => {
     if (!email || !pass) return
@@ -58,7 +68,7 @@ export default function Login() {
               marginBottom: 10,
             }}
           >
-            VAION
+            {BRAND_NAME}
           </h1>
           <p
             className="cursor-blink"

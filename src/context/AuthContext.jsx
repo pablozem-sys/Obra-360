@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, setEmpresaId } from '../lib/supabase'
+import { COMPANY_SLUG } from '../lib/helpers'
 
 const AuthContext = createContext(null)
 
@@ -45,7 +46,6 @@ async function fetchUserProfile(userId, authUser) {
     if (data) return data
   } catch { /* fallback below */ }
 
-  // Si no hay perfil en la tabla users todavía, usar datos básicos del auth
   if (authUser) {
     return {
       id: authUser.id,
@@ -62,10 +62,43 @@ const WORKER_KEY = 'vaion_worker_session'
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
+  const [empresa, setEmpresaState] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  function applyEmpresa(entry) {
+    setEmpresaState(entry)
+    setEmpresaId(entry?.empresa_id ?? null)
+  }
+
+  // Cada despliegue queda fijo a UNA sola empresa (COMPANY_SLUG, por variable
+  // de entorno VITE_COMPANY_SLUG) — no existe selector ni cambio de empresa
+  // dentro de la app. Si el usuario tiene membresías en otras empresas (ej.
+  // datos históricos de una migración), se ignoran por completo.
+  async function loadEmpresa(userId) {
+    try {
+      const { data: co, error: e1 } = await supabase
+        .from('companies')
+        .select('id, nombre, slug')
+        .eq('slug', COMPANY_SLUG)
+        .single()
+      if (e1 || !co) return null
+
+      const { data: uc, error: e2 } = await supabase
+        .from('user_companies')
+        .select('rol')
+        .eq('user_id', userId)
+        .eq('empresa_id', co.id)
+        .maybeSingle()
+      if (e2 || !uc) return null
+
+      return { empresa_id: co.id, nombre: co.nombre, slug: co.slug, rol: uc.rol }
+    } catch {
+      return null
+    }
+  }
+
   useEffect(() => {
-    // Restaurar sesión de trabajador desde localStorage antes de ir a Supabase
+    // Restaurar sesión de trabajador desde localStorage
     try {
       const saved = localStorage.getItem(WORKER_KEY)
       if (saved) {
@@ -81,10 +114,13 @@ export function AuthProvider({ children }) {
     // al usuario a la Landing aunque su sesión fuera válida (condición de
     // carrera). Ver docs/RUNBOOK.md sección 4.2.
     const safetyTimeout = setTimeout(() => setLoading(false), 15000)
+
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (s) {
         const profile = await fetchUserProfile(s.user.id, s.user)
+        const entry = await loadEmpresa(s.user.id)
         setSession({ user: profile })
+        applyEmpresa(entry)
       }
       clearTimeout(safetyTimeout)
       setLoading(false)
@@ -93,9 +129,13 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (event === 'SIGNED_OUT') {
         setSession(null)
+        setEmpresaState(null)
+        setEmpresaId(null)
       } else if (s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')) {
         const profile = await fetchUserProfile(s.user.id, s.user)
+        const entry = await loadEmpresa(s.user.id)
         setSession(prev => prev ? { user: profile } : prev)
+        applyEmpresa(entry)
       }
     })
 
@@ -105,9 +145,10 @@ export function AuthProvider({ children }) {
   const loginAdmin = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    // Setear sesión inmediatamente sin esperar onAuthStateChange
     const profile = await fetchUserProfile(data.user.id, data.user)
+    const entry = await loadEmpresa(data.user.id)
     setSession({ user: profile })
+    applyEmpresa(entry)
   }
 
   const loginTrabajador = (trabajador) => {
@@ -118,6 +159,8 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     setSession(null)
+    setEmpresaState(null)
+    setEmpresaId(null)
     if (session?.user?.rol === 'trabajador') {
       try { localStorage.removeItem(WORKER_KEY) } catch { /* ignorar */ }
     } else {
@@ -130,15 +173,19 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // rol activo viene de la empresa seleccionada, fallback a users.rol
+  const rol = empresa?.rol ?? session?.user?.rol ?? null
+
   const can = (permiso) => {
     if (!session?.user) return false
-    return PERMISOS[session.user.rol]?.[permiso] ?? false
+    return PERMISOS[rol]?.[permiso] ?? false
   }
 
   return (
     <AuthContext.Provider value={{
       user: session?.user ?? null,
-      rol: session?.user?.rol ?? null,
+      rol,
+      empresa,
       isAuth: !!session,
       loading,
       loginAdmin,

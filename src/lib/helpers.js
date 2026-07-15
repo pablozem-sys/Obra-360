@@ -1,3 +1,6 @@
+export const BRAND_NAME = import.meta.env.VITE_BRAND_NAME || 'VAION'
+export const COMPANY_SLUG = import.meta.env.VITE_COMPANY_SLUG || 'va-constructora'
+
 export function formatCLP(amount) {
   if (amount == null) return '—'
   return new Intl.NumberFormat('es-CL', {
@@ -72,6 +75,7 @@ export const CATEGORIAS_GASTO = {
   aridos:           { label: 'Áridos',           grupo: 'Costo Directo de la Obra', color: '#A3642A' },
   retiro_escombros: { label: 'Retiro escombros', grupo: 'Costo Directo de la Obra', color: '#8B5E3C' },
   banio_quimico:    { label: 'Baño químico',     grupo: 'Costo Directo de la Obra', color: '#7C3AED' },
+  flete:            { label: 'Flete',            grupo: 'Costo Directo de la Obra', color: '#0EA5E9' },
   otros_operacion:  { label: 'Otros',            grupo: 'Costo Directo de la Obra', color: '#475569' },
   // Gastos Generales (GAV)
   sueldos:          { label: 'Sueldos',          grupo: 'Gastos Generales',         color: '#F97316' },
@@ -83,8 +87,7 @@ export const CATEGORIAS_GASTO = {
   cuentas:          { label: 'Cuentas',          grupo: 'Gastos Generales',         color: '#94A3B8' },
   retiros:          { label: 'Retiros',          grupo: 'Gastos Generales',         color: '#2DD4BF' },
   otros:            { label: 'Otros',            grupo: 'Gastos Generales',         color: '#64748B' },
-  // Automático — generado desde Asistencia, no aparece en formularios
-  mano_obra:        { label: 'Mano de obra',     grupo: 'Automático',               color: '#8B5CF6', auto: true },
+  mano_obra:        { label: 'Mano de obra',     grupo: 'Costo Directo de la Obra', color: '#8B5CF6' },
   // Legacy — solo para mostrar datos históricos
   transporte:       { label: 'Transporte',       grupo: 'Costo Directo de la Obra', color: '#06B6D4', legacy: true },
 }

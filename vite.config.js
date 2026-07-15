@@ -1,16 +1,24 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const brandName = env.VITE_BRAND_NAME || 'VAION'
+  const supabaseHost = env.VITE_SUPABASE_URL
+    ? new URL(env.VITE_SUPABASE_URL).host
+    : 'ffxexpasoneowquvtouz.supabase.co'
+
+  return {
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: null, // registro manual en main.jsx (virtual:pwa-register) — necesario para recargar la app al detectar una versión nueva
       includeAssets: ['favicon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'VAION — Control de Obras',
-        short_name: 'VAION',
+        name: `${brandName} — Control de Obras`,
+        short_name: brandName,
         description: 'Gestión de obras de construcción',
         theme_color: '#060709',
         background_color: '#060709',
@@ -35,10 +43,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/ffxexpasoneowquvtouz\.supabase\.co\/.*/i,
+            urlPattern: new RegExp(`^https://${supabaseHost.replace(/\./g, '\\.')}/.*`, 'i'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'supabase-api',
@@ -66,4 +76,5 @@ export default defineConfig({
       },
     }),
   ],
+  }
 })

@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
-  ArrowUpCircle, BarChart3, Wallet, FolderOpen, Receipt,
-  Users, UserCog, LogOut, Sun, Moon
+  BarChart3, Wallet, FolderOpen, Receipt,
+  Users, UserCog, LogOut, Sun, Moon, Droplets, ClipboardList
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -12,11 +12,12 @@ const navAll = [
   { to: '/obras',              label: 'Obras',            icon: Building2,       perm: null },
   { to: '/asistencia-control', label: 'Asistencia',       icon: Users,           perm: null },
   { to: '/cuentas-pagar',      label: 'CxP',              icon: ArrowDownCircle, perm: null },
-  { to: '/cuentas-cobrar',     label: 'CxC',              icon: ArrowUpCircle,   perm: 'verCxC' },
   { to: '/eerr',               label: 'EERR',             icon: BarChart3,       perm: 'verEERR' },
   { to: '/flujo-caja',         label: 'Flujo de Caja',    icon: Wallet,          perm: 'verFlujoCaja' },
   { to: '/gastos',             label: 'Egresos',          icon: Receipt,         perm: null },
-  { to: '/documentos',        label: 'Documentos',       icon: FolderOpen,      perm: null },
+  { to: '/documentos',        label: 'Biblioteca',       icon: FolderOpen,      perm: null },
+  { to: '/banos-quimicos',   label: 'Baños Químicos',   icon: Droplets,        perm: null },
+  { to: '/gestion',           label: 'Gestión',          icon: ClipboardList,   perm: null },
   { to: '/usuarios',          label: 'Usuarios',         icon: UserCog,         perm: 'editarTodo' },
 ]
 
@@ -27,7 +28,7 @@ const roleBadge = {
 
 export default function Sidebar() {
   const navigate = useNavigate()
-  const { user, can, logout } = useAuth()
+  const { user, can, logout, empresa } = useAuth()
   const { theme, toggle } = useTheme()
 
   const visibleNav = navAll.filter(item => !item.perm || can(item.perm))
@@ -56,6 +57,35 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
+
+      {/* Empresa activa (fija, sin selector) */}
+      {empresa && (
+        <div className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl"
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}
+          >
+            <div
+              className="flex-shrink-0 flex items-center justify-center font-display font-bold rounded-lg"
+              style={{
+                width: 26, height: 26, fontSize: 8,
+                background: 'var(--amber-dim)',
+                border: '1px solid rgba(255,149,0,0.2)',
+                color: 'var(--amber)',
+              }}
+            >
+              {empresa.slug.split('-').map(w => w[0].toUpperCase()).join('').slice(0, 2)}
+            </div>
+
+            <span
+              className="flex-1 text-left font-display font-bold truncate"
+              style={{ fontSize: 9.5, letterSpacing: '-0.01em', color: 'var(--text)' }}
+            >
+              {empresa.nombre}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* CTA */}
       <div className="px-4 py-4">

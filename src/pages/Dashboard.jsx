@@ -3,12 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, DollarSign, Percent,
   AlertTriangle, Plus, ArrowRight, Wallet, Loader2,
-  Pencil, Trash2, X, AlertCircle
+  Pencil, Trash2, X, AlertCircle, HardHat, Building2
 } from 'lucide-react'
-import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, CartesianGrid
-} from 'recharts'
 import StatCard from '../components/ui/StatCard'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -19,34 +15,21 @@ import {
   updateGasto, deleteGasto,
 } from '../lib/supabase'
 import {
-  formatCLP,
+  formatCLP, BRAND_NAME,
   ESTADOS_OBRA, TIPOS_OBRA, CATEGORIAS_GASTO
 } from '../lib/helpers'
 
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
-const CTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-xl p-3 text-xs shadow-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
-      <p className="font-semibold mb-2" style={{ color: 'var(--muted)' }}>{label}</p>
-      {payload.map(p => (
-        <p key={p.name} className="font-mono font-medium" style={{ color: p.color }}>
-          {p.dataKey === 'ingresos' ? 'Venta' : 'Egresos'}: {formatCLP(p.value)}
-        </p>
-      ))}
-    </div>
-  )
+function isoToYYYYMM(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-const CBarTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-xl p-3 text-xs shadow-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-light)' }}>
-      <p className="font-mono font-medium" style={{ color: 'var(--amber)' }}>{label}</p>
-      <p className="font-mono" style={{ color: 'var(--text)' }}>{formatCLP(payload[0]?.value)}</p>
-    </div>
-  )
+function filterByMes(arr, mesFiltro, dateKey = 'fecha') {
+  if (!mesFiltro) return arr
+  return arr.filter(r => isoToYYYYMM(r[dateKey]) === mesFiltro)
 }
 
 export default function Dashboard() {
@@ -59,6 +42,8 @@ export default function Dashboard() {
   const [additionalSales, setAdditionalSales] = useState([])
   const [asistencia,      setAsistencia]      = useState([])
   const [loading,         setLoading]         = useState(true)
+
+  const [mesFiltro,       setMesFiltro]       = useState(null)
 
   const [editGasto,       setEditGasto]       = useState(null)
   const [editGastoForm,   setEditGastoForm]   = useState({})
@@ -84,52 +69,48 @@ export default function Dashboard() {
     }).finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
 
-  const ventaObras      = obras.reduce((s, o) => s + (o.presupuesto ?? 0), 0)
-  const ventaAdicional  = additionalSales.reduce((s, a) => s + (a.monto ?? 0), 0)
-  const totalIngresos   = ventaObras + ventaAdicional
-  const totalManoObra   = asistencia.reduce((s, r) => s + (r.costo_total ?? 0), 0)
-  const totalAbonos     = ingresos.reduce((s, i) => s + (i.monto ?? 0), 0)
+  // Meses disponibles para el selector (unión de todas las fechas de datos)
+  const mesesDisponibles = useMemo(() => {
+    const set = new Set()
+    gastos.forEach(g => { const m = isoToYYYYMM(g.fecha); if (m) set.add(m) })
+    ingresos.forEach(i => { const m = isoToYYYYMM(i.fecha); if (m) set.add(m) })
+    asistencia.forEach(a => { const m = isoToYYYYMM(a.fecha); if (m) set.add(m) })
+    additionalSales.forEach(s => { const m = isoToYYYYMM(s.created_at); if (m) set.add(m) })
+    return [...set].sort().reverse()
+  }, [gastos, ingresos, asistencia, additionalSales])
 
-  const gastosCDO       = gastos.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
-  const gastosGAV       = gastos.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Gastos Generales').reduce((s, g) => s + (g.monto ?? 0), 0)
-  const totalGastos     = gastos.reduce((s, g) => s + (g.monto ?? 0), 0)
+  // Datos filtrados por mes
+  const gastosFiltrados   = useMemo(() => filterByMes(gastos, mesFiltro), [gastos, mesFiltro])
+  const ingresosFiltrados = useMemo(() => filterByMes(ingresos, mesFiltro), [ingresos, mesFiltro])
+  const asistFiltrada     = useMemo(() => filterByMes(asistencia, mesFiltro), [asistencia, mesFiltro])
+  const addSalesFiltradas = useMemo(() => filterByMes(additionalSales, mesFiltro, 'created_at'), [additionalSales, mesFiltro])
+
+  // Métricas filtradas
+  const ventaObras      = obras.reduce((s, o) => s + (o.presupuesto ?? 0), 0)
+  const ventaAdicional  = addSalesFiltradas.reduce((s, a) => s + (a.tipo === 'descuento' ? -(a.monto ?? 0) : (a.monto ?? 0)), 0)
+  const totalIngresos   = ventaObras + ventaAdicional
+  const totalManoObra   = asistFiltrada.reduce((s, r) => s + (r.costo_total ?? 0), 0)
+  const totalAbonos     = ingresosFiltrados.reduce((s, i) => s + (i.monto ?? 0), 0)
+
+  const gastosCDO       = gastosFiltrados.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
+  const gastosGAV       = gastosFiltrados.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Gastos Generales').reduce((s, g) => s + (g.monto ?? 0), 0)
+  const totalGastos     = gastosFiltrados.reduce((s, g) => s + (g.monto ?? 0), 0)
   const egresos         = totalGastos + totalManoObra
   const utilidad        = totalIngresos - egresos
   const pctUtilidad     = totalIngresos > 0 ? (utilidad / totalIngresos * 100).toFixed(1) : 0
   const obrasActivas    = obras.filter(o => o.estado === 'en_ejecucion')
+
+  function labelMes(ym) {
+    if (!ym) return 'Todo'
+    const [y, m] = ym.split('-')
+    return `${MESES[parseInt(m) - 1]} ${y}`
+  }
 
   const alertas = obrasActivas.filter(o => {
     const cdo = gastos.filter(g => g.project_id === o.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
     const mod = asistencia.filter(a => a.project_id === o.id).reduce((s, a) => s + (a.costo_total ?? 0), 0)
     return o.presupuesto && (cdo + mod) > o.presupuesto * 0.85
   })
-
-  const gastosCat = useMemo(() => Object.entries(
-    gastos.reduce((acc, g) => { acc[g.categoria] = (acc[g.categoria] || 0) + g.monto; return acc }, {})
-  ).map(([cat, monto]) => ({
-    cat: CATEGORIAS_GASTO[cat]?.label || cat,
-    monto,
-    fill: CATEGORIAS_GASTO[cat]?.color || '#353A57',
-  })).sort((a, b) => b.monto - a.monto), [gastos])
-
-  const flujoCajaData = useMemo(() => {
-    const map = {}
-    gastos.forEach(g => {
-      if (!g.fecha) return
-      const d = new Date(g.fecha)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (!map[key]) map[key] = { mes: MESES[d.getMonth()], ingresos: 0, egresos: 0, order: d.getFullYear() * 12 + d.getMonth() }
-      map[key].egresos += g.monto ?? 0
-    })
-    ingresos.forEach(i => {
-      if (!i.fecha) return
-      const d = new Date(i.fecha)
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      if (!map[key]) map[key] = { mes: MESES[d.getMonth()], ingresos: 0, egresos: 0, order: d.getFullYear() * 12 + d.getMonth() }
-      map[key].ingresos += i.monto ?? 0
-    })
-    return Object.values(map).sort((a, b) => a.order - b.order).slice(-6)
-  }, [gastos, ingresos])
 
   const ultimosGastos = [...gastos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 6)
 
@@ -190,7 +171,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-2">
             <span className="amber-dot" />
             <p style={{ fontFamily: 'DM Mono', fontSize: 10, letterSpacing: '0.15em', color: 'var(--muted)', textTransform: 'uppercase' }}>
-              VAION // en vivo
+              {BRAND_NAME} // en vivo
             </p>
           </div>
           <h1 className="font-display font-bold text-[28px] leading-none" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>
@@ -242,6 +223,25 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Selector de mes ──────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {[null, ...mesesDisponibles].map(m => (
+          <button
+            key={m ?? 'todo'}
+            onClick={() => setMesFiltro(m)}
+            className="px-3 py-1.5 rounded-xl text-[11px] font-semibold transition-all"
+            style={{
+              fontFamily: 'Unbounded',
+              background: mesFiltro === m ? 'var(--amber)' : 'var(--bg-surface)',
+              color: mesFiltro === m ? '#000' : 'var(--muted)',
+              border: `1px solid ${mesFiltro === m ? 'var(--amber)' : 'var(--border)'}`,
+            }}
+          >
+            {labelMes(m)}
+          </button>
+        ))}
+      </div>
+
       {/* ── Section 01 ───────────────────────────── */}
       <div className="flex items-center gap-3">
         <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>01</span>
@@ -249,144 +249,39 @@ export default function Dashboard() {
         <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Indicadores</span>
       </div>
 
-      {/* ── Stats grid ───────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {can('verIngresos') && (
-          <StatCard icon={TrendingUp}   label="Venta"     value={formatCLP(totalIngresos)} sub="Total facturado"                        accent="emerald" />
-        )}
-        {can('verCxC') && (
-          <StatCard icon={Wallet}       label="Abonos"    value={formatCLP(totalAbonos)}   sub="Cobrado de clientes"                    accent="violet" />
-        )}
-        {can('verMargen') && (
-          <div className="card p-5 flex flex-col group relative overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--border-light)]">
-            <div className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full" style={{ background: 'var(--red)', boxShadow: '0 0 12px var(--red-dim)' }} />
-            <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: 'var(--red-dim)' }} />
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-4 border" style={{ background: 'var(--red-dim)', borderColor: 'rgba(255,69,96,0.3)' }}>
-              <TrendingDown size={16} style={{ color: 'var(--red)' }} />
-            </div>
-            <div className="num font-mono font-medium text-2xl leading-none mb-1.5" style={{ color: 'var(--red)' }}>{formatCLP(egresos)}</div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] mb-3" style={{ color: 'var(--muted)' }}>Egresos</p>
-            <div className="space-y-1.5 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-              <div className="flex justify-between">
-                <span className="text-[11px]" style={{ color: 'var(--muted)' }}>CDO</span>
-                <span className="num text-[11px] font-medium" style={{ color: 'var(--text)' }}>{formatCLP(gastosCDO)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[11px]" style={{ color: 'var(--muted)' }}>GAV</span>
-                <span className="num text-[11px] font-medium" style={{ color: 'var(--text)' }}>{formatCLP(gastosGAV)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[11px]" style={{ color: 'var(--muted)' }}>MOD</span>
-                <span className="num text-[11px] font-medium" style={{ color: 'var(--text)' }}>{formatCLP(totalManoObra)}</span>
-              </div>
-            </div>
-          </div>
-        )}
-        {can('verMargen') && (
-          <StatCard icon={DollarSign}   label="Utilidad"    value={formatCLP(utilidad)}        sub={`${pctUtilidad}% sobre venta`}            accent={parseFloat(pctUtilidad) >= 15 ? 'emerald' : parseFloat(pctUtilidad) >= 0 ? 'amber' : 'red'} />
-        )}
-        {can('verMargen') && (
-          <StatCard icon={Percent}      label="% Utilidad"  value={`${pctUtilidad}%`}          sub={utilidad >= 0 ? 'Utilidad empresa' : 'En pérdida'} accent={parseFloat(pctUtilidad) >= 15 ? 'emerald' : parseFloat(pctUtilidad) >= 0 ? 'amber' : 'red'} />
-        )}
-      </div>
+      {/* ── Fila 1: Venta · Egresos · Utilidad · % Utilidad ── */}
+      {can('verMargen') && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard icon={TrendingUp}  label="Venta"      value={formatCLP(totalIngresos)} sub={mesFiltro ? 'Presupuestos + adicionales del mes' : 'Total contratado'}  accent="blue" />
+          <StatCard icon={TrendingDown} label="Egresos"   value={formatCLP(egresos)}       sub="CDO + MOD + GAV"                                                accent="red" />
+          <StatCard icon={DollarSign}  label="Utilidad"   value={formatCLP(utilidad)}      sub={`${pctUtilidad}% sobre venta`}                                  accent={parseFloat(pctUtilidad) >= 20 ? 'emerald' : parseFloat(pctUtilidad) >= 0 ? 'amber' : 'red'} />
+          <StatCard icon={Percent}     label="% Utilidad" value={`${pctUtilidad}%`}        sub={utilidad >= 0 ? 'Utilidad empresa' : 'En pérdida'}               accent={parseFloat(pctUtilidad) >= 20 ? 'emerald' : parseFloat(pctUtilidad) >= 0 ? 'amber' : 'red'} />
+        </div>
+      )}
+      {!can('verMargen') && can('verIngresos') && (
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard icon={TrendingUp} label="Venta" value={formatCLP(totalIngresos)} sub={mesFiltro ? 'Presupuestos + adicionales del mes' : 'Total contratado'} accent="blue" />
+        </div>
+      )}
+
+      {/* ── Fila 2: Abonos · CDO · MOD · GAV ────── */}
+      {can('verMargen') && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard icon={Wallet}    label="Abonos"               value={formatCLP(totalAbonos)}  sub="Cobrado de clientes"           accent="emerald" />
+          <StatCard icon={HardHat}   label="Costos Directos"      value={formatCLP(gastosCDO)}    sub="CDO — costos de obra"          accent="red" />
+          <StatCard icon={TrendingDown} label="Mano de Obra"      value={formatCLP(totalManoObra)} sub="MOD — asistencia"             accent="amber" />
+          <StatCard icon={Building2} label="Gastos Empresa"       value={formatCLP(gastosGAV)}    sub="GAV — gastos generales"        accent="violet" />
+        </div>
+      )}
+      {!can('verMargen') && can('verCxC') && (
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard icon={Wallet} label="Abonos" value={formatCLP(totalAbonos)} sub="Cobrado de clientes" accent="emerald" />
+        </div>
+      )}
 
       {/* ── Section 02 ───────────────────────────── */}
       <div className="flex items-center gap-3">
         <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>02</span>
-        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-        <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Financiero</span>
-      </div>
-
-      {/* ── Charts ───────────────────────────────── */}
-      <div className="grid lg:grid-cols-5 gap-4">
-        {/* Flujo de caja */}
-        <div className="card p-5 lg:col-span-3">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="section-title">Flujo de Caja</h2>
-            <button
-              onClick={() => navigate('/flujo-caja')}
-              className="flex items-center gap-1 text-[11px] font-semibold transition-colors"
-              style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}
-            >
-              VER <ArrowRight size={11} />
-            </button>
-          </div>
-          {flujoCajaData.length === 0 ? (
-            <div className="flex items-center justify-center h-[180px]">
-              <p className="text-sm" style={{ color: 'var(--subtle)' }}>Sin datos financieros aún</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={flujoCajaData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gi" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#00C48C" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#00C48C" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="ge" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#FF4560" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#FF4560" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="mes" tick={{ fill: 'var(--muted)', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
-                <YAxis tick={false} axisLine={false} tickLine={false} />
-                <Tooltip content={<CTooltip />} />
-                <Area type="monotone" dataKey="ingresos" stroke="#00C48C" strokeWidth={2} fill="url(#gi)" />
-                <Area type="monotone" dataKey="egresos"  stroke="#FF4560" strokeWidth={2} fill="url(#ge)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-          <div className="flex items-center gap-5 mt-2">
-            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--muted)' }}>
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--green)', boxShadow: '0 0 6px var(--green-dim)' }} />
-              Venta
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--muted)' }}>
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--red)', boxShadow: '0 0 6px var(--red-dim)' }} />
-              Egresos
-            </div>
-          </div>
-        </div>
-
-        {/* Distribución gastos */}
-        <div className="card p-5 lg:col-span-2">
-          <h2 className="section-title mb-5">Egresos por Categoría</h2>
-          {gastosCat.length === 0 ? (
-            <div className="flex items-center justify-center h-[120px]">
-              <p className="text-sm" style={{ color: 'var(--subtle)' }}>Sin egresos registrados</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {gastosCat.slice(0, 5).map(({ cat, monto, fill }) => {
-                const pct = (monto / totalGastos * 100).toFixed(0)
-                return (
-                  <div key={cat}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[12px]" style={{ color: 'var(--muted)' }}>{cat}</span>
-                      <span className="num text-[11px] font-medium" style={{ color: fill }}>{pct}%</span>
-                    </div>
-                    <div className="h-[3px] rounded-full overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${pct}%`, background: fill, boxShadow: `0 0 8px ${fill}` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-          <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-            <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--muted)', fontFamily: 'Unbounded' }}>Total Egresos</p>
-            <p className="num text-xl font-medium" style={{ color: 'var(--text)' }}>{formatCLP(egresos)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Section 03 ───────────────────────────── */}
-      <div className="flex items-center gap-3">
-        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>03</span>
         <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
         <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Obras en ejecución</span>
       </div>
@@ -466,9 +361,9 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ── Section 04 ───────────────────────────── */}
+      {/* ── Section 03 ───────────────────────────── */}
       <div className="flex items-center gap-3">
-        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>04</span>
+        <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--amber)', minWidth: 18 }}>03</span>
         <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
         <span style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--subtle)', textTransform: 'uppercase' }}>Últimos egresos</span>
       </div>

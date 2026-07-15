@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { Building2, UserCheck, ShieldCheck } from 'lucide-react'
+import { BRAND_NAME } from '../lib/helpers'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -24,7 +25,7 @@ export default function Landing() {
         }}
       />
 
-      {/* Giant VAION watermark */}
+      {/* Giant brand watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
         <span
           style={{
@@ -39,7 +40,7 @@ export default function Landing() {
             marginTop: 20,
           }}
         >
-          VAION
+          {BRAND_NAME}
         </span>
       </div>
 
@@ -81,7 +82,7 @@ export default function Landing() {
               textShadow: '0 0 40px rgba(255,149,0,0.35)',
             }}
           >
-            VAION
+            {BRAND_NAME}
           </h1>
         </div>
 

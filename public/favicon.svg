@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Fondo -->
+  <rect width="64" height="64" rx="14" fill="#0D0E16"/>
+  <!-- Edificio / building icon en amber -->
+  <g fill="#FF9500">
+    <!-- Torre izquierda -->
+    <rect x="10" y="28" width="14" height="28" rx="2"/>
+    <!-- Torre derecha -->
+    <rect x="40" y="22" width="14" height="34" rx="2"/>
+    <!-- Torre central (más alta) -->
+    <rect x="26" y="14" width="12" height="42" rx="2"/>
+    <!-- Ventanas torre izquierda -->
+    <rect x="13" y="32" width="4" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="19" y="32" width="2" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="13" y="40" width="4" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <!-- Ventanas torre central -->
+    <rect x="29" y="18" width="3" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="33" y="18" width="3" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="29" y="26" width="3" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="33" y="26" width="3" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <!-- Ventanas torre derecha -->
+    <rect x="43" y="26" width="4" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+    <rect x="43" y="34" width="4" height="4" rx="1" fill="#0D0E16" opacity="0.6"/>
+  </g>
+</svg>

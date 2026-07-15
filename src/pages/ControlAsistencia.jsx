@@ -120,9 +120,9 @@ function initials(nombre = '') {
 
 /* ── Fila de turno (reusada en Registros, Por Obra, Hora Entrada/Salida) ── */
 function TurnoRow({
-  r, isEditing, editEntrada, editSalida, editBono, editSaving, editError,
-  onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onGuardar,
-  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete,
+  r, isEditing, editEntrada, editSalida, editBono, editObra, obrasReasignables, editSaving, editError,
+  onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onChangeObra, onGuardar,
+  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra,
 }) {
   const abierto = !r.salida
   const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < 8
@@ -145,7 +145,20 @@ function TurnoRow({
           </div>
         </td>
         <td className="px-4 py-3.5">
-          <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+          {onClickObra ? (
+            <button
+              onClick={() => onClickObra(r.project_id)}
+              title="Filtrar por esta obra"
+              className="text-[12px] truncate block max-w-[130px] text-left hover:opacity-80"
+              style={{ color: 'var(--muted)', cursor: 'pointer' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--amber)' }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)' }}
+            >
+              {r.projects?.nombre}
+            </button>
+          ) : (
+            <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+          )}
         </td>
         <td className="px-4 py-3.5">
           <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
@@ -243,6 +256,18 @@ function TurnoRow({
                   onChange={e => onChangeBono(e.target.value)}
                 />
               </div>
+              <div>
+                <label className="label">Obra</label>
+                <select
+                  className="select w-44"
+                  value={editObra}
+                  onChange={e => onChangeObra(e.target.value)}
+                >
+                  {obrasReasignables.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={() => onGuardar(r)}
                 disabled={!editEntrada || editSaving}
@@ -338,6 +363,7 @@ export default function ControlAsistencia() {
   const [editEntrada, setEditEntrada]       = useState('')
   const [editSalida, setEditSalida]         = useState('')
   const [editBono, setEditBono]             = useState('')
+  const [editObra, setEditObra]             = useState('')
   const [editSaving, setEditSaving]         = useState(false)
   const [editError, setEditError]           = useState('')
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState(null)
@@ -497,11 +523,14 @@ export default function ControlAsistencia() {
     }
   }
 
+  const obrasReasignables = obrasActivas.filter(p => p.estado !== 'cotizada')
+
   const handleStartEdit = (r) => {
     setEditingRecord(r.id)
     setEditEntrada(formatHora(r.entrada))
     setEditSalida(r.salida ? formatHora(r.salida) : '')
     setEditBono(r.bono > 0 ? String(r.bono) : '')
+    setEditObra(r.project_id ?? '')
     setEditError('')
   }
 
@@ -510,6 +539,7 @@ export default function ControlAsistencia() {
     setEditEntrada('')
     setEditSalida('')
     setEditBono('')
+    setEditObra('')
     setEditError('')
   }
 
@@ -528,12 +558,14 @@ export default function ControlAsistencia() {
         horaSalida:  editSalida || null,
         valorHora:   record.valor_hora ?? 5000,
         bono:        editBono ? parseInt(editBono) : 0,
+        projectId:   editObra || null,
       })
       setList(prev => prev.map(r => r.id === record.id ? { ...r, ...updated } : r))
       setEditingRecord(null)
       setEditEntrada('')
       setEditSalida('')
       setEditBono('')
+      setEditObra('')
     } catch (err) {
       setEditError(err.message || 'Error al guardar')
     } finally {
@@ -554,14 +586,17 @@ export default function ControlAsistencia() {
     }
   }
 
-  const renderTurnoRow = (r, setList) => (
+  const renderTurnoRow = (r, setList, onClickObra) => (
     <TurnoRow
       key={r.id}
+      onClickObra={onClickObra}
       r={r}
       isEditing={editingRecord === r.id}
       editEntrada={editEntrada}
       editSalida={editSalida}
       editBono={editBono}
+      editObra={editObra}
+      obrasReasignables={obrasReasignables}
       editSaving={editSaving}
       editError={editError}
       onStartEdit={handleStartEdit}
@@ -569,6 +604,7 @@ export default function ControlAsistencia() {
       onChangeEntrada={v => { setEditEntrada(v); setEditError('') }}
       onChangeSalida={v => { setEditSalida(v); setEditError('') }}
       onChangeBono={setEditBono}
+      onChangeObra={setEditObra}
       onGuardar={rec => handleGuardarTurno(rec, setList)}
       confirmDelete={confirmDeleteRecordId === r.id}
       deletingRecord={deletingRecord}
@@ -977,7 +1013,7 @@ export default function ControlAsistencia() {
                   </tr>
                 </thead>
                 <tbody>
-                  {registrosVisibles.map(r => renderTurnoRow(r, setRegistros))}
+                  {registrosVisibles.map(r => renderTurnoRow(r, setRegistros, setFiltroObra))}
                   {registrosVisibles.length === 0 && (
                     <tr>
                       <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>

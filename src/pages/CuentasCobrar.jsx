@@ -47,7 +47,7 @@ export default function CuentasCobrar() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>Cuentas por Cobrar</h1>
+        <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>Crédito</h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>Estado de cobros por cliente y obra</p>
       </div>
 

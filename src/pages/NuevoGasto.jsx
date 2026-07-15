@@ -4,18 +4,21 @@ import {
   ArrowLeft, ArrowRight, Upload, CheckCircle2,
   MapPin, Camera, X, Loader2
 } from 'lucide-react'
-import { getObras, createGasto, uploadDocumento, createDocumento, getProviders, upsertProvider } from '../lib/supabase'
+import { getObras, createGasto, uploadDocumento, createDocumento, getProviders, upsertProvider, getActiveBanoByProject, createBanoQuimico, createPagoBano } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { CATEGORIAS_GASTO, TIPOS_OBRA, formatCLP } from '../lib/helpers'
 
 const CATS_CDO = Object.entries(CATEGORIAS_GASTO)
-  .filter(([, v]) => !v.auto && !v.legacy && v.grupo === 'Costo Directo de la Obra')
+  .filter(([k, v]) => !v.auto && !v.legacy && v.grupo === 'Costo Directo de la Obra' && k !== 'mano_obra' && k !== 'subcontratos')
+  .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
+
+const CATS_MOD = Object.entries(CATEGORIAS_GASTO)
+  .filter(([k]) => k === 'mano_obra' || k === 'subcontratos')
   .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
 
 const CATS_GAV = Object.entries(CATEGORIAS_GASTO)
   .filter(([, v]) => !v.auto && !v.legacy && v.grupo === 'Gastos Generales')
   .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
-const PLAZOS_CREDITO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 export default function NuevoGasto() {
   const navigate  = useNavigate()
@@ -34,13 +37,13 @@ export default function NuevoGasto() {
   const [providers, setProviders]     = useState([])
   const [provSuggestions, setProvSuggestions] = useState([])
   const [showProvDrop, setShowProvDrop] = useState(false)
-  const [isGAV, setIsGAV]       = useState(false)
+  const [tipoEgreso, setTipoEgreso] = useState('cdo')
 
   const [form, setForm] = useState({
     obraId: '', archivo: null, archivoNombre: null,
     monto: '', categoria: 'materiales', proveedor: '',
     fecha: new Date().toISOString().split('T')[0],
-    medioPago: 'contado', plazoCredito: 1, comentario: '',
+    medioPago: 'contado', plazoCredito: '', comentario: '',
   })
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -79,7 +82,7 @@ export default function NuevoGasto() {
       let docUrl = null
       if (archivoFile) {
         try {
-          const uploadPath = isGAV ? 'gav' : (form.obraId || 'sin-obra')
+          const uploadPath = tipoEgreso === 'gav' ? 'gav' : (form.obraId || 'sin-obra')
           const { url } = await uploadDocumento(uploadPath, archivoFile)
           docUrl = url
         } catch (err) {
@@ -91,13 +94,13 @@ export default function NuevoGasto() {
         try { await upsertProvider(form.proveedor.trim()) } catch { /* no bloquea */ }
       }
       const gastoPayload = {
-        project_id: (isGAV || !form.obraId) ? null : form.obraId,
+        project_id: (tipoEgreso === 'gav' || !form.obraId) ? null : form.obraId,
         monto: parseInt(form.monto),
         categoria: form.categoria,
         proveedor: form.proveedor,
         fecha: form.fecha,
         medio_pago: form.medioPago,
-        plazo_credito: form.medioPago === 'credito' ? form.plazoCredito : null,
+        plazo_credito: form.medioPago === 'credito' && form.plazoCredito ? parseInt(form.plazoCredito) : null,
         comentario: form.comentario || null,
         documento_url: docUrl,
         lat: geo?.lat ? parseFloat(geo.lat) : null,
@@ -105,7 +108,7 @@ export default function NuevoGasto() {
         usuario_id: user?.id || null,
         estado: 'pendiente',
       }
-      await createGasto(gastoPayload)
+      const nuevoGasto = await createGasto(gastoPayload)
 
       if (docUrl) {
         try {
@@ -121,6 +124,35 @@ export default function NuevoGasto() {
         }
       }
 
+      if (form.categoria === 'banio_quimico' && tipoEgreso !== 'gav' && form.obraId) {
+        try {
+          const banoActivo = await getActiveBanoByProject(form.obraId)
+          if (banoActivo) {
+            await createPagoBano({
+              bano_id: banoActivo.id,
+              fecha_pago: form.fecha,
+              monto: parseInt(form.monto),
+              descripcion: 'Pago mensual',
+            })
+          } else {
+            const nuevoBano = await createBanoQuimico({
+              project_id: form.obraId,
+              fecha_entrada: form.fecha,
+              monto_mensual: parseInt(form.monto),
+              proveedor: form.proveedor || 'Proveedor',
+              estado: 'activo',
+              expense_id: nuevoGasto.id,
+            })
+            await createPagoBano({
+              bano_id: nuevoBano.id,
+              fecha_pago: form.fecha,
+              monto: parseInt(form.monto),
+              descripcion: 'Primer abono',
+            })
+          }
+        } catch { /* no bloquea el egreso */ }
+      }
+
       setSaved(true)
     } catch (err) {
       console.error('Error al guardar gasto:', err)
@@ -131,14 +163,14 @@ export default function NuevoGasto() {
   }
 
   const reset = () => {
-    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError(''); setDocUploadFailed(false); setIsGAV(false)
-    setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'contado', plazoCredito:1, comentario:'' })
+    setSaved(false); setStep(1); setGeo(null); setArchivoFile(null); setSaveError(''); setDocUploadFailed(false); setTipoEgreso('cdo')
+    setForm({ obraId:'', archivo:null, archivoNombre:null, monto:'', categoria:'materiales', proveedor:'', fecha: new Date().toISOString().split('T')[0], medioPago:'contado', plazoCredito:'', comentario:'' })
   }
 
   const selectedObra = obras.find(o => o.id === form.obraId)
   const [triedStep1, setTriedStep1] = useState(false)
   const [triedStep2, setTriedStep2] = useState(false)
-  const canStep1 = isGAV || !!form.obraId
+  const canStep1 = tipoEgreso === 'gav' || !!form.obraId
   const canStep2 = !!form.monto && !!form.proveedor
 
   /* ── Success screen ─────────────────────────── */
@@ -213,29 +245,34 @@ export default function NuevoGasto() {
           {/* Tipo de egreso */}
           <div className="card p-5">
             <label className="label mb-2">Tipo de egreso</label>
-            <div className="grid grid-cols-2 gap-2 mt-1">
+            <div className="flex flex-col gap-2 mt-1">
               {[
-                { value: false, label: 'Egreso de obra', sub: 'CDO / materiales / MO' },
-                { value: true,  label: 'Gasto general',  sub: 'GAV — sin obra asignada' },
+                { value: 'cdo', label: 'Costo Directo',              sub: 'Materiales, equipos, áridos...' },
+                { value: 'mod', label: 'Mano de Obra y Subcontratos', sub: 'MOD / Subcontratos de obra' },
+                { value: 'gav', label: 'Gasto General',              sub: 'GAV — sin obra asignada' },
               ].map(opt => (
                 <button
-                  key={String(opt.value)}
+                  key={opt.value}
                   type="button"
-                  onClick={() => { setIsGAV(opt.value); set('obraId', ''); set('categoria', opt.value ? 'sueldos' : 'materiales') }}
+                  onClick={() => {
+                    setTipoEgreso(opt.value)
+                    set('obraId', '')
+                    set('categoria', opt.value === 'gav' ? 'sueldos' : opt.value === 'mod' ? 'mano_obra' : 'materiales')
+                  }}
                   className="text-left p-3 rounded-xl transition-all"
                   style={{
-                    background: isGAV === opt.value ? 'var(--amber-dim)' : 'var(--bg-surface)',
-                    border: `1px solid ${isGAV === opt.value ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
+                    background: tipoEgreso === opt.value ? 'var(--amber-dim)' : 'var(--bg-surface)',
+                    border: `1px solid ${tipoEgreso === opt.value ? 'rgba(255,149,0,0.35)' : 'var(--border)'}`,
                   }}
                 >
-                  <p className="text-sm font-semibold" style={{ color: isGAV === opt.value ? 'var(--amber)' : 'var(--text)' }}>{opt.label}</p>
+                  <p className="text-sm font-semibold" style={{ color: tipoEgreso === opt.value ? 'var(--amber)' : 'var(--text)' }}>{opt.label}</p>
                   <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)', fontFamily: 'DM Mono' }}>{opt.sub}</p>
                 </button>
               ))}
             </div>
           </div>
 
-          {!isGAV && (
+          {tipoEgreso !== 'gav' && (
           <div className="card p-5">
             <label className="label">Selecciona la obra</label>
             <div className="space-y-2 mt-2">
@@ -319,7 +356,7 @@ export default function NuevoGasto() {
           </div>
 
           {triedStep1 && !canStep1 && (
-            <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ Selecciona una obra o marca como Gasto General</p>
+            <p style={{ fontSize: 11, color: 'var(--red)', fontFamily: 'DM Mono' }}>⚠ Selecciona una obra o elige Gasto General</p>
           )}
           <button onClick={() => { if (!canStep1) { setTriedStep1(true); return } setStep(2) }} className="btn-primary w-full justify-center">
             Continuar <ArrowRight size={15} />
@@ -355,10 +392,10 @@ export default function NuevoGasto() {
               <label className="label">Categoría</label>
               <p className="text-[10px] font-bold uppercase tracking-widest mt-2 mb-2 px-0.5"
                 style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>
-                {isGAV ? 'Gastos Generales (GAV)' : 'Costo Directo de la Obra'}
+                {tipoEgreso === 'gav' ? 'Gastos Generales (GAV)' : tipoEgreso === 'mod' ? 'Mano de Obra y Subcontratos' : 'Costo Directo de la Obra'}
               </p>
               <div className="grid grid-cols-2 gap-2">
-                {(isGAV ? CATS_GAV : CATS_CDO).map(c => {
+                {(tipoEgreso === 'gav' ? CATS_GAV : tipoEgreso === 'mod' ? CATS_MOD : CATS_CDO).map(c => {
                   const active = form.categoria === c.value
                   return (
                     <button
@@ -458,17 +495,30 @@ export default function NuevoGasto() {
                   </button>
                 ))}
               </div>
-              {form.medioPago === 'credito' && (
-                <div className="mt-3">
-                  <label className="label">Plazo</label>
-                  <select className="select mt-1" value={form.plazoCredito} onChange={e => set('plazoCredito', parseInt(e.target.value))}>
-                    {PLAZOS_CREDITO.map(p => (
-                      <option key={p} value={p}>{p} {p === 1 ? 'mes' : 'meses'}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
+
+            {form.medioPago === 'credito' && (
+              <div>
+                <label className="label">¿A cuántos meses?</label>
+                <div className="flex gap-2 mt-2">
+                  {[1, 2, 3, 6, 12].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => set('plazoCredito', String(m))}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150"
+                      style={{
+                        background: form.plazoCredito === String(m) ? 'var(--amber)' : 'var(--bg-surface)',
+                        color:      form.plazoCredito === String(m) ? '#000' : 'var(--muted)',
+                        border:     `1px solid ${form.plazoCredito === String(m) ? 'transparent' : 'var(--border)'}`,
+                      }}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label">Comentario</label>
@@ -489,11 +539,11 @@ export default function NuevoGasto() {
             <h3 className="section-title mb-3">Resumen</h3>
 
             {[
-              { label: 'Obra',         value: isGAV ? 'Sin obra (Gasto General)' : selectedObra?.nombre },
+              { label: 'Obra',         value: tipoEgreso === 'gav' ? 'Sin obra (Gasto General)' : selectedObra?.nombre },
               { label: 'Proveedor',    value: form.proveedor },
               { label: 'Categoría',    value: CATEGORIAS_GASTO[form.categoria]?.label },
               { label: 'Fecha',        value: form.fecha },
-              { label: 'Medio de pago', value: form.medioPago === 'credito' ? `Crédito — ${form.plazoCredito} ${form.plazoCredito === 1 ? 'mes' : 'meses'}` : 'Al Contado' },
+              { label: 'Medio de pago', value: form.medioPago === 'contado' ? 'Al Contado' : `Crédito${form.plazoCredito ? ` — ${form.plazoCredito} ${form.plazoCredito === '1' ? 'mes' : 'meses'}` : ''}` },
               { label: 'Comentario',   value: form.comentario || '—' },
             ].map(({ label, value }) => (
               <div
