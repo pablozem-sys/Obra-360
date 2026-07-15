@@ -1,6 +1,15 @@
 export const BRAND_NAME = import.meta.env.VITE_BRAND_NAME || 'VAION'
 export const COMPANY_SLUG = import.meta.env.VITE_COMPANY_SLUG || 'va-constructora'
 
+// Jornada base por día: sábado (08:30-15:00) = 6.5h, resto de la semana = 8h.
+// Acepta 'YYYY-MM-DD' o cualquier string/Date parseable (ej. timestamp ISO de entrada).
+export function horasBaseJornada(fecha) {
+  const d = typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha)
+    ? new Date(`${fecha}T00:00:00`)
+    : new Date(fecha)
+  return d.getDay() === 6 ? 6.5 : 8
+}
+
 export function formatCLP(amount) {
   if (amount == null) return '—'
   return new Intl.NumberFormat('es-CL', {

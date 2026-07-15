@@ -286,4 +286,11 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - "Desglose por categoría" en Egresos ahora es un menú desplegable (colapsado por defecto) en vez de ocupar siempre toda la pantalla
 - Al abrirlo, cada categoría es clickeable: un click filtra la tabla "Registros" de abajo a esa categoría (como el filtro por obra de Control de Asistencia); un chip permite quitar el filtro
 - "Costo Total por Obra" ya no muestra obras finalizadas — solo obras activas, para no acumular obras viejas en la lista
+
+## Jornada especial de sábado en Control de Asistencia (2026-07-15)
+- El sábado ahora tiene jornada base de 6.5h (08:30 a 15:00) en vez de las 8h de lunes a viernes
+- Un turno de sábado que cumple las 6.5h completas ya **no se marca en rojo** como "incompleto" — antes cualquier sábado se veía en rojo porque siempre son menos de 8h
+- El pago también se corrigió: antes un sábado completo pagaba solo ~81% del valor día (prorrateado sobre 8h); ahora un sábado de 6.5h paga el valor día completo. Si se trabajan menos de 6.5h un sábado, se sigue prorrateando, pero sobre la base de 6.5h
+- Aplica en las 3 vistas de Control de Asistencia (Registros, Por Obra, formulario de registro manual) y en el kiosco de trabajador (marcar salida)
+- Disponible en ambas plataformas (VAION y VRION)
 - Disponible en ambas plataformas (VAION y VRION)

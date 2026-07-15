@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search } from 'lucide-react'
-import { formatCLP } from '../lib/helpers'
+import { formatCLP, horasBaseJornada } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import {
   getAllWorkers,
@@ -125,7 +125,7 @@ function TurnoRow({
   confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra,
 }) {
   const abierto = !r.salida
-  const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < 8
+  const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < horasBaseJornada(r.entrada)
 
   return (
     <Fragment>
@@ -960,15 +960,16 @@ export default function ControlAsistencia() {
                       const horas = (new Date(`${manualFecha}T${manualSalida}`) - new Date(`${manualFecha}T${manualEntrada}`)) / 3600000
                       const valorDia = workers.find(w => w.id === manualWorker)?.valor_hora ?? 50000
                       const bonoNum = manualBono ? parseInt(manualBono) : 0
-                      const costo = (horas >= 8 ? valorDia : Math.round((horas / 8) * valorDia)) + bonoNum
-                      const alerta = horas < 8
+                      const horasBase = horasBaseJornada(manualFecha)
+                      const costo = (horas >= horasBase ? valorDia : Math.round((horas / horasBase) * valorDia)) + bonoNum
+                      const alerta = horas < horasBase
                       return (
                         <>
                           <p className="num font-bold text-base" style={{ color: alerta ? 'var(--red)' : 'var(--green)' }}>
                             {formatCLP(costo)}
                           </p>
                           <p className="text-[10px] mt-0.5" style={{ color: alerta ? 'var(--red)' : 'var(--subtle)', fontFamily: 'DM Mono' }}>
-                            {horas.toFixed(1)}h{alerta ? ' ⚠ menos de 8h' : ''}{bonoNum > 0 ? ` · +${formatCLP(bonoNum)} bono` : ''}
+                            {horas.toFixed(1)}h{alerta ? ` ⚠ menos de ${horasBase}h` : ''}{bonoNum > 0 ? ` · +${formatCLP(bonoNum)} bono` : ''}
                           </p>
                         </>
                       )
@@ -1195,7 +1196,7 @@ export default function ControlAsistencia() {
                               </thead>
                               <tbody>
                                 {obra.registros.map(r => {
-                                  const alerta = r.horas_trabajadas != null && r.salida && r.horas_trabajadas < 8
+                                  const alerta = r.horas_trabajadas != null && r.salida && r.horas_trabajadas < horasBaseJornada(r.entrada)
                                   return (
                                     <tr
                                       key={r.id}

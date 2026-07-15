@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { COMPANY_SLUG } from './helpers'
+import { COMPANY_SLUG, horasBaseJornada } from './helpers'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ffxexpasoneowquvtouz.supabase.co'
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_zuBevuFpwaSkbokwjXNJzg_XEmRfe5h'
@@ -678,7 +678,8 @@ export async function registrarAsistenciaManual({ workerId, projectId, fecha, ho
   if (horaSalida) {
     salidaISO = `${fecha}T${horaSalida}:00${tz}`
     horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entradaISO)) / 3600000) * 100) / 100
-    const costoHoras = horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora)
+    const horasBase = horasBaseJornada(fecha)
+    const costoHoras = horasTrabajadas >= horasBase ? valorHora : Math.round((horasTrabajadas / horasBase) * valorHora)
     costoTotal = costoHoras + bonoNum
   }
 
@@ -730,7 +731,8 @@ export async function actualizarTurno(attendanceId, { horaEntrada, fecha, horaSa
   let costoTotal = null
   if (salidaISO) {
     horasTrabajadas = Math.round(((new Date(salidaISO) - new Date(entradaISO)) / 3600000) * 100) / 100
-    const costoHoras = horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora)
+    const horasBase = horasBaseJornada(fecha)
+    const costoHoras = horasTrabajadas >= horasBase ? valorHora : Math.round((horasTrabajadas / horasBase) * valorHora)
     costoTotal = costoHoras + bonoNum
   }
 
@@ -759,6 +761,7 @@ export async function deleteAttendance(attendanceId) {
 export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
   const now = new Date().toISOString()
   const horasTrabajadas = Math.round(((new Date(now) - new Date(entrada)) / 3600000) * 100) / 100
+  const horasBase = horasBaseJornada(entrada)
   const { data, error } = await supabase
     .from('attendance')
     .update({
@@ -766,7 +769,7 @@ export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
       lat_salida: geo?.lat ?? null,
       lng_salida: geo?.lng ?? null,
       horas_trabajadas: horasTrabajadas,
-      costo_total: horasTrabajadas >= 8 ? valorHora : Math.round((horasTrabajadas / 8) * valorHora),
+      costo_total: horasTrabajadas >= horasBase ? valorHora : Math.round((horasTrabajadas / horasBase) * valorHora),
     })
     .eq('id', attendanceId)
     .select()
