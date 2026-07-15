@@ -125,12 +125,17 @@ export function AuthProvider({ children }) {
         const profile = await fetchUserProfile(s.user.id, s.user)
         const entry = await loadEmpresa(s.user.id)
         setSession({ user: profile })
-        applyEmpresa(entry)
+        if (entry) applyEmpresa(entry)
       }
       clearTimeout(safetyTimeout)
       setLoading(false)
     })
 
+    // TOKEN_REFRESHED se dispara periódicamente mientras la sesión sigue activa
+    // (renovación automática del token, no una acción del usuario). Si loadEmpresa()
+    // falla en ese momento por algo transitorio (red, timeout), NUNCA se debe pisar
+    // una empresa ya cargada con null — eso expulsaba al usuario a "Sin acceso"
+    // en medio de una sesión válida sin que hubiera cambiado nada real.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
       if (event === 'SIGNED_OUT') {
         setSession(null)
@@ -140,7 +145,7 @@ export function AuthProvider({ children }) {
         const profile = await fetchUserProfile(s.user.id, s.user)
         const entry = await loadEmpresa(s.user.id)
         setSession(prev => prev ? { user: profile } : prev)
-        applyEmpresa(entry)
+        if (entry) applyEmpresa(entry)
       }
     })
 

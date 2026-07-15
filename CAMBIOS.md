@@ -298,3 +298,10 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Root cause: la función `loadEmpresa()` (agregada el 2026-07-14 junto con la separación VAION/VRION) hacía 2 consultas a Supabase sin ningún timeout. Si esa consulta se colgaba por red lenta o inestable, el login nunca terminaba ni mostraba error — el botón quedaba pegado para siempre
 - Fix: se agregó un timeout de 8s a `loadEmpresa()` (mismo patrón ya usado en `fetchUserProfile()`) — si la consulta no responde a tiempo, el login falla de forma visible en vez de colgarse
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Bug: "Sin acceso" apareciendo en medio de una sesión válida (2026-07-15)
+- Reportado después del fix anterior: el login funcionaba, pero "después de un rato" (sesión ya activa) aparecía "Sin acceso — Tu cuenta no tiene acceso a esta empresa" sin haber cerrado sesión ni cambiado nada
+- Se descartó paso a paso con datos reales: la empresa existe, la membresía en `user_companies` es correcta (rol dueno), las políticas RLS están bien configuradas, y el `auth.uid()` coincide exactamente con el `user_id` guardado — el problema no estaba en los datos
+- Root cause real: el cliente de Supabase renueva el token de sesión automáticamente cada cierto tiempo (evento `TOKEN_REFRESHED`) mientras la sesión sigue activa. Ese evento volvía a llamar `loadEmpresa()`, y si esa consulta fallaba por algo transitorio (red, timeout), el código pisaba la empresa ya cargada con `null` — expulsando al usuario a "Sin acceso" en medio de una sesión perfectamente válida
+- Fix: en `AuthContext.jsx`, tanto la carga inicial como el listener de `TOKEN_REFRESHED`/`SIGNED_IN` ahora solo actualizan la empresa cuando `loadEmpresa()` devuelve un resultado real — nunca pisan un estado ya cargado con `null` por una falla transitoria
+- Disponible en ambas plataformas (VAION y VRION)
