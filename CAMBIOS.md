@@ -305,3 +305,8 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Root cause real: el cliente de Supabase renueva el token de sesión automáticamente cada cierto tiempo (evento `TOKEN_REFRESHED`) mientras la sesión sigue activa. Ese evento volvía a llamar `loadEmpresa()`, y si esa consulta fallaba por algo transitorio (red, timeout), el código pisaba la empresa ya cargada con `null` — expulsando al usuario a "Sin acceso" en medio de una sesión perfectamente válida
 - Fix: en `AuthContext.jsx`, tanto la carga inicial como el listener de `TOKEN_REFRESHED`/`SIGNED_IN` ahora solo actualizan la empresa cuando `loadEmpresa()` devuelve un resultado real — nunca pisan un estado ya cargado con `null` por una falla transitoria
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Se quitaron las pestañas "Hora Entrada" y "Hora Salida" en Control de Asistencia (2026-07-15)
+- Pedido del cliente: no las usan
+- Quedan las pestañas: Registros, Por Fecha, Por Obra, Trabajadores
+- Disponible en ambas plataformas (VAION y VRION)

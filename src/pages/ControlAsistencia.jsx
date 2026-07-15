@@ -811,8 +811,6 @@ export default function ControlAsistencia() {
           { key: 'registros',     label: 'Registros' },
           { key: 'por_fecha',     label: 'Por Fecha' },
           { key: 'por_obra',      label: 'Por Obra' },
-          { key: 'hora_entrada',  label: 'Hora Entrada' },
-          { key: 'hora_salida',   label: 'Hora Salida' },
           { key: 'trabajadores',  label: 'Trabajadores' },
         ].map(t => (
           <button
@@ -830,8 +828,8 @@ export default function ControlAsistencia() {
         ))}
       </div>
 
-      {/* Selector de fecha compartido — Por Obra / Hora Entrada / Hora Salida */}
-      {['por_obra', 'hora_entrada', 'hora_salida'].includes(tab) && (
+      {/* Selector de fecha compartido — Por Obra */}
+      {tab === 'por_obra' && (
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>DÍA</span>
           <input type="date" className="input" value={vistaFecha} onChange={e => setVistaFecha(e.target.value)} />
@@ -1377,90 +1375,6 @@ export default function ControlAsistencia() {
             {resumenPorObra.length === 0 && (
               <div className="card p-10 text-center">
                 <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay obras activas</p>
-              </div>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* ── TAB: HORA ENTRADA ───────────────────────────────────── */}
-      {tab === 'hora_entrada' && (() => {
-        const porEntrada = [...registrosVista].sort((a, b) => new Date(a.entrada) - new Date(b.entrada))
-        return (
-          <div className="card overflow-hidden">
-            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h2 className="section-title">Ordenado por hora de entrada ({porEntrada.length})</h2>
-            </div>
-            {loadingVista ? (
-              <div className="flex justify-center py-10">
-                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[580px]">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                      {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
-                        <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {porEntrada.map(r => renderTurnoRow(r, setRegistrosVista))}
-                    {porEntrada.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
-                          Sin registros este día
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* ── TAB: HORA SALIDA ────────────────────────────────────── */}
-      {tab === 'hora_salida' && (() => {
-        const conSalida = registrosVista.filter(r => r.salida).sort((a, b) => new Date(a.salida) - new Date(b.salida))
-        const sinSalida = registrosVista.filter(r => !r.salida)
-        const porSalida = [...conSalida, ...sinSalida]
-        return (
-          <div className="card overflow-hidden">
-            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h2 className="section-title">Ordenado por hora de salida ({porSalida.length})</h2>
-            </div>
-            {loadingVista ? (
-              <div className="flex justify-center py-10">
-                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[580px]">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                      {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
-                        <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {porSalida.map(r => renderTurnoRow(r, setRegistrosVista))}
-                    {porSalida.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
-                          Sin registros este día
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
               </div>
             )}
           </div>
