@@ -1090,6 +1090,23 @@ export default function ControlAsistencia() {
         const resumenList = Object.values(resumenMap).sort((a, b) => b.costo - a.costo)
         const totalCostoGeneral = resumenList.reduce((s, w) => s + w.costo, 0)
 
+        // Resumen por obra (mano de obra acumulada del período, no solo del día)
+        const resumenObraMap = {}
+        registrosFecha.forEach(r => {
+          const pid = r.project_id
+          if (!resumenObraMap[pid]) resumenObraMap[pid] = {
+            nombre: r.projects?.nombre ?? '—',
+            trabajadores: new Set(),
+            horas: 0, costo: 0,
+          }
+          resumenObraMap[pid].trabajadores.add(r.worker_id)
+          resumenObraMap[pid].horas += r.horas_trabajadas ?? 0
+          resumenObraMap[pid].costo += r.costo_total ?? 0
+        })
+        const resumenObraList = Object.values(resumenObraMap)
+          .map(o => ({ ...o, nTrabajadores: o.trabajadores.size }))
+          .sort((a, b) => b.costo - a.costo)
+
         return (
           <div className="space-y-4">
             {/* Selectores */}
@@ -1249,6 +1266,56 @@ export default function ControlAsistencia() {
                     </div>
                   )
                 })}
+
+                {/* Resumen por obra — mano de obra acumulada del período */}
+                {resumenObraList.length > 0 && (
+                  <div className="card overflow-hidden">
+                    <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                      <h2 className="section-title">Resumen por Obra</h2>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                        Mano de obra acumulada del período · {resumenObraList.length} {resumenObraList.length === 1 ? 'obra' : 'obras'}
+                      </p>
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          {['Obra', 'Trabajadores', 'Horas', 'Mano de Obra'].map(h => (
+                            <th key={h} className="px-5 py-2.5 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resumenObraList.map(o => (
+                          <tr key={o.nombre} className="table-row">
+                            <td className="px-5 py-3">
+                              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{o.nombre}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{o.nTrabajadores}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{o.horas.toFixed(1)}</span>
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className="num text-[13px] font-bold" style={{ color: 'var(--amber)' }}>{formatCLP(o.costo)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div
+                      className="flex items-center justify-between px-5 py-4"
+                      style={{ borderTop: '1px solid var(--border)', background: 'var(--amber-dim)' }}
+                    >
+                      <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase' }}>
+                        Total Mano de Obra
+                      </p>
+                      <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoGeneral)}</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Resumen general del período */}
                 {resumenList.length > 0 && (

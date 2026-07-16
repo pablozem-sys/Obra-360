@@ -310,3 +310,9 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Pedido del cliente: no las usan
 - Quedan las pestañas: Registros, Por Fecha, Por Obra, Trabajadores
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Mano de obra acumulada por obra en Control de Asistencia → Por Fecha (2026-07-15)
+- Pedido del cliente: ver la mano de obra acumulada por obra en un período (mes o rango de fechas), no solo del día
+- Nueva tarjeta "Resumen por Obra" en la pestaña "Por Fecha", con trabajadores, horas y costo de mano de obra acumulados por obra en el período seleccionado (mismo selector de mes/rango y filtro de obra que ya existía ahí)
+- Se muestra junto al resumen por trabajador ya existente, con el mismo total del período
+- Disponible en ambas plataformas (VAION y VRION)
