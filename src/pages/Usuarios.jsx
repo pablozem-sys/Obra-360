@@ -18,6 +18,7 @@ export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deleteError, setDeleteError] = useState('')
 
   // Modal crear
   const [showCreate, setShowCreate] = useState(false)
@@ -70,11 +71,12 @@ export default function Usuarios() {
   }
 
   const handleDelete = async (id) => {
+    setDeleteError('')
     try {
       await deleteUsuario(id)
       setUsuarios(prev => prev.filter(u => u.id !== id))
     } catch (err) {
-      console.error(err)
+      setDeleteError(err.message || 'Error al eliminar usuario')
     } finally {
       setConfirmDeleteId(null)
     }
@@ -121,6 +123,15 @@ export default function Usuarios() {
           style={{ background: 'rgba(0,196,140,0.1)', border: '1px solid rgba(0,196,140,0.25)', color: 'var(--green)' }}>
           <ShieldCheck size={15} />
           {success}
+        </div>
+      )}
+
+      {/* Delete error banner */}
+      {deleteError && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm"
+          style={{ background: 'rgba(255,69,96,0.1)', border: '1px solid rgba(255,69,96,0.25)', color: 'var(--red)' }}>
+          <AlertCircle size={15} />
+          {deleteError}
         </div>
       )}
 

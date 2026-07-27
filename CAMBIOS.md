@@ -316,3 +316,12 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Nueva tarjeta "Resumen por Obra" en la pestaña "Por Fecha", con trabajadores, horas y costo de mano de obra acumulados por obra en el período seleccionado (mismo selector de mes/rango y filtro de obra que ya existía ahí)
 - Se muestra junto al resumen por trabajador ya existente, con el mismo total del período
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Bug: no se podía crear ni eliminar usuarios en Usuarios (2026-07-24/27)
+- Reportado por el cliente: al crear un usuario nuevo aparecía el error "new row violates row-level security policy for table user_companies"
+- Root cause: faltaba el permiso de base de datos para vincular un usuario nuevo a la empresa — nunca se había necesitado hasta ahora porque era la primera vez que se agregaba un usuario real desde que existe esta página
+- Ya arreglado el permiso, apareció un segundo problema: el usuario se creaba bien pero no aparecía en la lista — faltaba también el permiso para que el dueño pueda *ver* a los demás usuarios de su empresa (antes cada uno solo podía verse a sí mismo)
+- Arreglado eso, apareció un tercer problema al intentar eliminar un usuario: la función de borrado nunca se había terminado de conectar en la base de datos — es decir, **nadie había podido borrar un usuario nunca** desde que existe esta página
+- Los 3 problemas ya están resueltos y verificados: crear y eliminar usuarios funciona correctamente
+- De paso, se agregó un aviso visible en pantalla si el borrado de un usuario falla por cualquier motivo (antes fallaba en silencio, sin avisar nada)
+- Disponible en ambas plataformas (VAION y VRION)
