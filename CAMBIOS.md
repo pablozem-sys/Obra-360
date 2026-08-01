@@ -325,3 +325,10 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Los 3 problemas ya están resueltos y verificados: crear y eliminar usuarios funciona correctamente
 - De paso, se agregó un aviso visible en pantalla si el borrado de un usuario falla por cualquier motivo (antes fallaba en silencio, sin avisar nada)
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Mejora de velocidad general de la app (2026-07-31)
+- Reportado por el cliente: la app se sentía lenta
+- La carga inicial de la app ahora pesa mucho menos (de ~1 MB a ~70 KB), porque cada pantalla se carga recién cuando se entra a ella en vez de venir todo junto desde el principio
+- Dashboard, Obras, Estado de Resultado, Egresos y Flujo de Caja dejaron de traer todo el historial completo de movimientos para sumarlo en el navegador — ahora el cálculo se hace directamente en la base de datos y solo se trae el resultado
+- De paso se corrigió un detalle en Flujo de Caja: un movimiento sin fecha cargada podía desplazar a un mes real fuera de los últimos 8 meses mostrados
+- Disponible en ambas plataformas (VAION y VRION)
