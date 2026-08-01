@@ -10,6 +10,16 @@ export default defineConfig(({ mode }) => {
     : 'ffxexpasoneowquvtouz.supabase.co'
 
   return {
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          recharts: ['recharts'],
+          supabase: ['@supabase/supabase-js'],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({

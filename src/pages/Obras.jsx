@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Building2, MapPin, Loader2, AlertCircle, Trash2, X, FolderOpen, Upload, Check } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
-import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA, CATEGORIAS_GASTO } from '../lib/helpers'
-import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getExpensasPorObraLite, getAttendanceCostsPorObra, getAllAdditionalSales, getIngresos } from '../lib/supabase'
+import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
+import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getObraMetrics } from '../lib/supabase'
 
 const FILTROS = [
   { key: 'all',          label: 'Todas' },
@@ -78,30 +78,9 @@ export default function Obras() {
     const t = setTimeout(() => setLoading(false), 6000)
     Promise.all([
       getObras(),
-      getExpensasPorObraLite().catch(() => []),
-      getAttendanceCostsPorObra().catch(() => []),
-      getAllAdditionalSales().catch(() => []),
-      getIngresos().catch(() => []),
-    ]).then(([obras, gastos, asistencia, adicionales, ingresos]) => {
+      getObraMetrics().catch(() => ({})),
+    ]).then(([obras, m]) => {
       setObras(obras)
-      const m = {}
-      const ensure = id => (m[id] ??= { cdo: 0, mod: 0, adicionales: 0, descuentos: 0, abonos: 0 })
-      gastos.forEach(g => {
-        if (g.project_id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra') {
-          ensure(g.project_id).cdo += g.monto ?? 0
-        }
-      })
-      asistencia.forEach(a => {
-        if (a.project_id) ensure(a.project_id).mod += a.costo_total ?? 0
-      })
-      adicionales.forEach(v => {
-        if (!v.project_id) return
-        if (v.tipo === 'descuento') ensure(v.project_id).descuentos += v.monto ?? 0
-        else ensure(v.project_id).adicionales += v.monto ?? 0
-      })
-      ingresos.forEach(i => {
-        if (i.project_id) ensure(i.project_id).abonos += i.monto ?? 0
-      })
       setMetricas(m)
     }).catch(() => {}).finally(() => { clearTimeout(t); setLoading(false) })
   }, [])

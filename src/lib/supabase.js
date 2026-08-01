@@ -126,6 +126,74 @@ export async function getGastosDetallado({ obraId, fechaDesde, fechaHasta } = {}
   return data ?? []
 }
 
+export async function getUltimosGastos(limit = 6) {
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('*, projects(id, nombre)')
+    .eq('empresa_id', currentEmpresaId)
+    .order('fecha', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data ?? []
+}
+
+// Totales acumulados por obra (CDO, MOD, ventas adicionales, descuentos, abonos)
+// calculados en Postgres vía RPC en vez de traer el historial completo de
+// expenses/attendance/additional_sales/income al navegador. Reemplaza a
+// getExpensasPorObraLite() + getAttendanceCostsPorObra() + getAllAdditionalSales() + getIngresos()
+// cuando se necesitan totales por obra (Obras.jsx, alertas/progreso de Dashboard.jsx).
+export async function getObraMetrics() {
+  const { data, error } = await supabase.rpc('get_obra_metrics', { p_empresa_id: currentEmpresaId })
+  if (error) throw error
+  const byObra = {}
+  for (const row of data ?? []) {
+    byObra[row.project_id] = {
+      cdo: row.cdo ?? 0,
+      mod: row.costo_mod ?? 0,
+      adicionales: row.adicionales ?? 0,
+      descuentos: row.descuentos ?? 0,
+      abonos: row.abonos ?? 0,
+    }
+  }
+  return byObra
+}
+
+// KPIs de empresa (Dashboard Fila 1/2), agregados en Postgres. mes en formato 'YYYY-MM' o null (todo).
+export async function getDashboardKPIs(mes = null) {
+  const { data, error } = await supabase
+    .rpc('get_dashboard_kpis', { p_empresa_id: currentEmpresaId, p_month: mes })
+    .single()
+  if (error) throw error
+  return {
+    ventaAdicional: data?.venta_adicional ?? 0,
+    totalAbonos:    data?.total_abonos ?? 0,
+    totalManoObra:  data?.total_mano_obra ?? 0,
+    gastosCDO:      data?.gastos_cdo ?? 0,
+    gastosGAV:      data?.gastos_gav ?? 0,
+    totalGastos:    data?.total_gastos ?? 0,
+  }
+}
+
+export async function getMesesDisponibles() {
+  const { data, error } = await supabase.rpc('get_meses_disponibles', { p_empresa_id: currentEmpresaId })
+  if (error) throw error
+  return (data ?? []).map(r => r.mes)
+}
+
+// Series de tiempo para FlujoCaja.jsx, agregadas en Postgres (solo los últimos N períodos
+// con datos, no el historial completo). Devuelven los períodos más recientes primero.
+export async function getFlujoCajaMensual(meses = 8) {
+  const { data, error } = await supabase.rpc('get_flujo_caja_mensual', { p_empresa_id: currentEmpresaId, p_meses: meses })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getFlujoCajaSemanal(semanas = 8) {
+  const { data, error } = await supabase.rpc('get_flujo_caja_semanal', { p_empresa_id: currentEmpresaId, p_semanas: semanas })
+  if (error) throw error
+  return data ?? []
+}
+
 export async function createGasto(gasto) {
   const { data, error } = await supabase
     .from('expenses')

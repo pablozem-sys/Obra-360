@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, DollarSign, Percent,
@@ -10,8 +10,8 @@ import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
 import { useAuth } from '../context/AuthContext'
 import {
-  getObras, getGastos, getIngresos,
-  getAttendance, getAllAdditionalSales,
+  getObras, getObraMetrics, getDashboardKPIs,
+  getMesesDisponibles, getUltimosGastos,
   updateGasto, deleteGasto,
 } from '../lib/supabase'
 import {
@@ -21,15 +21,9 @@ import {
 
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
-function isoToYYYYMM(dateStr) {
-  if (!dateStr) return null
-  const d = new Date(dateStr)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-function filterByMes(arr, mesFiltro, dateKey = 'fecha') {
-  if (!mesFiltro) return arr
-  return arr.filter(r => isoToYYYYMM(r[dateKey]) === mesFiltro)
+const KPIS_INICIALES = {
+  ventaAdicional: 0, totalAbonos: 0, totalManoObra: 0,
+  gastosCDO: 0, gastosGAV: 0, totalGastos: 0,
 }
 
 export default function Dashboard() {
@@ -37,11 +31,12 @@ export default function Dashboard() {
   const { can } = useAuth()
 
   const [obras,           setObras]           = useState([])
-  const [gastos,          setGastos]          = useState([])
-  const [ingresos,        setIngresos]        = useState([])
-  const [additionalSales, setAdditionalSales] = useState([])
-  const [asistencia,      setAsistencia]      = useState([])
+  const [metricas,        setMetricas]        = useState({})
+  const [kpis,            setKpis]            = useState(KPIS_INICIALES)
+  const [mesesDisponibles, setMesesDisponibles] = useState([])
+  const [ultimosGastos,   setUltimosGastos]   = useState([])
   const [loading,         setLoading]         = useState(true)
+  const [loadingKpis,     setLoadingKpis]     = useState(false)
 
   const [mesFiltro,       setMesFiltro]       = useState(null)
 
@@ -56,45 +51,38 @@ export default function Dashboard() {
     const t = setTimeout(() => setLoading(false), 8000)
     Promise.all([
       getObras().catch(() => []),
-      getGastos().catch(() => []),
-      getIngresos().catch(() => []),
-      getAllAdditionalSales().catch(() => []),
-      getAttendance().catch(() => []),
-    ]).then(([o, g, i, as_, a]) => {
+      getObraMetrics().catch(() => ({})),
+      getMesesDisponibles().catch(() => []),
+      getUltimosGastos(6).catch(() => []),
+      getDashboardKPIs(null).catch(() => null),
+    ]).then(([o, m, meses, ug, k]) => {
       setObras(o)
-      setGastos(g)
-      setIngresos(i)
-      setAdditionalSales(as_)
-      setAsistencia(a)
+      setMetricas(m)
+      setMesesDisponibles(meses)
+      setUltimosGastos(ug)
+      if (k) setKpis(k)
     }).finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
 
-  // Meses disponibles para el selector (unión de todas las fechas de datos)
-  const mesesDisponibles = useMemo(() => {
-    const set = new Set()
-    gastos.forEach(g => { const m = isoToYYYYMM(g.fecha); if (m) set.add(m) })
-    ingresos.forEach(i => { const m = isoToYYYYMM(i.fecha); if (m) set.add(m) })
-    asistencia.forEach(a => { const m = isoToYYYYMM(a.fecha); if (m) set.add(m) })
-    additionalSales.forEach(s => { const m = isoToYYYYMM(s.created_at); if (m) set.add(m) })
-    return [...set].sort().reverse()
-  }, [gastos, ingresos, asistencia, additionalSales])
+  // Refetch de KPIs solo cuando cambia el filtro de mes (no en el mount inicial, ya cubierto arriba)
+  const primerRender = useRef(true)
+  useEffect(() => {
+    if (primerRender.current) { primerRender.current = false; return }
+    setLoadingKpis(true)
+    getDashboardKPIs(mesFiltro).catch(() => null).then(k => {
+      if (k) setKpis(k)
+    }).finally(() => setLoadingKpis(false))
+  }, [mesFiltro])
 
-  // Datos filtrados por mes
-  const gastosFiltrados   = useMemo(() => filterByMes(gastos, mesFiltro), [gastos, mesFiltro])
-  const ingresosFiltrados = useMemo(() => filterByMes(ingresos, mesFiltro), [ingresos, mesFiltro])
-  const asistFiltrada     = useMemo(() => filterByMes(asistencia, mesFiltro), [asistencia, mesFiltro])
-  const addSalesFiltradas = useMemo(() => filterByMes(additionalSales, mesFiltro, 'created_at'), [additionalSales, mesFiltro])
-
-  // Métricas filtradas
+  // Métricas
   const ventaObras      = obras.reduce((s, o) => s + (o.presupuesto ?? 0), 0)
-  const ventaAdicional  = addSalesFiltradas.reduce((s, a) => s + (a.tipo === 'descuento' ? -(a.monto ?? 0) : (a.monto ?? 0)), 0)
-  const totalIngresos   = ventaObras + ventaAdicional
-  const totalManoObra   = asistFiltrada.reduce((s, r) => s + (r.costo_total ?? 0), 0)
-  const totalAbonos     = ingresosFiltrados.reduce((s, i) => s + (i.monto ?? 0), 0)
+  const totalIngresos   = ventaObras + kpis.ventaAdicional
+  const totalManoObra   = kpis.totalManoObra
+  const totalAbonos     = kpis.totalAbonos
 
-  const gastosCDO       = gastosFiltrados.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
-  const gastosGAV       = gastosFiltrados.filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Gastos Generales').reduce((s, g) => s + (g.monto ?? 0), 0)
-  const totalGastos     = gastosFiltrados.reduce((s, g) => s + (g.monto ?? 0), 0)
+  const gastosCDO       = kpis.gastosCDO
+  const gastosGAV       = kpis.gastosGAV
+  const totalGastos     = kpis.totalGastos
   const egresos         = totalGastos + totalManoObra
   const utilidad        = totalIngresos - egresos
   const pctUtilidad     = totalIngresos > 0 ? (utilidad / totalIngresos * 100).toFixed(1) : 0
@@ -107,12 +95,9 @@ export default function Dashboard() {
   }
 
   const alertas = obrasActivas.filter(o => {
-    const cdo = gastos.filter(g => g.project_id === o.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
-    const mod = asistencia.filter(a => a.project_id === o.id).reduce((s, a) => s + (a.costo_total ?? 0), 0)
-    return o.presupuesto && (cdo + mod) > o.presupuesto * 0.85
+    const m = metricas[o.id] || { cdo: 0, mod: 0 }
+    return o.presupuesto && (m.cdo + m.mod) > o.presupuesto * 0.85
   })
-
-  const ultimosGastos = [...gastos].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 6)
 
   const openEditGasto = (g) => {
     setEditGasto(g)
@@ -139,7 +124,7 @@ export default function Dashboard() {
         medio_pago: editGastoForm.medio_pago,
         comentario: editGastoForm.comentario || null,
       })
-      setGastos(prev => prev.map(g => g.id === editGasto.id ? { ...g, ...updated } : g))
+      setUltimosGastos(prev => prev.map(g => g.id === editGasto.id ? { ...g, ...updated } : g))
       setEditGasto(null)
     } catch (err) {
       setEditGastoError(err.message || 'Error al guardar')
@@ -152,7 +137,7 @@ export default function Dashboard() {
     setDeletingGasto(true)
     try {
       await deleteGasto(id)
-      setGastos(prev => prev.filter(g => g.id !== id))
+      setUltimosGastos(prev => prev.filter(g => g.id !== id))
       setConfirmDelGasto(null)
     } catch { } finally { setDeletingGasto(false) }
   }
@@ -200,9 +185,8 @@ export default function Dashboard() {
             </span>
           </div>
           {alertas.map(o => {
-            const cdo = gastos.filter(g => g.project_id === o.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
-            const mod = asistencia.filter(a => a.project_id === o.id).reduce((s, a) => s + (a.costo_total ?? 0), 0)
-            const pct = ((cdo + mod) / o.presupuesto * 100).toFixed(0)
+            const m = metricas[o.id] || { cdo: 0, mod: 0 }
+            const pct = ((m.cdo + m.mod) / o.presupuesto * 100).toFixed(0)
             return (
               <div
                 key={o.id}
@@ -251,7 +235,7 @@ export default function Dashboard() {
 
       {/* ── Fila 1: Venta · Egresos · Utilidad · % Utilidad ── */}
       {can('verMargen') && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ opacity: loadingKpis ? 0.5 : 1, transition: 'opacity 0.15s' }}>
           <StatCard icon={TrendingUp}  label="Venta"      value={formatCLP(totalIngresos)} sub={mesFiltro ? 'Presupuestos + adicionales del mes' : 'Total contratado'}  accent="blue" />
           <StatCard icon={TrendingDown} label="Egresos"   value={formatCLP(egresos)}       sub="CDO + MOD + GAV"                                                accent="red" />
           <StatCard icon={DollarSign}  label="Utilidad"   value={formatCLP(utilidad)}      sub={`${pctUtilidad}% sobre venta`}                                  accent={parseFloat(pctUtilidad) >= 20 ? 'emerald' : parseFloat(pctUtilidad) >= 0 ? 'amber' : 'red'} />
@@ -266,7 +250,7 @@ export default function Dashboard() {
 
       {/* ── Fila 2: Abonos · CDO · MOD · GAV ────── */}
       {can('verMargen') && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ opacity: loadingKpis ? 0.5 : 1, transition: 'opacity 0.15s' }}>
           <StatCard icon={Wallet}    label="Abonos"               value={formatCLP(totalAbonos)}  sub="Cobrado de clientes"           accent="emerald" />
           <StatCard icon={HardHat}   label="Costos Directos"      value={formatCLP(gastosCDO)}    sub="CDO — costos de obra"          accent="red" />
           <StatCard icon={TrendingDown} label="Mano de Obra"      value={formatCLP(totalManoObra)} sub="MOD — asistencia"             accent="amber" />
@@ -308,9 +292,8 @@ export default function Dashboard() {
         ) : (
           <div className="space-y-2">
             {obrasActivas.map((o, idx) => {
-              const cdo = gastos.filter(g => g.project_id === o.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra').reduce((s, g) => s + (g.monto ?? 0), 0)
-              const mod = asistencia.filter(a => a.project_id === o.id).reduce((s, a) => s + (a.costo_total ?? 0), 0)
-              const g = cdo + mod
+              const m = metricas[o.id] || { cdo: 0, mod: 0 }
+              const g = m.cdo + m.mod
               const pctG = o.presupuesto ? Math.min((g / o.presupuesto) * 100, 100).toFixed(0) : 0
               const over = o.presupuesto && g > o.presupuesto
               return (
@@ -398,7 +381,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {ultimosGastos.map(g => {
-                  const obra = obras.find(o => o.id === g.project_id)
+                  const obra = g.projects
                   const cat  = CATEGORIAS_GASTO[g.categoria]
                   return (
                     <tr key={g.id} className="table-row" style={{ cursor: 'default' }}>

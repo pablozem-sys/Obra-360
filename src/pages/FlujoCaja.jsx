@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine
 } from 'recharts'
 import { AlertTriangle, TrendingUp, TrendingDown, Wallet, Loader2 } from 'lucide-react'
-import { getGastos, getIngresos } from '../lib/supabase'
+import { getFlujoCajaMensual, getFlujoCajaSemanal } from '../lib/supabase'
 import { formatCLP } from '../lib/helpers'
 
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
@@ -23,68 +23,37 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
-function buildMonthly(gastos, ingresos) {
-  const map = {}
-  gastos.forEach(g => {
-    if (!g.fecha) return
-    const d = new Date(g.fecha)
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
-    if (!map[key]) map[key] = { label: MESES[d.getMonth()], ingresos: 0, egresos: 0 }
-    map[key].egresos += g.monto ?? 0
-  })
-  ingresos.forEach(i => {
-    if (!i.fecha) return
-    const d = new Date(i.fecha)
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2,'0')}`
-    if (!map[key]) map[key] = { label: MESES[d.getMonth()], ingresos: 0, egresos: 0 }
-    map[key].ingresos += i.monto ?? 0
-  })
-  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).slice(-8)
-    .map(([, v]) => ({ mes: v.label, ingresos: v.ingresos, egresos: v.egresos, saldo: v.ingresos - v.egresos }))
+function mesLabel(ym) {
+  const [, m] = ym.split('-')
+  return MESES[parseInt(m, 10) - 1]
 }
 
-function buildWeekly(gastos, ingresos) {
-  const map = {}
-  const getWeekKey = fecha => {
-    const d = new Date(fecha)
-    const start = new Date(d)
-    start.setDate(d.getDate() - d.getDay())
-    return start.toISOString().split('T')[0]
-  }
-  const fmt = key => { const d = new Date(key); return `${d.getDate()}/${d.getMonth() + 1}` }
-  gastos.forEach(g => {
-    if (!g.fecha) return
-    const key = getWeekKey(g.fecha)
-    if (!map[key]) map[key] = { ingresos: 0, egresos: 0 }
-    map[key].egresos += g.monto ?? 0
-  })
-  ingresos.forEach(i => {
-    if (!i.fecha) return
-    const key = getWeekKey(i.fecha)
-    if (!map[key]) map[key] = { ingresos: 0, egresos: 0 }
-    map[key].ingresos += i.monto ?? 0
-  })
-  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).slice(-8)
-    .map(([key, v]) => ({ semana: fmt(key), ingresos: v.ingresos, egresos: v.egresos, saldo: v.ingresos - v.egresos }))
+function semanaLabel(fecha) {
+  const d = new Date(fecha)
+  return `${d.getDate()}/${d.getMonth() + 1}`
 }
 
 export default function FlujoCaja() {
-  const [view,     setView]     = useState('mensual')
-  const [gastos,   setGastos]   = useState([])
-  const [ingresos, setIngresos] = useState([])
-  const [loading,  setLoading]  = useState(true)
+  const [view,    setView]    = useState('mensual')
+  const [data,    setData]    = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
-    Promise.all([getGastos().catch(() => []), getIngresos().catch(() => [])])
-      .then(([g, i]) => { setGastos(g); setIngresos(i) })
-      .finally(() => { clearTimeout(t); setLoading(false) })
-  }, [])
+    const fetcher = view === 'mensual' ? getFlujoCajaMensual(8) : getFlujoCajaSemanal(8)
+    fetcher.catch(() => []).then(rows => {
+      const ordenAsc = view === 'mensual'
+        ? [...rows].sort((a, b) => a.mes.localeCompare(b.mes))
+        : [...rows].sort((a, b) => new Date(a.semana) - new Date(b.semana))
+      setData(ordenAsc.map(r => ({
+        [view === 'mensual' ? 'mes' : 'semana']: view === 'mensual' ? mesLabel(r.mes) : semanaLabel(r.semana),
+        ingresos: r.ingresos ?? 0,
+        egresos:  r.egresos ?? 0,
+        saldo:    (r.ingresos ?? 0) - (r.egresos ?? 0),
+      })))
+    }).finally(() => { clearTimeout(t); setLoading(false) })
+  }, [view])
 
-  const data = useMemo(() =>
-    view === 'mensual' ? buildMonthly(gastos, ingresos) : buildWeekly(gastos, ingresos),
-    [view, gastos, ingresos]
-  )
   const xKey = view === 'mensual' ? 'mes' : 'semana'
 
   const totalIngresos    = data.reduce((s, d) => s + d.ingresos, 0)

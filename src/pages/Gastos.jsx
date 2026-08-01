@@ -2,12 +2,20 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, TrendingDown, Loader2, Pencil, Trash2, X, Check, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { formatCLP, formatDateShort, CATEGORIAS_GASTO } from '../lib/helpers'
-import { getGastosDetallado, getProjectsList, getAttendance, updateGasto, deleteGasto, getProviders, upsertProvider } from '../lib/supabase'
+import { getGastosDetallado, getProjectsList, getAttendanceRange, updateGasto, deleteGasto, getProviders, upsertProvider } from '../lib/supabase'
 import { createPortal } from 'react-dom'
 
 const CATEGORIAS = Object.entries(CATEGORIAS_GASTO)
   .filter(([, v]) => !v.auto)
   .map(([k, v]) => ({ value: k, label: v.label, color: v.color }))
+
+function monthRange(ym) {
+  const [y, m] = ym.split('-').map(Number)
+  const desde = `${ym}-01`
+  const ultimoDia = new Date(y, m, 0).getDate()
+  const hasta = `${ym}-${String(ultimoDia).padStart(2, '0')}`
+  return [desde, hasta]
+}
 
 const CATEGORIAS_GRUPOS = Object.entries(CATEGORIAS_GASTO)
   .filter(([, v]) => !v.auto && v.grupo !== undefined)
@@ -267,6 +275,7 @@ export default function Gastos() {
   const [proyectos, setProyectos] = useState([])
   const [asistencia,setAsistencia]= useState([])
   const [loading,   setLoading]   = useState(true)
+  const [refetching,setRefetching]= useState(false)
 
   const [filtroObra,      setFiltroObra]      = useState('all')
   const [filtroMes,       setFiltroMes]       = useState(() => new Date().toISOString().slice(0, 7))
@@ -277,17 +286,22 @@ export default function Gastos() {
   const [confirmDel,  setConfirmDel]  = useState(null)   // id del gasto a eliminar
   const [deleting,    setDeleting]    = useState(false)
 
+  const primeraCarga = useRef(true)
   useEffect(() => {
+    if (primeraCarga.current) primeraCarga.current = false
+    else setRefetching(true)
+    const obraId = filtroObra !== 'all' ? filtroObra : undefined
+    const [fechaDesde, fechaHasta] = filtroMes ? monthRange(filtroMes) : [undefined, undefined]
     Promise.all([
-      getGastosDetallado(),
+      getGastosDetallado({ obraId, fechaDesde, fechaHasta }),
       getProjectsList(),
-      getAttendance().catch(() => []),
+      getAttendanceRange({ desde: fechaDesde, hasta: fechaHasta, projectId: obraId }).catch(() => []),
     ]).then(([g, p, a]) => {
       setGastos(g)
       setProyectos(p)
       setAsistencia(a)
-    }).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+    }).catch(() => {}).finally(() => { setLoading(false); setRefetching(false) })
+  }, [filtroMes, filtroObra])
 
   const filtered = gastos.filter(g => {
     if (filtroObra !== 'all' && g.project_id !== filtroObra) return false
@@ -383,7 +397,7 @@ export default function Gastos() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={{ opacity: refetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

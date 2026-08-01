@@ -4,8 +4,8 @@ import {
   Cell, ReferenceLine,
 } from 'recharts'
 import { TrendingUp, TrendingDown, DollarSign, Percent, Loader2 } from 'lucide-react'
-import { getObras, getGastos, getAttendance, getAllAdditionalSales } from '../lib/supabase'
-import { formatCLP, CATEGORIAS_GASTO } from '../lib/helpers'
+import { getObras, getObraMetrics, getDashboardKPIs } from '../lib/supabase'
+import { formatCLP } from '../lib/helpers'
 
 const CTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null
@@ -17,16 +17,13 @@ const CTooltip = ({ active, payload, label }) => {
   )
 }
 
-function calcObraData(obra, gastos, asistencia, additionalSales) {
+function calcObraData(obra, metricas) {
+  const m = metricas[obra.id] || { cdo: 0, mod: 0, adicionales: 0, descuentos: 0 }
   const ventaAprobada  = obra.presupuesto ?? 0
-  const ventaAdicional = additionalSales.filter(a => a.project_id === obra.id).reduce((s, a) => s + (a.tipo === 'descuento' ? -(a.monto ?? 0) : (a.monto ?? 0)), 0)
+  const ventaAdicional = m.adicionales - m.descuentos
   const ventaTotal     = ventaAprobada + ventaAdicional
-  const cdo            = gastos
-    .filter(g => g.project_id === obra.id && CATEGORIAS_GASTO[g.categoria]?.grupo === 'Costo Directo de la Obra')
-    .reduce((s, g) => s + (g.monto ?? 0), 0)
-  const mod            = asistencia
-    .filter(a => a.project_id === obra.id)
-    .reduce((s, a) => s + (a.costo_total ?? 0), 0)
+  const cdo            = m.cdo
+  const mod            = m.mod
   const margen         = ventaTotal - cdo - mod
   const pctMargen      = ventaTotal > 0 ? (margen / ventaTotal * 100) : 0
   return { ventaTotal, ventaAprobada, ventaAdicional, cdo, mod, margen, pctMargen }
@@ -35,45 +32,39 @@ function calcObraData(obra, gastos, asistencia, additionalSales) {
 export default function EstadoResultado() {
   const [selectedId,      setSelectedId]      = useState('all')
   const [obras,           setObras]           = useState([])
-  const [gastos,          setGastos]          = useState([])
-  const [asistencia,      setAsistencia]      = useState([])
-  const [additionalSales, setAdditionalSales] = useState([])
+  const [metricas,        setMetricas]        = useState({})
+  const [gavTotal,        setGavTotal]        = useState(0)
+  const [manoObraTotal,   setManoObraTotal]   = useState(0)
   const [loading,         setLoading]         = useState(true)
 
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
     Promise.all([
       getObras().catch(() => []),
-      getGastos().catch(() => []),
-      getAttendance().catch(() => []),
-      getAllAdditionalSales().catch(() => []),
-    ]).then(([o, g, a, as_]) => { setObras(o); setGastos(g); setAsistencia(a); setAdditionalSales(as_) })
-      .finally(() => { clearTimeout(t); setLoading(false) })
+      getObraMetrics().catch(() => ({})),
+      getDashboardKPIs(null).catch(() => null),
+    ]).then(([o, m, k]) => {
+      setObras(o)
+      setMetricas(m)
+      if (k) { setGavTotal(k.gastosGAV); setManoObraTotal(k.totalManoObra) }
+    }).finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
 
   const obrasFiltradas = selectedId === 'all' ? obras : obras.filter(o => o.id === selectedId)
 
   const totales = useMemo(() => {
-    const ventaTotal = obrasFiltradas.reduce((s, o) => {
-      const d = calcObraData(o, gastos, asistencia, additionalSales)
-      return s + d.ventaTotal
-    }, 0)
-    const cdo = obrasFiltradas.reduce((s, o) => {
-      const d = calcObraData(o, gastos, asistencia, additionalSales)
-      return s + d.cdo
-    }, 0)
+    const ventaTotal = obrasFiltradas.reduce((s, o) => s + calcObraData(o, metricas).ventaTotal, 0)
+    const cdo = obrasFiltradas.reduce((s, o) => s + calcObraData(o, metricas).cdo, 0)
     const mod = selectedId === 'all'
-      ? asistencia.reduce((s, a) => s + (a.costo_total ?? 0), 0)
-      : asistencia.filter(a => a.project_id === selectedId).reduce((s, a) => s + (a.costo_total ?? 0), 0)
-    const gav = gastos
-      .filter(g => CATEGORIAS_GASTO[g.categoria]?.grupo === 'Gastos Generales')
-      .reduce((s, g) => s + (g.monto ?? 0), 0)
+      ? manoObraTotal
+      : (metricas[selectedId]?.mod ?? 0)
+    const gav = gavTotal
     const margen     = ventaTotal - cdo - mod
     const pctMargen  = ventaTotal > 0 ? (margen / ventaTotal * 100) : 0
     const utilidad   = ventaTotal - cdo - mod - gav
     const pctUtilidad = ventaTotal > 0 ? (utilidad / ventaTotal * 100) : 0
     return { ventaTotal, cdo, mod, gav, margen, pctMargen, utilidad, pctUtilidad }
-  }, [obrasFiltradas, gastos, asistencia, additionalSales, selectedId])
+  }, [obrasFiltradas, metricas, gavTotal, manoObraTotal, selectedId])
 
   const isAll = selectedId === 'all'
 
@@ -90,7 +81,7 @@ export default function EstadoResultado() {
     { name: resultadoLabel,  value: Math.abs(resultadoValor),      fill: resultadoColor },
   ]
 
-  const eerrPorObra = obras.map(o => ({ ...o, ...calcObraData(o, gastos, asistencia, additionalSales) }))
+  const eerrPorObra = obras.map(o => ({ ...o, ...calcObraData(o, metricas) }))
 
   const eerrFilas = [
     { label: 'Venta Total',             value: totales.ventaTotal, color: 'var(--blue)',   bold: false },

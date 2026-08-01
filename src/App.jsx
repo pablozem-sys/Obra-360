@@ -1,29 +1,29 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { useAuth } from './context/AuthContext'
 import { Loader2 } from 'lucide-react'
 
-import Landing           from './pages/Landing'
-import Login             from './pages/Login'
-import AccesoTrabajador  from './pages/AccesoTrabajador'
-import Asistencia        from './pages/Asistencia'
-
 import AppLayout         from './components/layout/AppLayout'
-import Dashboard         from './pages/Dashboard'
-import Obras             from './pages/Obras'
-import DetalleObra       from './pages/DetalleObra'
-import NuevoGasto        from './pages/NuevoGasto'
-import CuentasPagar      from './pages/CuentasPagar'
-import CuentasCobrar     from './pages/CuentasCobrar'
-import EstadoResultado   from './pages/EstadoResultado'
-import FlujoCaja         from './pages/FlujoCaja'
-import Biblioteca        from './pages/Biblioteca'
-import Gastos           from './pages/Gastos'
-import ControlAsistencia from './pages/ControlAsistencia'
-import Usuarios         from './pages/Usuarios'
-import ResetPassword    from './pages/ResetPassword'
-import BanosQuimicos    from './pages/BanosQuimicos'
-import Gestion         from './pages/Gestion'
+
+const Landing           = lazy(() => import('./pages/Landing'))
+const Login             = lazy(() => import('./pages/Login'))
+const AccesoTrabajador  = lazy(() => import('./pages/AccesoTrabajador'))
+const Asistencia        = lazy(() => import('./pages/Asistencia'))
+const Dashboard         = lazy(() => import('./pages/Dashboard'))
+const Obras             = lazy(() => import('./pages/Obras'))
+const DetalleObra       = lazy(() => import('./pages/DetalleObra'))
+const NuevoGasto        = lazy(() => import('./pages/NuevoGasto'))
+const CuentasPagar      = lazy(() => import('./pages/CuentasPagar'))
+const CuentasCobrar     = lazy(() => import('./pages/CuentasCobrar'))
+const EstadoResultado   = lazy(() => import('./pages/EstadoResultado'))
+const FlujoCaja         = lazy(() => import('./pages/FlujoCaja'))
+const Biblioteca        = lazy(() => import('./pages/Biblioteca'))
+const Gastos            = lazy(() => import('./pages/Gastos'))
+const ControlAsistencia = lazy(() => import('./pages/ControlAsistencia'))
+const Usuarios          = lazy(() => import('./pages/Usuarios'))
+const ResetPassword     = lazy(() => import('./pages/ResetPassword'))
+const BanosQuimicos     = lazy(() => import('./pages/BanosQuimicos'))
+const Gestion           = lazy(() => import('./pages/Gestion'))
 
 // Detecta token de recovery en cualquier ruta y redirige a /reset-password
 function RecoveryRedirect() {
@@ -101,6 +101,7 @@ export default function App() {
   return (
     <>
     <RecoveryRedirect />
+    <Suspense fallback={<Spinner />}>
     <Routes>
       {/* ── Públicas ──────────────────────────────── */}
       <Route path="/"                      element={<Landing />} />
@@ -133,6 +134,7 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
     </>
   )
 }
