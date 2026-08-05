@@ -332,3 +332,10 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Dashboard, Obras, Estado de Resultado, Egresos y Flujo de Caja dejaron de traer todo el historial completo de movimientos para sumarlo en el navegador — ahora el cálculo se hace directamente en la base de datos y solo se trae el resultado
 - De paso se corrigió un detalle en Flujo de Caja: un movimiento sin fecha cargada podía desplazar a un mes real fuera de los últimos 8 meses mostrados
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Bug: trabajadores no aparecían en Control de Asistencia → Registros (2026-08-05)
+- Reportado por Constanza (VR Asociados): Elvis y Pablo Gutiérrez habían marcado asistencia pero no aparecían en la pestaña Registros
+- Confirmado en la base que el registro de asistencia sí existía y que los permisos no eran el problema
+- Root cause real: la fecha "hoy" que usa por defecto la pestaña Registros se calculaba en horario UTC en vez de horario de Chile. Como Chile va 4 horas atrás, entre las ~20:00 y la medianoche la app buscaba el día siguiente (que todavía no tiene nadie marcado) en vez del día real — la lista se veía vacía justo en el horario en que se suele revisar la asistencia del día
+- Fix: se unificó ese cálculo para que use siempre la misma función de hora local que ya usaba el resto del sistema para guardar las marcaciones
+- Disponible en ambas plataformas (VAION y VRION)

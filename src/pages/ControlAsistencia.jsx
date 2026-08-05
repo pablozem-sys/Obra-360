@@ -16,6 +16,7 @@ import {
   actualizarTurno,
   deleteAttendance,
   getRegistrosAbiertosAnteriores,
+  localDateString,
 } from '../lib/supabase'
 
 /* ── Time Picker ─────────────────────────────────────────────── */
@@ -295,7 +296,7 @@ function TurnoRow({
   )
 }
 
-const HOY = new Date().toISOString().split('T')[0]
+const HOY = localDateString()
 
 export default function ControlAsistencia() {
   const [tab, setTab]               = useState('registros') // registros | por_fecha | trabajadores

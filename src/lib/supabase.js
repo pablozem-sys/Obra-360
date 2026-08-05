@@ -710,7 +710,7 @@ export async function getAttendance({ fecha, projectId } = {}) {
   if (error) throw error
   return data ?? []
 }
-function localDateString() {
+export function localDateString() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -876,7 +876,7 @@ export async function getAttendanceRange({ desde, hasta, projectId } = {}) {
 }
 
 export async function getAllTodayAttendance() {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateString()
   const { data, error } = await supabase
     .from('attendance')
     .select('*, workers(nombre, avatar), projects(nombre)')
