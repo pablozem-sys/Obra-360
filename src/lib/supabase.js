@@ -397,16 +397,10 @@ export async function getCuentasCobrar() {
   return data
 }
 
-// ── Geolocation ───────────────────────────────────────────────
 export async function updateCuentaCobrar(id, updates) {
   const { data, error } = await supabase.from('accounts_receivable').update(updates).eq('id', id).select().single()
   if (error) throw error
   return data
-}
-
-export async function logGeolocalizacion(entry) {
-  const { error } = await supabase.from('geolocation_logs').insert([entry])
-  if (error) throw error
 }
 
 // ── Projects (active only, for attendance) ────────────────────
