@@ -7,11 +7,9 @@ import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
 import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getObraMetrics } from '../lib/supabase'
 
 const FILTROS = [
-  { key: 'all',          label: 'Todas' },
   { key: 'en_ejecucion', label: 'En Ejecución' },
-  { key: 'cotizada',     label: 'Cotizadas' },
-  { key: 'pausada',      label: 'Pausadas' },
   { key: 'finalizada',   label: 'Finalizadas' },
+  { key: 'all',          label: 'Todas' },
 ]
 
 const TIPOS = ['piscina', 'quincho', 'ampliacion', 'remodelacion', '360', 'otro']
@@ -55,7 +53,7 @@ export default function Obras() {
   const [obras, setObras]       = useState([])
   const [metricas, setMetricas] = useState({})
   const [loading, setLoading]   = useState(true)
-  const [filtro, setFiltro]     = useState('all')
+  const [filtro, setFiltro]     = useState('en_ejecucion')
   const [search, setSearch]     = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm]         = useState(FORM_INITIAL)

@@ -292,7 +292,7 @@ export default function BanosQuimicos() {
   const [banos, setBanos]               = useState([])
   const [obras, setObras]               = useState([])
   const [loading, setLoading]           = useState(true)
-  const [filtro, setFiltro]             = useState('todos')
+  const [filtro, setFiltro]             = useState('activo')
   const [expanded, setExpanded]         = useState(null)
   const [pagos, setPagos]               = useState({})
   const [loadingPagos, setLoadingPagos] = useState({})
