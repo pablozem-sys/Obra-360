@@ -11,7 +11,7 @@ import {
   getObras, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
   getAdditionalSales, createAdditionalSale, deleteAdditionalSale,
-  updateGasto, deleteGasto, uploadDocumento, createDocumento,
+  updateGasto, deleteGasto, uploadDocumento, createDocumento, deleteDocumento,
 } from '../lib/supabase'
 import {
   formatCLP, formatDate,
@@ -56,6 +56,10 @@ export default function DetalleObra() {
   const [editGastoError,  setEditGastoError]  = useState('')
   const [confirmDelGasto, setConfirmDelGasto] = useState(null)
   const [deletingGasto,   setDeletingGasto]   = useState(false)
+
+  // Eliminar documento
+  const [confirmDelDoc, setConfirmDelDoc] = useState(null)
+  const [deletingDoc,   setDeletingDoc]   = useState(false)
 
   // Modal editar obra
   const [showEdit,  setShowEdit]  = useState(false)
@@ -311,6 +315,15 @@ export default function DetalleObra() {
       setGastos(prev => prev.filter(g => g.id !== gastoId))
       setConfirmDelGasto(null)
     } catch { /* silencioso */ } finally { setDeletingGasto(false) }
+  }
+
+  const handleDeleteDoc = async (doc) => {
+    setDeletingDoc(true)
+    try {
+      await deleteDocumento(doc)
+      setDocs(prev => prev.filter(d => d.id !== doc.id))
+      setConfirmDelDoc(null)
+    } catch { /* silencioso */ } finally { setDeletingDoc(false) }
   }
 
   if (loading) return (
@@ -853,14 +866,41 @@ export default function DetalleObra() {
                   </div>
                   <div className="flex items-center gap-1">
                     {info && <span className={`text-xs font-semibold ${info.color}`}>{info.label}</span>}
-                    {d.archivo_url && (
+                    {confirmDelDoc === d.id ? (
+                      <div className="flex items-center gap-1.5 ml-2">
+                        <span className="text-[11px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                        <button
+                          onClick={() => handleDeleteDoc(d)}
+                          disabled={deletingDoc}
+                          className="px-2 py-0.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                          style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                        >Sí</button>
+                        <button
+                          onClick={() => setConfirmDelDoc(null)}
+                          className="p-1 rounded-lg"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                        ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                      </div>
+                    ) : (
                       <>
-                        <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-7 h-7 rounded-lg flex items-center justify-center ml-2" style={{ background: 'var(--bg-card)' }}>
-                          <Eye size={13} style={{ color: 'var(--muted)' }} />
-                        </a>
-                        <a href={d.archivo_url} download className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
-                          <Download size={13} style={{ color: 'var(--muted)' }} />
-                        </a>
+                        {d.archivo_url && (
+                          <>
+                            <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-7 h-7 rounded-lg flex items-center justify-center ml-2" style={{ background: 'var(--bg-card)' }}>
+                              <Eye size={13} style={{ color: 'var(--muted)' }} />
+                            </a>
+                            <a href={d.archivo_url} download className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
+                              <Download size={13} style={{ color: 'var(--muted)' }} />
+                            </a>
+                          </>
+                        )}
+                        <button
+                          onClick={() => setConfirmDelDoc(d.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center"
+                          style={{ background: 'var(--bg-card)' }}
+                          title="Eliminar"
+                        >
+                          <Trash2 size={13} style={{ color: 'var(--red)' }} />
+                        </button>
                       </>
                     )}
                   </div>
