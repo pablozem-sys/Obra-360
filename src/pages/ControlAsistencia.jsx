@@ -354,7 +354,7 @@ export default function ControlAsistencia() {
   const [manualObra, setManualObra]           = useState('')
   const [manualFecha, setManualFecha]         = useState(HOY)
   const [manualEntrada, setManualEntrada]     = useState('08:30')
-  const [manualSalida, setManualSalida]       = useState('17:30')
+  const [manualSalida, setManualSalida]       = useState('')
   const [manualBono, setManualBono]           = useState('')
   const [manualSaving, setManualSaving]       = useState(false)
   const [manualError, setManualError]         = useState('')
@@ -515,7 +515,7 @@ export default function ControlAsistencia() {
       setManualObra('')
       setManualFecha(HOY)
       setManualEntrada('08:30')
-      setManualSalida('17:30')
+      setManualSalida('')
       setManualBono('')
     } catch (err) {
       setManualError(err.message || 'Error al guardar')
