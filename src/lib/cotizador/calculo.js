@@ -36,6 +36,15 @@ export function sumaPorcentajesHitos(hitos) {
   return hitos.reduce((acc, h) => acc + h.porcentaje, 0);
 }
 
+// Sección 9, primera validación bloqueante. El resto de las validaciones de
+// emisión (capítulo sin margen, cuotas != 100%, capítulos sin paquete, sin
+// fecha de validez) se implementan en la Etapa 9, junto al resto del flujo
+// de emisión — esta se adelanta porque el test de aceptación de la Etapa 5
+// depende de ella.
+export function lineasFirmesSinPrecio(lineas) {
+  return lineas.filter((l) => l.estado === 'firme' && l.costoUnitario == null);
+}
+
 // Redondeo acumulativo: cada hito redondea su propio neto/IVA (cumple sección
 // 6.3, "por hito, no sobre el total"), pero contra el % ACUMULADO hasta ese
 // hito, restando lo ya asignado a hitos anteriores. Así ningún hito deja de
