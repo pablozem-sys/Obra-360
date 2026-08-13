@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
   BarChart3, Wallet, FolderOpen, Receipt,
-  Users, UserCog, LogOut, Sun, Moon, Droplets, ClipboardList
+  Users, UserCog, LogOut, Sun, Moon, Droplets, ClipboardList, FileText
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -10,6 +10,7 @@ import { useTheme } from '../../context/ThemeContext'
 const navAll = [
   { to: '/dashboard',          label: 'Dashboard',       icon: LayoutDashboard, perm: null },
   { to: '/obras',              label: 'Obras',            icon: Building2,       perm: null },
+  { to: '/cotizador',          label: 'Cotizador',        icon: FileText,        perm: null },
   { to: '/asistencia-control', label: 'Asistencia',       icon: Users,           perm: null },
   { to: '/cuentas-pagar',      label: 'CxP',              icon: ArrowDownCircle, perm: null },
   { to: '/eerr',               label: 'EERR',             icon: BarChart3,       perm: 'verEERR' },

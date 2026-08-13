@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase, setEmpresaId } from '../lib/supabase'
+import { setCotizadorEmpresaId } from '../lib/cotizador/api'
 import { COMPANY_SLUG } from '../lib/helpers'
 
 const AuthContext = createContext(null)
@@ -68,6 +69,7 @@ export function AuthProvider({ children }) {
   function applyEmpresa(entry) {
     setEmpresaState(entry)
     setEmpresaId(entry?.empresa_id ?? null)
+    setCotizadorEmpresaId(entry?.empresa_id ?? null)
   }
 
   // Cada despliegue queda fijo a UNA sola empresa (COMPANY_SLUG, por variable
@@ -141,6 +143,7 @@ export function AuthProvider({ children }) {
         setSession(null)
         setEmpresaState(null)
         setEmpresaId(null)
+        setCotizadorEmpresaId(null)
       } else if (s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')) {
         const profile = await fetchUserProfile(s.user.id, s.user)
         const entry = await loadEmpresa(s.user.id)
