@@ -84,6 +84,14 @@ export async function updateCotizacion(id, updates) {
   return data
 }
 
+// Borra la cotización y todo su árbol (capítulos, sub-bloques, líneas,
+// paquetes, hitos, versiones) — cascada por FK. El historial de precios de
+// las partidas que se hayan usado NO se borra, solo se desvincula.
+export async function deleteCotizacion(id) {
+  const { error } = await supabase.from('cotizacion').delete().eq('id', id)
+  if (error) throw error
+}
+
 // Puebla una cotización recién creada con la plantilla por defecto (9
 // capítulos reales de Quillayes 19, sus sub-bloques y líneas) — así quien
 // cotiza ajusta cantidades/precios y borra lo que no aplique, en vez de

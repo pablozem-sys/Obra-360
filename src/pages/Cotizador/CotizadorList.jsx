@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FileText, Loader2, AlertCircle } from 'lucide-react'
+import { Plus, FileText, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, ESTADOS_COTIZACION } from '../../lib/helpers'
-import { getCotizaciones, createCotizacion, crearCotizacionDesdeTemplate } from '../../lib/cotizador/api'
+import { getCotizaciones, createCotizacion, crearCotizacionDesdeTemplate, deleteCotizacion } from '../../lib/cotizador/api'
 
 const FORM_INITIAL = {
   cliente_nombre: '', cliente_contacto: '', nombre_obra: '',
@@ -22,10 +22,25 @@ export default function CotizadorList() {
   const [form, setForm] = useState(FORM_INITIAL)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
 
   useEffect(() => {
     getCotizaciones().then(setCotizaciones).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  const handleDelete = async (id) => {
+    setDeletingId(id)
+    try {
+      await deleteCotizacion(id)
+      setCotizaciones((prev) => prev.filter((c) => c.id !== id))
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletingId(null)
+      setConfirmDeleteId(null)
+    }
+  }
 
   const handleCreate = async () => {
     if (!form.cliente_nombre.trim()) { setFormError('Ingresa el nombre del cliente'); return }
@@ -99,8 +114,35 @@ export default function CotizadorList() {
                   <h3 className="font-display font-semibold text-base" style={{ color: 'var(--text)' }}>{c.nombre_obra}</h3>
                   <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{c.cliente_nombre}</p>
                 </div>
-                <div className="text-right flex-shrink-0">
+                <div className="flex items-center gap-3 flex-shrink-0">
                   <p className="text-xs" style={{ color: 'var(--subtle)' }}>{formatDate(c.fecha)}</p>
+                  {confirmDeleteId === c.id ? (
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[11px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
+                      <button
+                        onClick={() => handleDelete(c.id)}
+                        disabled={deletingId === c.id}
+                        className="px-2 py-0.5 rounded-lg text-xs font-semibold disabled:opacity-60"
+                        style={{ background: 'rgba(255,69,96,0.15)', color: 'var(--red)', border: '1px solid rgba(255,69,96,0.3)' }}
+                      >
+                        {deletingId === c.id ? <Loader2 size={11} className="animate-spin" /> : 'Sí'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="p-1 rounded-lg"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                      ><X size={11} style={{ color: 'var(--subtle)' }} /></button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(c.id) }}
+                      className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                      style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                      title="Eliminar cotización"
+                    >
+                      <Trash2 size={13} style={{ color: 'var(--red)' }} />
+                    </button>
+                  )}
                 </div>
               </div>
             )
