@@ -92,3 +92,84 @@ export function calcularHitosPaquete({ netoPaquete, hitos, regimen, ivaPct, ivaO
     total: netoAcumPrevio + ivaAcumPrevio,
   };
 }
+
+function lineasDeDestino(capitulos, destino) {
+  if (destino.capitulo_id) {
+    const cap = capitulos.find((c) => c.id === destino.capitulo_id);
+    return cap ? cap.sub_bloque.flatMap((sb) => sb.linea) : [];
+  }
+  const cap = capitulos.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id));
+  const sb = cap?.sub_bloque.find((s) => s.id === destino.sub_bloque_id);
+  return sb ? sb.linea : [];
+}
+
+function regimenDeDestino(capitulos, destino) {
+  if (destino.capitulo_id) return capitulos.find((c) => c.id === destino.capitulo_id)?.regimen_iva;
+  return capitulos.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))?.regimen_iva;
+}
+
+// Orquesta todo el cálculo de una cotización completa (capítulos → líneas,
+// paquetes → hitos) a partir de los datos crudos tal como los devuelve
+// getCotizacionCompleta(). Única fuente de verdad para el builder, la vista
+// cliente y el PDF — evita que cada uno recalcule (y eventualmente diverja).
+export function calcularCotizacion({ capitulos, paquetes, config }) {
+  const capitulosCalculados = capitulos.map((cap) => ({
+    ...cap,
+    sub_bloque: cap.sub_bloque.map((sb) => ({
+      ...sb,
+      linea: sb.linea.map((l) => {
+        if (l.costo_unit_usado == null) return { ...l, precioUnitario: null, totalLinea: 0 };
+        const { precioUnitario, totalLinea } = calcularLinea({
+          costoUnitario: l.costo_unit_usado,
+          margenPct: cap.margen_pct ?? 0,
+          cantidad: l.cantidad,
+        });
+        return { ...l, precioUnitario, totalLinea };
+      }),
+    })),
+  }));
+
+  const todasLasLineas = capitulosCalculados.flatMap((cap) => cap.sub_bloque.flatMap((sb) => sb.linea));
+  const totalCotizacion = calcularSubtotalNeto(todasLasLineas);
+  const lineasSinPrecio = lineasFirmesSinPrecio(
+    todasLasLineas.map((l) => ({ ...l, costoUnitario: l.costo_unit_usado }))
+  );
+  const capitulosSinPaquete = capitulosSinPaqueteCompleto(
+    capitulosCalculados,
+    paquetes.flatMap((p) => p.paquete_capitulo)
+  );
+
+  const paquetesCalculados = paquetes.map((p) => {
+    const lineaIds = new Set(
+      p.paquete_capitulo.flatMap((d) => lineasDeDestino(capitulosCalculados, d).map((l) => l.id))
+    );
+    const lineas = todasLasLineas.filter((l) => lineaIds.has(l.id));
+    const netoPaquete = calcularSubtotalNeto(lineas);
+    const regimenes = new Set(
+      p.paquete_capitulo.map((d) => regimenDeDestino(capitulosCalculados, d)).filter(Boolean)
+    );
+    const regimenValido = regimenes.size <= 1;
+    const regimen = regimenValido ? [...regimenes][0] ?? 'obra' : null;
+    const sumaCuotas = sumaPorcentajesHitos(p.hito_pago);
+    const cuotasValidas = p.hito_pago.length > 0 && sumaCuotas === 100;
+    const resultado = regimenValido && cuotasValidas
+      ? calcularHitosPaquete({ netoPaquete, hitos: p.hito_pago, regimen, ...config })
+      : null;
+    return { ...p, netoPaquete, regimenValido, regimen, sumaCuotas, cuotasValidas, resultado };
+  });
+
+  const todosLosPaquetesValidos = paquetesCalculados.length > 0 && paquetesCalculados.every((p) => p.resultado);
+  const totalGeneral = todosLosPaquetesValidos
+    ? paquetesCalculados.reduce((acc, p) => acc + p.resultado.total, 0)
+    : null;
+
+  return {
+    capitulos: capitulosCalculados,
+    paquetes: paquetesCalculados,
+    todasLasLineas,
+    totalCotizacion,
+    lineasSinPrecio,
+    capitulosSinPaquete,
+    totalGeneral,
+  };
+}

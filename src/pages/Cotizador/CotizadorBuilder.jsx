@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Plus, Trash2, Loader2, ChevronDown, ChevronRight, Search, History, X, AlertCircle,
+  Plus, Trash2, Loader2, ChevronDown, ChevronRight, Search, History, X, AlertCircle, Eye,
 } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
@@ -16,15 +16,13 @@ import {
   addDestinoPaquete, removeDestinoPaquete,
   createHito, updateHito, deleteHito,
 } from '../../lib/cotizador/api'
-import {
-  calcularLinea, calcularSubtotalNeto, lineasFirmesSinPrecio,
-  calcularHitosPaquete, sumaPorcentajesHitos, capitulosSinPaqueteCompleto,
-} from '../../lib/cotizador/calculo'
+import { calcularCotizacion } from '../../lib/cotizador/calculo'
 
 const LINEA_INICIAL = { partida_id: null, descripcion: '', unidad: '', cantidad: 1, costo_unit_catalogo: null, costo_unit_usado: 0, estado: 'firme' }
 
 export default function CotizadorBuilder() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [cotizacion, setCotizacion] = useState(null)
   const [catalogo, setCatalogo] = useState([])
@@ -72,68 +70,26 @@ export default function CotizadorBuilder() {
     )
   }
 
-  // ── Cálculo en vivo (motor de la Etapa 4) ────────────────────────
-  const todasLasLineas = cotizacion.capitulo.flatMap((cap) =>
-    cap.sub_bloque.flatMap((sb) =>
-      sb.linea.map((l) => {
-        if (l.costo_unit_usado == null) return { ...l, totalLinea: 0 }
-        const { precioUnitario, totalLinea } = calcularLinea({
-          costoUnitario: l.costo_unit_usado,
-          margenPct: cap.margen_pct ?? 0,
-          cantidad: l.cantidad,
-        })
-        return { ...l, precioUnitario, totalLinea }
-      })
-    )
-  )
-  const totalCotizacion = calcularSubtotalNeto(todasLasLineas)
-  const lineasSinPrecio = lineasFirmesSinPrecio(
-    todasLasLineas.map((l) => ({ ...l, costoUnitario: l.costo_unit_usado }))
-  )
+  // ── Cálculo en vivo (motor de la Etapa 4/5/7, una sola fuente de verdad) ──
+  const calculado = calcularCotizacion({
+    capitulos: cotizacion.capitulo,
+    paquetes: cotizacion.paquete_comercial,
+    config: { ivaPct: config.iva_pct, ivaObraFactor: config.iva_obra_factor },
+  })
+  const { todasLasLineas, totalCotizacion, lineasSinPrecio, capitulosSinPaquete } = calculado
 
   const netoCapitulo = (cap) => {
-    const lineas = cap.sub_bloque.flatMap((sb) => sb.linea)
-    return calcularSubtotalNeto(
-      lineas.map((l) => {
-        const found = todasLasLineas.find((x) => x.id === l.id)
-        return found ?? { ...l, totalLinea: 0, estado: l.estado }
-      })
-    )
+    const calc = calculado.capitulos.find((c) => c.id === cap.id)
+    if (!calc) return 0
+    return calc.sub_bloque
+      .flatMap((sb) => sb.linea)
+      .filter((l) => l.estado === 'firme')
+      .reduce((acc, l) => acc + l.totalLinea, 0)
   }
 
   // ── Paquetes comerciales (Etapa 7) ───────────────────────────────
   const todosLosDestinos = cotizacion.paquete_comercial.flatMap((p) => p.paquete_capitulo)
-  const capitulosSinPaquete = capitulosSinPaqueteCompleto(cotizacion.capitulo, todosLosDestinos)
-
-  const lineasDeDestino = (destino) => {
-    if (destino.capitulo_id) {
-      const cap = cotizacion.capitulo.find((c) => c.id === destino.capitulo_id)
-      return cap ? cap.sub_bloque.flatMap((sb) => sb.linea) : []
-    }
-    const cap = cotizacion.capitulo.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))
-    const sb = cap?.sub_bloque.find((s) => s.id === destino.sub_bloque_id)
-    return sb ? sb.linea : []
-  }
-
-  const regimenDeDestino = (destino) => {
-    if (destino.capitulo_id) return cotizacion.capitulo.find((c) => c.id === destino.capitulo_id)?.regimen_iva
-    return cotizacion.capitulo.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))?.regimen_iva
-  }
-
-  const calcularPaquete = (paquete) => {
-    const lineaIds = new Set(paquete.paquete_capitulo.flatMap((d) => lineasDeDestino(d).map((l) => l.id)))
-    const lineas = todasLasLineas.filter((l) => lineaIds.has(l.id))
-    const netoPaquete = calcularSubtotalNeto(lineas)
-    const regimenes = new Set(paquete.paquete_capitulo.map(regimenDeDestino).filter(Boolean))
-    const regimenValido = regimenes.size <= 1
-    const regimen = regimenValido ? [...regimenes][0] ?? 'obra' : null
-    const sumaCuotas = sumaPorcentajesHitos(paquete.hito_pago)
-    const cuotasValidas = paquete.hito_pago.length > 0 && sumaCuotas === 100
-    const resultado = regimenValido && cuotasValidas
-      ? calcularHitosPaquete({ netoPaquete, hitos: paquete.hito_pago, regimen, ...config })
-      : null
-    return { netoPaquete, regimenValido, regimen, sumaCuotas, cuotasValidas, resultado }
-  }
+  const calcularPaquete = (paquete) => calculado.paquetes.find((p) => p.id === paquete.id)
 
   const handleAddPaquete = async (nombre) => {
     const nuevo = await createPaquete({ cotizacion_id: id, orden: cotizacion.paquete_comercial.length, nombre })
@@ -376,7 +332,10 @@ export default function CotizadorBuilder() {
           </div>
           <div className="text-right">
             <p className="text-[10px] uppercase tracking-widest mb-0.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Neto total</p>
-            <p className="num text-2xl font-bold" style={{ color: 'var(--text)' }}>{formatCLP(totalCotizacion)}</p>
+            <p className="num text-2xl font-bold mb-2" style={{ color: 'var(--text)' }}>{formatCLP(totalCotizacion)}</p>
+            <button onClick={() => navigate(`/cotizador/${id}/cliente`)} className="btn-secondary text-xs">
+              <Eye size={13} /> Ver vista cliente / PDF
+            </button>
           </div>
         </div>
       </div>

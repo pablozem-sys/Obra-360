@@ -26,6 +26,7 @@ const BanosQuimicos     = lazy(() => import('./pages/BanosQuimicos'))
 const Gestion           = lazy(() => import('./pages/Gestion'))
 const CotizadorList     = lazy(() => import('./pages/Cotizador/CotizadorList'))
 const CotizadorBuilder  = lazy(() => import('./pages/Cotizador/CotizadorBuilder'))
+const VistaCliente      = lazy(() => import('./pages/Cotizador/VistaCliente'))
 
 // Detecta token de recovery en cualquier ruta y redirige a /reset-password
 function RecoveryRedirect() {
@@ -126,6 +127,7 @@ export default function App() {
         <Route path="/gestion"          element={<Gestion />} />
         <Route path="/cotizador"        element={<CotizadorList />} />
         <Route path="/cotizador/:id"    element={<CotizadorBuilder />} />
+        <Route path="/cotizador/:id/cliente" element={<VistaCliente />} />
 
         {/* Solo dueño */}
         <Route path="/cuentas-cobrar"   element={<DuenoRoute><CuentasCobrar /></DuenoRoute>} />

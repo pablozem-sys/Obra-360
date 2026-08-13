@@ -8,6 +8,7 @@ import {
   calcularHitosPaquete,
   sumaPorcentajesHitos,
   capitulosSinPaqueteCompleto,
+  calcularCotizacion,
 } from './calculo.js';
 
 describe('redondear', () => {
@@ -156,5 +157,40 @@ describe('capitulosSinPaqueteCompleto', () => {
     const destinos = [{ capitulo_id: 'cap1' }];
     const faltantes = capitulosSinPaqueteCompleto(capitulos, destinos);
     expect(faltantes.map((c) => c.id)).toEqual(['cap2']);
+  });
+});
+
+describe('calcularCotizacion — orquestación', () => {
+  const config = { ivaPct: 19, ivaObraFactor: 0.5 };
+
+  it('compone líneas, capítulos y paquetes en un solo resultado consistente', () => {
+    const capitulos = [
+      {
+        id: 'cap1', margen_pct: 10, regimen_iva: 'obra',
+        sub_bloque: [
+          { id: 'sb1', linea: [{ id: 'l1', estado: 'firme', costo_unit_usado: 1000, cantidad: 2 }] },
+        ],
+      },
+    ];
+    const paquetes = [
+      { id: 'p1', paquete_capitulo: [{ capitulo_id: 'cap1' }], hito_pago: [{ porcentaje: 50 }, { porcentaje: 50 }] },
+    ];
+
+    const resultado = calcularCotizacion({ capitulos, paquetes, config });
+
+    expect(resultado.todasLasLineas[0].totalLinea).toBe(2200); // (1000*1.1)*2
+    expect(resultado.totalCotizacion).toBe(2200);
+    expect(resultado.paquetes[0].netoPaquete).toBe(2200);
+    expect(resultado.paquetes[0].resultado.total).toBe(redondear(2200 * 0.19 * 0.5) + 2200);
+    expect(resultado.capitulosSinPaquete).toEqual([]);
+    expect(resultado.totalGeneral).toBe(resultado.paquetes[0].resultado.total);
+  });
+
+  it('totalGeneral es null si algún paquete tiene cuotas inválidas', () => {
+    const capitulos = [{ id: 'cap1', margen_pct: 0, regimen_iva: 'obra', sub_bloque: [] }];
+    const paquetes = [{ id: 'p1', paquete_capitulo: [{ capitulo_id: 'cap1' }], hito_pago: [{ porcentaje: 40 }] }];
+    const resultado = calcularCotizacion({ capitulos, paquetes, config });
+    expect(resultado.paquetes[0].cuotasValidas).toBe(false);
+    expect(resultado.totalGeneral).toBeNull();
   });
 });
