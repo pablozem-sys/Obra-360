@@ -407,10 +407,3 @@ export async function generarPdfCliente(cotizacionCompleta, config) {
   agregarPiePagina(doc)
   return doc
 }
-
-export async function descargarPdfCliente(cotizacionCompleta, config) {
-  const doc = await generarPdfCliente(cotizacionCompleta, config)
-  const nombreArchivo = `Cotizacion - ${cotizacionCompleta.nombre_obra}.pdf`
-  doc.save(nombreArchivo)
-  return doc
-}

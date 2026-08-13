@@ -6,7 +6,7 @@ import Modal from '../../components/ui/Modal'
 import { formatCLP, formatDate } from '../../lib/helpers'
 import { getCotizacionCompleta, getCotizadorConfig, getVersiones, emitirVersion, marcarVersionAceptada } from '../../lib/cotizador/api'
 import { calcularCotizacion, validarEmision, advertenciasEmision, snapshotCotizacion, compararVersiones } from '../../lib/cotizador/calculo'
-import { generarPdfCliente, descargarPdfCliente } from '../../lib/cotizador/pdf'
+import { generarPdfCliente } from '../../lib/cotizador/pdf'
 
 const NOMBRES_BLOQUEANTE = {
   lineas_sin_precio: (b) => `${b.cantidad} línea(s) firme(s) sin precio unitario`,
@@ -31,11 +31,17 @@ export default function VistaCliente() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [compartiendo, setCompartiendo] = useState(false)
-  const [descargando, setDescargando] = useState(false)
   const [avisoCompartir, setAvisoCompartir] = useState('')
   const [emitiendo, setEmitiendo] = useState(false)
   const [confirmarEmision, setConfirmarEmision] = useState(false)
   const [versionExpandida, setVersionExpandida] = useState(null)
+
+  // El PDF real (no una réplica en HTML aparte) — se genera una vez y se
+  // reusa tanto para la vista embebida como para descargar/compartir, así
+  // no puede haber diferencia entre "lo que se ve" y "lo que se manda".
+  const [pdfBlob, setPdfBlob] = useState(null)
+  const [pdfUrl, setPdfUrl] = useState(null)
+  const [pdfError, setPdfError] = useState('')
 
   const cargar = useCallback(async () => {
     const [cot, cfg, vers] = await Promise.all([getCotizacionCompleta(id), getCotizadorConfig(), getVersiones(id)])
@@ -48,6 +54,25 @@ export default function VistaCliente() {
     setLoading(true)
     cargar().catch((err) => setError(err.message || 'Error al cargar la cotización')).finally(() => setLoading(false))
   }, [cargar])
+
+  useEffect(() => {
+    if (!cotizacion) return
+    let cancelado = false
+    setPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+    setPdfError('')
+    generarPdfCliente(cotizacion, config)
+      .then((doc) => {
+        if (cancelado) return
+        const blob = doc.output('blob')
+        setPdfBlob(blob)
+        setPdfUrl(URL.createObjectURL(blob))
+      })
+      .catch((err) => !cancelado && setPdfError(err.message || 'Error al generar el PDF'))
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cotizacion, config])
+
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl) }, [pdfUrl])
 
   if (loading) {
     return (
@@ -71,21 +96,18 @@ export default function VistaCliente() {
     paquetes: cotizacion.paquete_comercial,
     config: { ivaPct: config.iva_pct, ivaObraFactor: config.iva_obra_factor },
   })
-  const paquetesValidos = calculado.paquetes.filter((p) => p.resultado)
-  const opcionales = calculado.todasLasLineas.filter((l) => l.estado === 'opcional')
-  const porDefinir = calculado.todasLasLineas.filter((l) => l.estado === 'por_definir')
-  const excluidas = calculado.todasLasLineas.filter((l) => l.estado === 'excluido')
 
   const validacion = validarEmision(cotizacion, calculado)
   const advertencias = advertenciasEmision(calculado, config)
 
-  const handleDescargar = async () => {
-    setDescargando(true)
-    try {
-      await descargarPdfCliente(cotizacion, config)
-    } finally {
-      setDescargando(false)
-    }
+  const nombreArchivo = `Cotizacion - ${cotizacion.nombre_obra}.pdf`
+
+  const handleDescargar = () => {
+    if (!pdfUrl) return
+    const a = document.createElement('a')
+    a.href = pdfUrl
+    a.download = nombreArchivo
+    a.click()
   }
 
   const handleEmitir = async () => {
@@ -123,18 +145,16 @@ export default function VistaCliente() {
   const esMovil = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 
   const handleCompartirWhatsapp = async () => {
+    if (!pdfBlob) return
     setCompartiendo(true)
     setAvisoCompartir('')
     try {
-      const doc = await generarPdfCliente(cotizacion, config)
-      const blob = doc.output('blob')
-      const nombreArchivo = `Cotizacion - ${cotizacion.nombre_obra}.pdf`
-      const file = new File([blob], nombreArchivo, { type: 'application/pdf' })
+      const file = new File([pdfBlob], nombreArchivo, { type: 'application/pdf' })
 
       if (esMovil && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: nombreArchivo, text: `Cotización ${cotizacion.nombre_obra}` })
       } else {
-        doc.save(nombreArchivo)
+        handleDescargar()
         window.open('https://web.whatsapp.com/', '_blank')
         setAvisoCompartir('Se descargó el PDF — en WhatsApp Web, abre el chat del cliente y adjúntalo desde ahí (WhatsApp de escritorio no permite recibir el archivo directo desde el navegador).')
       }
@@ -155,10 +175,10 @@ export default function VistaCliente() {
           <button onClick={() => setConfirmarEmision(true)} className="btn-secondary text-sm">
             <FileCheck size={14} /> Emitir versión {(cotizacion.version_actual ?? 0) + 1}
           </button>
-          <button onClick={handleDescargar} disabled={descargando} className="btn-secondary text-sm disabled:opacity-60">
-            {descargando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Descargar PDF
+          <button onClick={handleDescargar} disabled={!pdfUrl} className="btn-secondary text-sm disabled:opacity-60">
+            {!pdfUrl ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Descargar PDF
           </button>
-          <button onClick={handleCompartirWhatsapp} disabled={compartiendo} className="btn-primary text-sm disabled:opacity-60">
+          <button onClick={handleCompartirWhatsapp} disabled={compartiendo || !pdfBlob} className="btn-primary text-sm disabled:opacity-60">
             {compartiendo ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Compartir por WhatsApp
           </button>
         </div>
@@ -176,80 +196,22 @@ export default function VistaCliente() {
         </div>
       )}
 
-      {/* Documento — mismo contenido que el PDF, para previsualizar */}
-      <div className="card p-8 max-w-3xl mx-auto" style={{ background: '#fff', color: '#111' }}>
-        <h1 className="text-2xl font-bold mb-1">Cotización</h1>
-        <p className="text-lg mb-4" style={{ color: '#444' }}>{cotizacion.nombre_obra}</p>
-        <div className="text-sm mb-6" style={{ color: '#666' }}>
-          <p>Cliente: {cotizacion.cliente_nombre}</p>
-          {cotizacion.direccion && <p>Dirección: {cotizacion.direccion}</p>}
-          <p>Fecha: {formatDate(cotizacion.fecha)}</p>
-          <p>{cotizacion.validez_dias ? `Válida ${cotizacion.validez_dias} días desde la fecha de emisión` : 'Sin fecha de validez definida'}</p>
-        </div>
-
-        {calculado.capitulos.map((cap) => {
-          const lineasFirmes = cap.sub_bloque.flatMap((sb) => sb.linea).filter((l) => l.estado === 'firme')
-          if (lineasFirmes.length === 0) return null
-          return (
-            <div key={cap.id} className="mb-5">
-              <h3 className="font-semibold mb-2">{cap.nombre}</h3>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr style={{ color: '#888', textAlign: 'left' }}>
-                    <th className="font-normal pb-1">Descripción</th>
-                    <th className="font-normal pb-1">Unidad</th>
-                    <th className="font-normal pb-1 text-right">Cant.</th>
-                    <th className="font-normal pb-1 text-right">Precio unit.</th>
-                    <th className="font-normal pb-1 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineasFirmes.map((l) => (
-                    <tr key={l.id} style={{ borderTop: '1px solid #eee' }}>
-                      <td className="py-1">
-                        {l.descripcion}
-                        {l.nota_cliente && <p style={{ color: '#888', fontSize: 11 }}>{l.nota_cliente}</p>}
-                      </td>
-                      <td className="py-1">{l.unidad}</td>
-                      <td className="py-1 text-right">{l.cantidad}</td>
-                      <td className="py-1 text-right">{l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—'}</td>
-                      <td className="py-1 text-right font-semibold">{formatCLP(l.totalLinea)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* El documento embebido ES el PDF real (mismo blob que se descarga/comparte) — nunca puede desincronizarse de lo que se manda */}
+      <div className="card overflow-hidden" style={{ height: '85vh' }}>
+        {pdfError ? (
+          <div className="h-full flex items-center justify-center text-center p-8">
+            <div>
+              <AlertCircle size={24} className="mx-auto mb-2" style={{ color: 'var(--red)' }} />
+              <p style={{ color: 'var(--muted)' }}>{pdfError}</p>
             </div>
-          )
-        })}
-
-        {paquetesValidos.length > 0 && (
-          <div className="mb-5">
-            <h3 className="font-semibold mb-2">Plan de pago</h3>
-            {paquetesValidos.map((p) => (
-              <div key={p.id} className="mb-2">
-                <p className="text-sm font-semibold">{p.nombre}</p>
-                <table className="w-full text-xs">
-                  <tbody>
-                    {p.resultado.hitos.map((h, i) => (
-                      <tr key={i} style={{ borderTop: '1px solid #eee' }}>
-                        <td className="py-1">{h.glosa}</td>
-                        <td className="py-1 text-right">{h.porcentaje}%</td>
-                        <td className="py-1 text-right font-semibold">{formatCLP(h.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-            <p className="text-right font-bold mt-2">
-              Total contrato: {formatCLP(paquetesValidos.reduce((acc, p) => acc + p.resultado.total, 0))}
-            </p>
+          </div>
+        ) : pdfUrl ? (
+          <iframe src={pdfUrl} title="Cotización PDF" style={{ width: '100%', height: '100%', border: 'none' }} />
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 size={28} className="animate-spin" style={{ color: 'var(--amber)' }} />
           </div>
         )}
-
-        {opcionales.length > 0 && <SeccionSimple titulo="Opcionales" lineas={opcionales} conPrecio />}
-        {porDefinir.length > 0 && <SeccionSimple titulo="Alcance por definir" lineas={porDefinir} />}
-        {excluidas.length > 0 && <SeccionSimple titulo="No incluye" lineas={excluidas} />}
       </div>
 
       {/* Historial de versiones (sección 10) */}
@@ -351,22 +313,6 @@ export default function VistaCliente() {
           </div>
         </div>
       </Modal>
-    </div>
-  )
-}
-
-function SeccionSimple({ titulo, lineas, conPrecio }) {
-  return (
-    <div className="mb-5">
-      <h3 className="font-semibold mb-2">{titulo}</h3>
-      <ul className="text-xs" style={{ color: '#555' }}>
-        {lineas.map((l) => (
-          <li key={l.id} className="py-1" style={{ borderTop: '1px solid #eee' }}>
-            {l.descripcion} {l.unidad && `· ${l.cantidad} ${l.unidad}`}
-            {conPrecio && l.precioUnitario != null && <span className="float-right font-semibold">{formatCLP(l.totalLinea)}</span>}
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }
