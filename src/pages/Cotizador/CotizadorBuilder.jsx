@@ -6,7 +6,7 @@ import {
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { useAuth } from '../../context/AuthContext'
-import { formatCLP, formatDate, ESTADOS_COTIZACION, ESTADOS_LINEA, REGIMENES_IVA } from '../../lib/helpers'
+import { formatCLP, formatDate, ESTADOS_COTIZACION, REGIMENES_IVA } from '../../lib/helpers'
 import {
   getCotizacionCompleta, getCatalogo, getCotizadorConfig, getHistorialPrecio, registrarHistorialPrecio,
   createCapitulo, updateCapitulo, deleteCapitulo,
@@ -83,7 +83,6 @@ export default function CotizadorBuilder() {
     if (!calc) return 0
     return calc.sub_bloque
       .flatMap((sb) => sb.linea)
-      .filter((l) => l.estado === 'firme')
       .reduce((acc, l) => acc + l.totalLinea, 0)
   }
 
@@ -531,7 +530,7 @@ function SubBloqueCard({ subBloque, onUpdate, onDelete, onAbrirSelectorPartida, 
                 <th className="font-normal px-1 pb-1.5 w-28">Costo</th>
                 <th className="font-normal px-1 pb-1.5 w-28">Precio</th>
                 <th className="font-normal px-1 pb-1.5 w-28">Total</th>
-                <th className="font-normal px-1 pb-1.5 w-32">Estado</th>
+                <th className="font-normal px-1 pb-1.5 w-40">Observaciones</th>
                 <th className="px-1 pb-1.5 w-8" />
               </tr>
             </thead>
@@ -562,8 +561,7 @@ function LineaRow({ linea, calculada, onUpdateField, onCostoBlur, onDelete }) {
   const [costoLocal, setCostoLocal] = useState(linea.costo_unit_usado ?? '')
   const [verHistorico, setVerHistorico] = useState(false)
   const [historico, setHistorico] = useState(null)
-  const sinPrecio = linea.estado === 'firme' && linea.costo_unit_usado == null
-  const estadoInfo = ESTADOS_LINEA[linea.estado]
+  const sinPrecio = linea.costo_unit_usado == null
 
   const toggleHistorico = async () => {
     if (!verHistorico && !historico && linea.partida_id) {
@@ -621,9 +619,12 @@ function LineaRow({ linea, calculada, onUpdateField, onCostoBlur, onDelete }) {
           {formatCLP(calculada?.totalLinea ?? 0)}
         </td>
         <td className="px-1 py-1.5">
-          <select className="select py-1 text-xs w-full" value={linea.estado} onChange={(e) => onUpdateField('estado', e.target.value)}>
-            {Object.entries(ESTADOS_LINEA).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
+          <input
+            className="input py-1 text-sm w-full"
+            placeholder="Observaciones"
+            value={linea.nota_cliente ?? ''}
+            onChange={(e) => onUpdateField('nota_cliente', e.target.value)}
+          />
         </td>
         <td className="px-1 py-1.5">
           <button onClick={onDelete} style={{ color: 'var(--red)' }}><Trash2 size={13} /></button>

@@ -1,6 +1,13 @@
 // Fixture generado desde MATIAS_QUILLAYES_19_V2.xlsx (hoja PPTO), verificado
 // línea por línea contra los subtotales de capítulo y el EEPP (hoja EEPP).
 // Ver docs/cotizador/spec-funcional-v1.md sección 12.
+//
+// Sin estados de línea (se sacaron del producto): la línea "Aislación
+// Térmica, Fisiterm." del capítulo 7 (Terraza) marcaba "no aplica" en el
+// Excel original y no sumaba a ese capítulo — antes se representaba con
+// estado 'excluido', ahora directamente no está en la plantilla (en el
+// modelo nuevo, lo que no aplica se borra). Sigue existiendo en el
+// capítulo 8 (Quincho), donde sí aplicaba y sí sumaba.
 
 export const capitulos = [
   {
@@ -136,7 +143,6 @@ export const capitulos = [
           { descripcion: "Hojalatería Canaleta de agua", unidad: "ML", cantidad: 7, costoUnitario: 27500, estado: "firme" },
           { descripcion: "Pre pintado negro Cubierta de techo americano", unidad: "M2", cantidad: 16, costoUnitario: 12500, estado: "firme" },
           { descripcion: "Sellos poliuterano", unidad: "GL", cantidad: 1, costoUnitario: 225000, estado: "firme" },
-          { descripcion: "Aislación Térmica, Fisiterm.", unidad: "M2", cantidad: 16, costoUnitario: 16500, estado: "excluido" },
           { descripcion: "Cielo: estructura cubierta de cielo para correcta instalacion de revestimiento ranurado WPC", unidad: "M2", cantidad: 16, costoUnitario: 18500, estado: "firme" },
           { descripcion: "Revestimiento ranurado WPC libre de mantención color eleccion MK", unidad: "M2", cantidad: 16, costoUnitario: null, estado: "firme" },
           { descripcion: "Instalacion revestimiendo ranurado en cielos", unidad: "M2", cantidad: 16, costoUnitario: 25000, estado: "firme" },

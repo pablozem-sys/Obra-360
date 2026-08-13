@@ -17,11 +17,10 @@ export function calcularLinea({ costoUnitario, margenPct, cantidad }) {
 }
 
 // Suma líneas ya redondeadas (no recalcula sobre el subtotal de costos) para
-// que el PDF cuadre exacto con la suma de sus propias líneas. Solo 'firme' suma.
+// que el PDF cuadre exacto con la suma de sus propias líneas. Toda línea
+// agregada cuenta — si no aplica a la obra, se borra (no hay estados).
 export function calcularSubtotalNeto(lineas) {
-  return lineas
-    .filter((l) => l.estado === 'firme')
-    .reduce((acc, l) => acc + l.totalLinea, 0);
+  return lineas.reduce((acc, l) => acc + l.totalLinea, 0);
 }
 
 export function calcularFactorIva({ regimen, ivaPct, ivaObraFactor }) {
@@ -57,8 +56,8 @@ export function capitulosSinPaqueteCompleto(capitulos, destinos) {
 // fecha de validez) se implementan en la Etapa 9, junto al resto del flujo
 // de emisión — esta se adelanta porque el test de aceptación de la Etapa 5
 // depende de ella.
-export function lineasFirmesSinPrecio(lineas) {
-  return lineas.filter((l) => l.estado === 'firme' && l.costoUnitario == null);
+export function lineasSinPrecio(lineas) {
+  return lineas.filter((l) => l.costoUnitario == null);
 }
 
 // Redondeo acumulativo: cada hito redondea su propio neto/IVA (cumple sección
@@ -131,7 +130,7 @@ export function calcularCotizacion({ capitulos, paquetes, config }) {
 
   const todasLasLineas = capitulosCalculados.flatMap((cap) => cap.sub_bloque.flatMap((sb) => sb.linea));
   const totalCotizacion = calcularSubtotalNeto(todasLasLineas);
-  const lineasSinPrecio = lineasFirmesSinPrecio(
+  const sinPrecio = lineasSinPrecio(
     todasLasLineas.map((l) => ({ ...l, costoUnitario: l.costo_unit_usado }))
   );
   const capitulosSinPaquete = capitulosSinPaqueteCompleto(
@@ -168,7 +167,7 @@ export function calcularCotizacion({ capitulos, paquetes, config }) {
     paquetes: paquetesCalculados,
     todasLasLineas,
     totalCotizacion,
-    lineasSinPrecio,
+    lineasSinPrecio: sinPrecio,
     capitulosSinPaquete,
     totalGeneral,
   };
@@ -245,7 +244,6 @@ export function snapshotCotizacion(calculado) {
       cantidad: l.cantidad,
       precioUnitario: l.precioUnitario,
       totalLinea: l.totalLinea,
-      estado: l.estado,
     })),
     totalCotizacion: calculado.totalCotizacion,
     totalGeneral: calculado.totalGeneral,

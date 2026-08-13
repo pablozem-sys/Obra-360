@@ -4,7 +4,7 @@ import {
   calcularSubtotalNeto,
   calcularHitosPaquete,
   sumaPorcentajesHitos,
-  lineasFirmesSinPrecio,
+  lineasSinPrecio,
 } from './calculo.js';
 import { capitulos, paquetes } from './quillayes19.fixture.js';
 
@@ -59,7 +59,7 @@ describe('Caso de aceptación — Matías Quillayes 19 (spec sección 12)', () =
     // Capítulo 8 (Quincho) incluye el sub-bloque "Especialidades", cuyo
     // subtotal estaba vacío en el Excel original (hallazgo #2 de la spec) —
     // acá no hay una fórmula de subtotal por sub-bloque que pueda omitirse,
-    // solo se filtra por estado 'firme' sobre TODAS las líneas del capítulo.
+    // se suman TODAS las líneas del capítulo sin excepción.
     const quincho = capitulosCalculados[7];
     const especialidades = quincho.subBloques.find((sb) => sb.nombre === 'Especialidades');
     expect(especialidades.lineas).toHaveLength(4);
@@ -67,14 +67,14 @@ describe('Caso de aceptación — Matías Quillayes 19 (spec sección 12)', () =
     expect(netoQuincho).toBe(44347000);
   });
 
-  it('detecta las 14 líneas firmes sin precio y rechaza la emisión', () => {
+  it('detecta las 14 líneas sin precio y rechaza la emisión', () => {
     const todasLasLineas = capitulosCalculados.flatMap((cap) =>
       cap.subBloques.flatMap((sb) => sb.lineas)
     );
-    const sinPrecio = lineasFirmesSinPrecio(todasLasLineas);
+    const sinPrecio = lineasSinPrecio(todasLasLineas);
     expect(sinPrecio).toHaveLength(14);
-    // Validación bloqueante de la sección 9: si hay líneas firmes sin
-    // precio, el sistema no debe permitir generar el PDF.
+    // Validación bloqueante de la sección 9: si hay líneas sin precio,
+    // el sistema no debe permitir generar el PDF.
     const emisionBloqueda = sinPrecio.length > 0;
     expect(emisionBloqueda).toBe(true);
   });

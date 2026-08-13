@@ -164,18 +164,18 @@ function agregarCapitulos(doc, capitulos, startY) {
   let y = startY
   let n = 0
   capitulos.forEach((cap) => {
-    const lineasFirmes = cap.sub_bloque.flatMap((sb) => sb.linea).filter((l) => l.estado === 'firme')
-    if (lineasFirmes.length === 0) return
+    const lineas = cap.sub_bloque.flatMap((sb) => sb.linea)
+    if (lineas.length === 0) return
     n += 1
     y = saltoDePagina(doc, y, mm(60))
     y = tituloSeccion(doc, n, cap.nombre, y)
-    const subtotal = lineasFirmes.reduce((acc, l) => acc + l.totalLinea, 0)
+    const subtotal = lineas.reduce((acc, l) => acc + l.totalLinea, 0)
 
     autoTable(doc, {
       ...ESTILO_TABLA,
       startY: y,
       head: [['Descripción', 'Unidad', 'Cant.', 'Precio unit.', 'Total']],
-      body: lineasFirmes.map((l) => [
+      body: lineas.map((l) => [
         l.nota_cliente ? `${l.descripcion}\n${l.nota_cliente}` : l.descripcion,
         l.unidad ?? '',
         String(l.cantidad),
@@ -265,29 +265,6 @@ function agregarPlanDePago(doc, paquetes, startY, numeroInicial) {
   doc.text(formatCLP(totalGeneral), boxX + boxW - mm(20), y + mm(60), { align: 'right' })
 
   return { y: y + boxH + mm(32), totalGeneral }
-}
-
-function agregarSeccionSimple(doc, numero, titulo, lineas, startY, { conPrecio }) {
-  if (lineas.length === 0) return startY
-  let y = startY
-  y = saltoDePagina(doc, y, mm(50))
-  y = tituloSeccion(doc, numero, titulo, y)
-
-  autoTable(doc, {
-    ...ESTILO_TABLA,
-    startY: y,
-    head: conPrecio ? [['Descripción', 'Unidad', 'Cant.', 'Precio unit.', 'Total']] : [['Descripción', 'Unidad', 'Cant.']],
-    body: lineas.map((l) => {
-      const desc = l.nota_cliente ? `${l.descripcion}\n${l.nota_cliente}` : l.descripcion
-      return conPrecio
-        ? [desc, l.unidad ?? '', String(l.cantidad), l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—', formatCLP(l.totalLinea)]
-        : [desc, l.unidad ?? '', String(l.cantidad)]
-    }),
-    columnStyles: conPrecio
-      ? { 0: { cellWidth: CONTENT_W * 0.52 }, 2: { font: F_MONO_400, halign: 'right' }, 3: { font: F_MONO_400, halign: 'right' }, 4: { font: F_MONO_400, halign: 'right' } }
-      : { 0: { cellWidth: CONTENT_W * 0.6 }, 2: { font: F_MONO_400, halign: 'right' } },
-  })
-  return doc.lastAutoTable.finalY + mm(26)
 }
 
 function agregarCondiciones(doc, startY) {
@@ -385,20 +362,6 @@ export async function generarPdfCliente(cotizacionCompleta, config) {
   y = y2
   const { y: y3 } = agregarPlanDePago(doc, calculado.paquetes, y, n + 1)
   y = y3
-
-  const todas = calculado.todasLasLineas
-  let numero = n + 2
-  if (todas.some((l) => l.estado === 'opcional')) {
-    y = agregarSeccionSimple(doc, numero, 'Opcionales', todas.filter((l) => l.estado === 'opcional'), y, { conPrecio: true })
-    numero += 1
-  }
-  if (todas.some((l) => l.estado === 'por_definir')) {
-    y = agregarSeccionSimple(doc, numero, 'Alcance por definir', todas.filter((l) => l.estado === 'por_definir'), y, { conPrecio: false })
-    numero += 1
-  }
-  if (todas.some((l) => l.estado === 'excluido')) {
-    y = agregarSeccionSimple(doc, numero, 'No incluye', todas.filter((l) => l.estado === 'excluido'), y, { conPrecio: false })
-  }
 
   y = agregarCondiciones(doc, y)
   y = agregarTerminos(doc, y)

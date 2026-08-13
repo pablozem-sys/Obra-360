@@ -127,14 +127,6 @@ export const ESTADOS_COTIZACION = {
   expirada:  { label: 'Expirada',  color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
 }
 
-export const ESTADOS_LINEA = {
-  firme:        { label: 'Firme',        color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
-  opcional:     { label: 'Opcional',     color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
-  por_definir:  { label: 'Por definir',  color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
-  excluido:     { label: 'Excluido',     color: 'bg-slate-500/10 text-slate-400 border-slate-500/20' },
-  descartado:   { label: 'Descartado',   color: 'bg-red-500/10 text-red-400 border-red-500/20' },
-}
-
 export const REGIMENES_IVA = {
   obra:  { label: 'Obra (19% × 50%)' },
   pleno: { label: 'Pleno (19%)' },

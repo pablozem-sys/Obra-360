@@ -12,6 +12,7 @@ import {
   validarEmision,
   advertenciasEmision,
   compararVersiones,
+  lineasSinPrecio,
 } from './calculo.js';
 
 describe('redondear', () => {
@@ -43,25 +44,24 @@ describe('calcularLinea', () => {
 });
 
 describe('calcularSubtotalNeto', () => {
-  const base = { costoUnitario: 100, margenPct: 0, cantidad: 1 };
-
-  it('solo suma líneas en estado firme', () => {
-    const lineas = [
-      { ...base, estado: 'firme', totalLinea: 100 },
-      { ...base, estado: 'opcional', totalLinea: 500 },
-      { ...base, estado: 'por_definir', totalLinea: 0 },
-      { ...base, estado: 'excluido', totalLinea: 0 },
-      { ...base, estado: 'descartado', totalLinea: 9999 },
-    ];
-    expect(calcularSubtotalNeto(lineas)).toBe(100);
+  it('suma todas las líneas — no hay estados, si una línea no aplica se borra', () => {
+    const lineas = [{ totalLinea: 100 }, { totalLinea: 500 }, { totalLinea: 9999 }];
+    expect(calcularSubtotalNeto(lineas)).toBe(10599);
   });
 
   it('suma líneas ya redondeadas, sin volver a aplicar margen sobre el subtotal', () => {
-    const lineas = [
-      { estado: 'firme', totalLinea: 1200 },
-      { estado: 'firme', totalLinea: 801 },
-    ];
+    const lineas = [{ totalLinea: 1200 }, { totalLinea: 801 }];
     expect(calcularSubtotalNeto(lineas)).toBe(2001);
+  });
+});
+
+describe('lineasSinPrecio', () => {
+  it('detecta líneas con costo nulo', () => {
+    const lineas = [
+      { descripcion: 'A', costoUnitario: 1000 },
+      { descripcion: 'B', costoUnitario: null },
+    ];
+    expect(lineasSinPrecio(lineas).map((l) => l.descripcion)).toEqual(['B']);
   });
 });
 
