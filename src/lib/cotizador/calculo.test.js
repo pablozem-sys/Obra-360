@@ -218,7 +218,7 @@ describe('validarEmision — sección 9, bloqueantes', () => {
     expect(puedeEmitir).toBe(true);
   });
 
-  it('bloquea por línea firme sin precio', () => {
+  it('bloquea por línea sin precio', () => {
     const { capitulos, paquetes } = base();
     capitulos[0].sub_bloque[0].linea.push({ id: 'l2', estado: 'firme', costo_unit_usado: null, cantidad: 1 });
     const calculado = calcularCotizacion({ capitulos, paquetes, config });

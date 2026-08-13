@@ -9,7 +9,7 @@ import { calcularCotizacion, validarEmision, advertenciasEmision, snapshotCotiza
 import { generarPdfCliente } from '../../lib/cotizador/pdf'
 
 const NOMBRES_BLOQUEANTE = {
-  lineas_sin_precio: (b) => `${b.cantidad} línea(s) firme(s) sin precio unitario`,
+  lineas_sin_precio: (b) => `${b.cantidad} línea(s) sin precio unitario`,
   capitulos_sin_margen: (b) => `${b.cantidad} capítulo(s) sin margen definido`,
   cuotas_invalidas: (b) => `${b.cantidad} paquete(s) con cuotas que no suman 100%`,
   capitulos_sin_paquete: (b) => `${b.cantidad} capítulo(s) sin paquete asignado`,
@@ -192,7 +192,7 @@ export default function VistaCliente() {
 
       {calculado.lineasSinPrecio.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(255,69,96,0.08)', color: 'var(--red)' }}>
-          <AlertCircle size={13} /> Esta cotización tiene {calculado.lineasSinPrecio.length} línea(s) firme sin precio — el PDF las va a mostrar en $0.
+          <AlertCircle size={13} /> Esta cotización tiene {calculado.lineasSinPrecio.length} línea(s) sin precio — el PDF las va a mostrar en $0.
         </div>
       )}
 

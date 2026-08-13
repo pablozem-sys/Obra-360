@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  Plus, Trash2, Loader2, ChevronDown, ChevronRight, Search, History, X, AlertCircle, Eye,
+  Plus, Trash2, Loader2, ChevronDown, ChevronRight, Search, History, X, AlertCircle, Eye, ArrowLeft,
 } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
@@ -308,6 +308,10 @@ export default function CotizadorBuilder() {
 
   return (
     <div className="space-y-5">
+      <button onClick={() => navigate('/cotizador')} className="btn-ghost text-sm">
+        <ArrowLeft size={15} /> Volver a cotizaciones
+      </button>
+
       {/* Header */}
       <div className="card p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -318,7 +322,7 @@ export default function CotizadorBuilder() {
               </Badge>
               {lineasSinPrecio.length > 0 && (
                 <span className="text-[11px] flex items-center gap-1" style={{ color: 'var(--red)', fontFamily: 'DM Mono' }}>
-                  <AlertCircle size={12} /> {lineasSinPrecio.length} línea(s) firme sin precio
+                  <AlertCircle size={12} /> {lineasSinPrecio.length} línea(s) sin precio
                 </span>
               )}
             </div>
