@@ -84,6 +84,73 @@ export async function updateCotizacion(id, updates) {
   return data
 }
 
+// Puebla una cotización recién creada con la plantilla por defecto (9
+// capítulos reales de Quillayes 19, sus sub-bloques y líneas) — así quien
+// cotiza ajusta cantidades/precios y borra lo que no aplique, en vez de
+// armar todo desde cero. Cada línea intenta engancharse a su partida real
+// del catálogo (por descripción normalizada) para que el histórico de
+// precios funcione igual que si se hubiera agregado a mano.
+//
+// 3 inserts en lote (capítulos, sub-bloques, líneas) en vez de ~114
+// individuales. Asume que Postgres devuelve las filas de un INSERT ...
+// VALUES (...) RETURNING * en el mismo orden en que se mandaron — es el
+// comportamiento real y ampliamente asumido, pero no está garantizado por
+// el estándar SQL. Si algún capítulo/sub-bloque apareciera con las líneas
+// de otro, empezar a revisar por acá.
+export async function crearCotizacionDesdeTemplate(cotizacionId) {
+  // Import dinámico: la plantilla (via quillayes19.fixture.js) pesa ~16KB y
+  // api.js lo importa AuthContext.jsx de forma eager para toda la app — un
+  // import estático la metía en el bundle principal para todos los usuarios,
+  // no solo quienes usan Cotizador.
+  const { CAPITULOS_PLANTILLA, normalizarTexto } = await import('./plantilla')
+  const catalogo = await getCatalogo()
+  const catalogoPorNombre = new Map(catalogo.map((p) => [normalizarTexto(p.descripcion), p]))
+
+  const capitulosInsert = CAPITULOS_PLANTILLA.map((cap, i) => ({
+    cotizacion_id: cotizacionId,
+    orden: i,
+    nombre: cap.nombre,
+    margen_pct: cap.margenPct,
+    regimen_iva: cap.regimen,
+  }))
+  const { data: capitulosCreados, error: e1 } = await supabase.from('capitulo').insert(capitulosInsert).select()
+  if (e1) throw e1
+
+  const subBloquesInsert = []
+  CAPITULOS_PLANTILLA.forEach((cap, i) => {
+    cap.subBloques.forEach((sb, j) => {
+      subBloquesInsert.push({ capitulo_id: capitulosCreados[i].id, orden: j, nombre: sb.nombre })
+    })
+  })
+  const { data: subBloquesCreados, error: e2 } = await supabase.from('sub_bloque').insert(subBloquesInsert).select()
+  if (e2) throw e2
+
+  const lineasInsert = []
+  let sbIndex = 0
+  CAPITULOS_PLANTILLA.forEach((cap) => {
+    cap.subBloques.forEach((sb) => {
+      const subBloqueId = subBloquesCreados[sbIndex].id
+      sbIndex += 1
+      sb.lineas.forEach((l, k) => {
+        const partida = catalogoPorNombre.get(normalizarTexto(l.descripcion))
+        lineasInsert.push({
+          sub_bloque_id: subBloqueId,
+          orden: k,
+          partida_id: partida?.id ?? null,
+          descripcion: l.descripcion,
+          unidad: l.unidad,
+          cantidad: l.cantidad,
+          costo_unit_catalogo: partida?.costo_unitario_ref ?? null,
+          costo_unit_usado: l.costoUnitario,
+          estado: l.estado,
+        })
+      })
+    })
+  })
+  const { error: e3 } = await supabase.from('linea').insert(lineasInsert)
+  if (e3) throw e3
+}
+
 // ── Versionamiento (sección 10) ────────────────────────────────────
 export async function getVersiones(cotizacionId) {
   const { data, error } = await supabase

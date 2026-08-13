@@ -5,7 +5,7 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, ESTADOS_COTIZACION } from '../../lib/helpers'
-import { getCotizaciones, createCotizacion } from '../../lib/cotizador/api'
+import { getCotizaciones, createCotizacion, crearCotizacionDesdeTemplate } from '../../lib/cotizador/api'
 
 const FORM_INITIAL = {
   cliente_nombre: '', cliente_contacto: '', nombre_obra: '',
@@ -43,6 +43,7 @@ export default function CotizadorList() {
         validez_dias: parseInt(form.validez_dias) || null,
         created_by: user?.id ?? null,
       })
+      await crearCotizacionDesdeTemplate(nueva.id)
       navigate(`/cotizador/${nueva.id}`)
     } catch (err) {
       setFormError(err.message || 'Error al crear la cotización')
@@ -187,7 +188,7 @@ export default function CotizadorList() {
             className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-            {saving ? 'Creando...' : 'Crear Cotización'}
+            {saving ? 'Cargando plantilla...' : 'Crear Cotización'}
           </button>
         </div>
       </Modal>
