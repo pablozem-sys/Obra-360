@@ -7,6 +7,7 @@ import {
   calcularIva,
   calcularHitosPaquete,
   sumaPorcentajesHitos,
+  capitulosSinPaqueteCompleto,
 } from './calculo.js';
 
 describe('redondear', () => {
@@ -126,5 +127,34 @@ describe('calcularHitosPaquete — redondeo acumulativo', () => {
 describe('sumaPorcentajesHitos', () => {
   it('detecta cuotas que no suman 100%', () => {
     expect(sumaPorcentajesHitos([{ porcentaje: 40 }, { porcentaje: 30 }])).toBe(70);
+  });
+});
+
+describe('capitulosSinPaqueteCompleto', () => {
+  const capitulos = [
+    { id: 'cap1', sub_bloque: [{ id: 'sb1' }, { id: 'sb2' }] },
+    { id: 'cap2', sub_bloque: [{ id: 'sb3' }] },
+  ];
+
+  it('un capítulo cubierto directo por capitulo_id no aparece', () => {
+    const destinos = [{ capitulo_id: 'cap1' }, { capitulo_id: 'cap2' }];
+    expect(capitulosSinPaqueteCompleto(capitulos, destinos)).toEqual([]);
+  });
+
+  it('un capítulo con todos sus sub-bloques cubiertos (split, como el Quincho real) no aparece', () => {
+    const destinos = [{ sub_bloque_id: 'sb1' }, { sub_bloque_id: 'sb2' }, { capitulo_id: 'cap2' }];
+    expect(capitulosSinPaqueteCompleto(capitulos, destinos)).toEqual([]);
+  });
+
+  it('un capítulo con solo parte de sus sub-bloques cubiertos queda marcado', () => {
+    const destinos = [{ sub_bloque_id: 'sb1' }, { capitulo_id: 'cap2' }];
+    const faltantes = capitulosSinPaqueteCompleto(capitulos, destinos);
+    expect(faltantes.map((c) => c.id)).toEqual(['cap1']);
+  });
+
+  it('un capítulo sin ningún destino queda marcado', () => {
+    const destinos = [{ capitulo_id: 'cap1' }];
+    const faltantes = capitulosSinPaqueteCompleto(capitulos, destinos);
+    expect(faltantes.map((c) => c.id)).toEqual(['cap2']);
   });
 });

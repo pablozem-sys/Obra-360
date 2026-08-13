@@ -84,7 +84,7 @@ export async function updateCotizacion(id, updates) {
   return data
 }
 
-// Cotización completa: capítulos → sub-bloques → líneas, ordenados
+// Cotización completa: capítulos → sub-bloques → líneas, y paquetes → hitos, ordenados
 export async function getCotizacionCompleta(id) {
   const { data, error } = await supabase
     .from('cotizacion')
@@ -96,6 +96,11 @@ export async function getCotizacionCompleta(id) {
           *,
           linea (*)
         )
+      ),
+      paquete_comercial (
+        *,
+        paquete_capitulo (*),
+        hito_pago (*)
       )
     `)
     .eq('id', id)
@@ -114,7 +119,15 @@ export async function getCotizacionCompleta(id) {
         })),
     }))
 
-  return { ...data, capitulo: capitulos }
+  const paquetes = (data.paquete_comercial ?? [])
+    .sort((a, b) => a.orden - b.orden)
+    .map((p) => ({
+      ...p,
+      paquete_capitulo: p.paquete_capitulo ?? [],
+      hito_pago: (p.hito_pago ?? []).sort((a, b) => a.orden - b.orden),
+    }))
+
+  return { ...data, capitulo: capitulos, paquete_comercial: paquetes }
 }
 
 // ── Capítulo ──────────────────────────────────────────────────────
@@ -168,5 +181,57 @@ export async function updateLinea(id, updates) {
 
 export async function deleteLinea(id) {
   const { error } = await supabase.from('linea').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Paquete comercial ────────────────────────────────────────────
+export async function createPaquete(paquete) {
+  const { data, error } = await supabase.from('paquete_comercial').insert([paquete]).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updatePaquete(id, updates) {
+  const { data, error } = await supabase.from('paquete_comercial').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deletePaquete(id) {
+  const { error } = await supabase.from('paquete_comercial').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Paquete ↔ capítulo/sub-bloque ─────────────────────────────────
+export async function addDestinoPaquete({ paqueteId, capituloId, subBloqueId }) {
+  const { data, error } = await supabase
+    .from('paquete_capitulo')
+    .insert([{ paquete_id: paqueteId, capitulo_id: capituloId ?? null, sub_bloque_id: subBloqueId ?? null }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function removeDestinoPaquete(id) {
+  const { error } = await supabase.from('paquete_capitulo').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Hito de pago ──────────────────────────────────────────────────
+export async function createHito(hito) {
+  const { data, error } = await supabase.from('hito_pago').insert([hito]).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function updateHito(id, updates) {
+  const { data, error } = await supabase.from('hito_pago').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteHito(id) {
+  const { error } = await supabase.from('hito_pago').delete().eq('id', id)
   if (error) throw error
 }

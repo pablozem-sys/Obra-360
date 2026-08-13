@@ -36,6 +36,22 @@ export function sumaPorcentajesHitos(hitos) {
   return hitos.reduce((acc, h) => acc + h.porcentaje, 0);
 }
 
+// Sección 8 regla 4: "todo capítulo debe pertenecer a exactamente un
+// paquete". El capítulo 8 de Quillayes 19 se reparte en dos paquetes por
+// sub-bloque (sección 8), así que un capítulo cuenta como cubierto si TODOS
+// sus sub-bloques quedaron asignados a algún paquete — directo (capitulo_id)
+// o por sub-bloque (sub_bloque_id) — no solo si el capítulo entero lo está.
+export function capitulosSinPaqueteCompleto(capitulos, destinos) {
+  return capitulos.filter((cap) => {
+    const cubiertoCompleto = destinos.some((d) => d.capitulo_id === cap.id)
+    if (cubiertoCompleto) return false
+    const subBloqueIds = cap.sub_bloque.map((sb) => sb.id)
+    if (subBloqueIds.length === 0) return true
+    const todosCubiertos = subBloqueIds.every((id) => destinos.some((d) => d.sub_bloque_id === id))
+    return !todosCubiertos
+  })
+}
+
 // Sección 9, primera validación bloqueante. El resto de las validaciones de
 // emisión (capítulo sin margen, cuotas != 100%, capítulos sin paquete, sin
 // fecha de validez) se implementan en la Etapa 9, junto al resto del flujo

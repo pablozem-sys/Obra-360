@@ -12,8 +12,14 @@ import {
   createCapitulo, updateCapitulo, deleteCapitulo,
   createSubBloque, updateSubBloque, deleteSubBloque,
   createLinea, updateLinea, deleteLinea,
+  createPaquete, updatePaquete, deletePaquete,
+  addDestinoPaquete, removeDestinoPaquete,
+  createHito, updateHito, deleteHito,
 } from '../../lib/cotizador/api'
-import { calcularLinea, calcularSubtotalNeto, lineasFirmesSinPrecio } from '../../lib/cotizador/calculo'
+import {
+  calcularLinea, calcularSubtotalNeto, lineasFirmesSinPrecio,
+  calcularHitosPaquete, sumaPorcentajesHitos, capitulosSinPaqueteCompleto,
+} from '../../lib/cotizador/calculo'
 
 const LINEA_INICIAL = { partida_id: null, descripcion: '', unidad: '', cantidad: 1, costo_unit_catalogo: null, costo_unit_usado: 0, estado: 'firme' }
 
@@ -93,6 +99,118 @@ export default function CotizadorBuilder() {
         return found ?? { ...l, totalLinea: 0, estado: l.estado }
       })
     )
+  }
+
+  // ── Paquetes comerciales (Etapa 7) ───────────────────────────────
+  const todosLosDestinos = cotizacion.paquete_comercial.flatMap((p) => p.paquete_capitulo)
+  const capitulosSinPaquete = capitulosSinPaqueteCompleto(cotizacion.capitulo, todosLosDestinos)
+
+  const lineasDeDestino = (destino) => {
+    if (destino.capitulo_id) {
+      const cap = cotizacion.capitulo.find((c) => c.id === destino.capitulo_id)
+      return cap ? cap.sub_bloque.flatMap((sb) => sb.linea) : []
+    }
+    const cap = cotizacion.capitulo.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))
+    const sb = cap?.sub_bloque.find((s) => s.id === destino.sub_bloque_id)
+    return sb ? sb.linea : []
+  }
+
+  const regimenDeDestino = (destino) => {
+    if (destino.capitulo_id) return cotizacion.capitulo.find((c) => c.id === destino.capitulo_id)?.regimen_iva
+    return cotizacion.capitulo.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))?.regimen_iva
+  }
+
+  const calcularPaquete = (paquete) => {
+    const lineaIds = new Set(paquete.paquete_capitulo.flatMap((d) => lineasDeDestino(d).map((l) => l.id)))
+    const lineas = todasLasLineas.filter((l) => lineaIds.has(l.id))
+    const netoPaquete = calcularSubtotalNeto(lineas)
+    const regimenes = new Set(paquete.paquete_capitulo.map(regimenDeDestino).filter(Boolean))
+    const regimenValido = regimenes.size <= 1
+    const regimen = regimenValido ? [...regimenes][0] ?? 'obra' : null
+    const sumaCuotas = sumaPorcentajesHitos(paquete.hito_pago)
+    const cuotasValidas = paquete.hito_pago.length > 0 && sumaCuotas === 100
+    const resultado = regimenValido && cuotasValidas
+      ? calcularHitosPaquete({ netoPaquete, hitos: paquete.hito_pago, regimen, ...config })
+      : null
+    return { netoPaquete, regimenValido, regimen, sumaCuotas, cuotasValidas, resultado }
+  }
+
+  const handleAddPaquete = async (nombre) => {
+    const nuevo = await createPaquete({ cotizacion_id: id, orden: cotizacion.paquete_comercial.length, nombre })
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: [...c.paquete_comercial, { ...nuevo, paquete_capitulo: [], hito_pago: [] }],
+    }))
+    return nuevo
+  }
+
+  const handleProponerPorCapitulo = async () => {
+    for (const cap of capitulosSinPaquete) {
+      const nuevo = await handleAddPaquete(cap.nombre)
+      const destino = await addDestinoPaquete({ paqueteId: nuevo.id, capituloId: cap.id })
+      setCotizacion((c) => ({
+        ...c,
+        paquete_comercial: c.paquete_comercial.map((p) => (p.id === nuevo.id ? { ...p, paquete_capitulo: [destino] } : p)),
+      }))
+    }
+  }
+
+  const handleUpdatePaquete = async (paqueteId, updates) => {
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, ...updates } : p)),
+    }))
+    await updatePaquete(paqueteId, updates)
+  }
+
+  const handleDeletePaquete = async (paqueteId) => {
+    if (!confirm('¿Eliminar este paquete?')) return
+    await deletePaquete(paqueteId)
+    setCotizacion((c) => ({ ...c, paquete_comercial: c.paquete_comercial.filter((p) => p.id !== paqueteId) }))
+  }
+
+  const handleAddDestino = async (paqueteId, destino) => {
+    const nuevo = await addDestinoPaquete({ paqueteId, ...destino })
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, paquete_capitulo: [...p.paquete_capitulo, nuevo] } : p)),
+    }))
+  }
+
+  const handleRemoveDestino = async (paqueteId, destinoId) => {
+    await removeDestinoPaquete(destinoId)
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, paquete_capitulo: p.paquete_capitulo.filter((d) => d.id !== destinoId) } : p)),
+    }))
+  }
+
+  const handleAddHito = async (paqueteId) => {
+    const paquete = cotizacion.paquete_comercial.find((p) => p.id === paqueteId)
+    const nuevo = await createHito({ paquete_id: paqueteId, orden: paquete.hito_pago.length, glosa: `Cuota ${paquete.hito_pago.length + 1}`, porcentaje: 0 })
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, hito_pago: [...p.hito_pago, nuevo] } : p)),
+    }))
+  }
+
+  const handleUpdateHito = async (paqueteId, hitoId, updates) => {
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => p.id !== paqueteId ? p : {
+        ...p,
+        hito_pago: p.hito_pago.map((h) => (h.id === hitoId ? { ...h, ...updates } : h)),
+      }),
+    }))
+    await updateHito(hitoId, updates)
+  }
+
+  const handleDeleteHito = async (paqueteId, hitoId) => {
+    await deleteHito(hitoId)
+    setCotizacion((c) => ({
+      ...c,
+      paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, hito_pago: p.hito_pago.filter((h) => h.id !== hitoId) } : p)),
+    }))
   }
 
   const toggleCap = (capId) => {
@@ -287,6 +405,46 @@ export default function CotizadorBuilder() {
 
         <button onClick={handleAddCapitulo} className="btn-secondary text-sm w-full justify-center py-3">
           <Plus size={15} /> Agregar capítulo
+        </button>
+      </div>
+
+      {/* Paquetes comerciales y plan de pago (Etapa 7) */}
+      <div className="card p-5 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="font-display font-semibold text-base" style={{ color: 'var(--text)' }}>Paquetes comerciales y plan de pago</h2>
+          {capitulosSinPaquete.length > 0 && (
+            <button onClick={handleProponerPorCapitulo} className="btn-ghost text-xs">
+              Proponer un paquete por capítulo ({capitulosSinPaquete.length} sueltos)
+            </button>
+          )}
+        </div>
+
+        {capitulosSinPaquete.length > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ background: 'rgba(255,69,96,0.08)', color: 'var(--red)' }}>
+            <AlertCircle size={13} />
+            Sin paquete asignado: {capitulosSinPaquete.map((c) => c.nombre).join(', ')}
+          </div>
+        )}
+
+        {cotizacion.paquete_comercial.map((p) => (
+          <PaqueteCard
+            key={p.id}
+            paquete={p}
+            calculo={calcularPaquete(p)}
+            capitulos={cotizacion.capitulo}
+            onUpdate={(updates) => handleUpdatePaquete(p.id, updates)}
+            onDelete={() => handleDeletePaquete(p.id)}
+            onAddDestino={(destino) => handleAddDestino(p.id, destino)}
+            onRemoveDestino={(destinoId) => handleRemoveDestino(p.id, destinoId)}
+            onAddHito={() => handleAddHito(p.id)}
+            onUpdateHito={(hitoId, updates) => handleUpdateHito(p.id, hitoId, updates)}
+            onDeleteHito={(hitoId) => handleDeleteHito(p.id, hitoId)}
+            destinosOcupados={todosLosDestinos}
+          />
+        ))}
+
+        <button onClick={() => handleAddPaquete('Nuevo paquete')} className="btn-secondary text-sm w-full justify-center py-2.5">
+          <Plus size={14} /> Agregar paquete
         </button>
       </div>
 
@@ -535,6 +693,137 @@ function LineaRow({ linea, calculada, onUpdateField, onCostoBlur, onDelete }) {
         </tr>
       )}
     </>
+  )
+}
+
+function nombreDestino(destino, capitulos) {
+  if (destino.capitulo_id) {
+    return capitulos.find((c) => c.id === destino.capitulo_id)?.nombre ?? '—'
+  }
+  const cap = capitulos.find((c) => c.sub_bloque.some((sb) => sb.id === destino.sub_bloque_id))
+  const sb = cap?.sub_bloque.find((s) => s.id === destino.sub_bloque_id)
+  return sb ? `${cap.nombre} · ${sb.nombre}` : '—'
+}
+
+function PaqueteCard({
+  paquete, calculo, capitulos, onUpdate, onDelete,
+  onAddDestino, onRemoveDestino, onAddHito, onUpdateHito, onDeleteHito, destinosOcupados,
+}) {
+  const { netoPaquete, regimenValido, sumaCuotas, cuotasValidas, resultado } = calculo
+
+  return (
+    <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-3 mb-3">
+        <input className="input flex-1 font-semibold" value={paquete.nombre} onChange={(e) => onUpdate({ nombre: e.target.value })} />
+        <p className="num text-sm font-semibold" style={{ color: 'var(--text)' }}>{formatCLP(netoPaquete)}</p>
+        <button onClick={onDelete} className="p-1.5 rounded-lg hover:opacity-80" style={{ color: 'var(--red)' }}>
+          <Trash2 size={14} />
+        </button>
+      </div>
+
+      {/* Destinos (capítulos / sub-bloques) */}
+      <div className="mb-3">
+        <p className="text-[10px] uppercase tracking-widest mb-1.5" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Capítulos / sub-bloques</p>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {paquete.paquete_capitulo.map((d) => (
+            <span key={d.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+              {nombreDestino(d, capitulos)}
+              <button onClick={() => onRemoveDestino(d.id)} style={{ color: 'var(--subtle)' }}><X size={11} /></button>
+            </span>
+          ))}
+          {paquete.paquete_capitulo.length === 0 && (
+            <span className="text-xs" style={{ color: 'var(--subtle)' }}>Sin capítulos asignados</span>
+          )}
+        </div>
+        <DestinoPicker capitulos={capitulos} destinosOcupados={destinosOcupados} onAdd={onAddDestino} />
+        {!regimenValido && (
+          <p className="text-[11px] mt-1.5 flex items-center gap-1" style={{ color: 'var(--red)' }}>
+            <AlertCircle size={11} /> Los capítulos de este paquete tienen regímenes de IVA distintos — no se puede calcular.
+          </p>
+        )}
+      </div>
+
+      {/* Hitos de pago */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--subtle)', fontFamily: 'Unbounded' }}>Plan de pago</p>
+          <span className="text-[11px] num" style={{ color: sumaCuotas === 100 ? 'var(--green)' : 'var(--red)' }}>{sumaCuotas}% de 100%</span>
+        </div>
+        <div className="space-y-1.5">
+          {paquete.hito_pago.map((h) => (
+            <div key={h.id} className="flex items-center gap-2">
+              <input className="input py-1 text-sm flex-1" value={h.glosa} onChange={(e) => onUpdateHito(h.id, { glosa: e.target.value })} />
+              <input
+                type="number"
+                className="input num py-1 text-sm w-20"
+                value={h.porcentaje}
+                onChange={(e) => onUpdateHito(h.id, { porcentaje: Number(e.target.value) })}
+              />
+              <span className="text-xs" style={{ color: 'var(--subtle)' }}>%</span>
+              <button onClick={() => onDeleteHito(h.id)} style={{ color: 'var(--red)' }}><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+        <button onClick={onAddHito} className="btn-ghost text-xs mt-2"><Plus size={12} /> Agregar cuota</button>
+      </div>
+
+      {!cuotasValidas && paquete.hito_pago.length > 0 && (
+        <p className="text-[11px] mt-2 flex items-center gap-1" style={{ color: 'var(--red)' }}>
+          <AlertCircle size={11} /> Las cuotas deben sumar 100% para calcular el IVA.
+        </p>
+      )}
+
+      {resultado && (
+        <div className="mt-3 pt-3 grid grid-cols-3 gap-3 text-right" style={{ borderTop: '1px solid var(--border)' }}>
+          <div>
+            <p className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--subtle)' }}>Neto</p>
+            <p className="num text-sm font-semibold" style={{ color: 'var(--text)' }}>{formatCLP(resultado.neto)}</p>
+          </div>
+          <div>
+            <p className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--subtle)' }}>IVA</p>
+            <p className="num text-sm font-semibold" style={{ color: 'var(--text)' }}>{formatCLP(resultado.iva)}</p>
+          </div>
+          <div>
+            <p className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--subtle)' }}>Total</p>
+            <p className="num text-sm font-bold" style={{ color: 'var(--amber)' }}>{formatCLP(resultado.total)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DestinoPicker({ capitulos, destinosOcupados, onAdd }) {
+  const [valor, setValor] = useState('')
+
+  const ocupado = (tipo, id) => destinosOcupados.some((d) => (tipo === 'cap' ? d.capitulo_id === id : d.sub_bloque_id === id))
+
+  const opciones = capitulos.flatMap((cap) => {
+    const items = []
+    if (!ocupado('cap', cap.id)) items.push({ value: `cap:${cap.id}`, label: cap.nombre })
+    cap.sub_bloque.forEach((sb) => {
+      if (!ocupado('sb', sb.id)) items.push({ value: `sb:${sb.id}`, label: `${cap.nombre} · ${sb.nombre}` })
+    })
+    return items
+  })
+
+  const agregar = () => {
+    if (!valor) return
+    const [tipo, id] = valor.split(':')
+    onAdd(tipo === 'cap' ? { capituloId: id } : { subBloqueId: id })
+    setValor('')
+  }
+
+  if (opciones.length === 0) return null
+
+  return (
+    <div className="flex items-center gap-2">
+      <select className="select py-1 text-xs flex-1" value={valor} onChange={(e) => setValor(e.target.value)}>
+        <option value="">Elegir capítulo o sub-bloque...</option>
+        {opciones.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <button onClick={agregar} disabled={!valor} className="btn-ghost text-xs disabled:opacity-40"><Plus size={12} /></button>
+    </div>
   )
 }
 
