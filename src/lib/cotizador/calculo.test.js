@@ -9,6 +9,9 @@ import {
   sumaPorcentajesHitos,
   capitulosSinPaqueteCompleto,
   calcularCotizacion,
+  validarEmision,
+  advertenciasEmision,
+  compararVersiones,
 } from './calculo.js';
 
 describe('redondear', () => {
@@ -192,5 +195,132 @@ describe('calcularCotizacion — orquestación', () => {
     const resultado = calcularCotizacion({ capitulos, paquetes, config });
     expect(resultado.paquetes[0].cuotasValidas).toBe(false);
     expect(resultado.totalGeneral).toBeNull();
+  });
+});
+
+describe('validarEmision — sección 9, bloqueantes', () => {
+  const config = { ivaPct: 19, ivaObraFactor: 0.5 };
+  const base = () => ({
+    capitulos: [
+      {
+        id: 'cap1', margen_pct: 10, regimen_iva: 'obra',
+        sub_bloque: [{ id: 'sb1', linea: [{ id: 'l1', estado: 'firme', costo_unit_usado: 1000, cantidad: 1 }] }],
+      },
+    ],
+    paquetes: [{ id: 'p1', paquete_capitulo: [{ capitulo_id: 'cap1' }], hito_pago: [{ porcentaje: 100 }] }],
+  });
+
+  it('sin bloqueantes cuando todo está completo', () => {
+    const { capitulos, paquetes } = base();
+    const calculado = calcularCotizacion({ capitulos, paquetes, config });
+    const { bloqueantes, puedeEmitir } = validarEmision({ validez_dias: 30 }, calculado);
+    expect(bloqueantes).toEqual([]);
+    expect(puedeEmitir).toBe(true);
+  });
+
+  it('bloquea por línea firme sin precio', () => {
+    const { capitulos, paquetes } = base();
+    capitulos[0].sub_bloque[0].linea.push({ id: 'l2', estado: 'firme', costo_unit_usado: null, cantidad: 1 });
+    const calculado = calcularCotizacion({ capitulos, paquetes, config });
+    const { bloqueantes } = validarEmision({ validez_dias: 30 }, calculado);
+    expect(bloqueantes.map((b) => b.tipo)).toContain('lineas_sin_precio');
+  });
+
+  it('bloquea por capítulo sin margen', () => {
+    const { capitulos, paquetes } = base();
+    capitulos[0].margen_pct = null;
+    const calculado = calcularCotizacion({ capitulos, paquetes, config });
+    const { bloqueantes } = validarEmision({ validez_dias: 30 }, calculado);
+    expect(bloqueantes.map((b) => b.tipo)).toContain('capitulos_sin_margen');
+  });
+
+  it('bloquea por cuotas que no suman 100%', () => {
+    const { capitulos, paquetes } = base();
+    paquetes[0].hito_pago = [{ porcentaje: 40 }];
+    const calculado = calcularCotizacion({ capitulos, paquetes, config });
+    const { bloqueantes } = validarEmision({ validez_dias: 30 }, calculado);
+    expect(bloqueantes.map((b) => b.tipo)).toContain('cuotas_invalidas');
+  });
+
+  it('bloquea por capítulos sin paquete asignado', () => {
+    const { capitulos } = base();
+    const calculado = calcularCotizacion({ capitulos, paquetes: [], config });
+    const { bloqueantes } = validarEmision({ validez_dias: 30 }, calculado);
+    expect(bloqueantes.map((b) => b.tipo)).toContain('capitulos_sin_paquete');
+  });
+
+  it('bloquea por falta de fecha de validez', () => {
+    const { capitulos, paquetes } = base();
+    const calculado = calcularCotizacion({ capitulos, paquetes, config });
+    const { bloqueantes } = validarEmision({ validez_dias: null }, calculado);
+    expect(bloqueantes.map((b) => b.tipo)).toContain('sin_validez');
+  });
+});
+
+describe('advertenciasEmision — sección 9, no bloqueantes', () => {
+  const config = { ivaPct: 19, ivaObraFactor: 0.5 };
+
+  it('detecta línea con precio desviado del catálogo más allá del umbral', () => {
+    const capitulos = [{
+      id: 'cap1', margen_pct: 0, regimen_iva: 'obra',
+      sub_bloque: [{ id: 'sb1', linea: [
+        { id: 'l1', estado: 'firme', costo_unit_usado: 2000, costo_unit_catalogo: 1000, cantidad: 1, nota_interna: null },
+      ] }],
+    }];
+    const calculado = calcularCotizacion({ capitulos, paquetes: [], config });
+    const advertencias = advertenciasEmision(calculado, { umbral_desvio_precio_pct: 15 });
+    expect(advertencias.map((a) => a.tipo)).toContain('precio_desviado');
+  });
+
+  it('no advierte si el desvío está dentro del umbral', () => {
+    const capitulos = [{
+      id: 'cap1', margen_pct: 0, regimen_iva: 'obra',
+      sub_bloque: [{ id: 'sb1', linea: [
+        { id: 'l1', estado: 'firme', costo_unit_usado: 1050, costo_unit_catalogo: 1000, cantidad: 1, nota_interna: null },
+      ] }],
+    }];
+    const calculado = calcularCotizacion({ capitulos, paquetes: [], config });
+    const advertencias = advertenciasEmision(calculado, { umbral_desvio_precio_pct: 15 });
+    expect(advertencias.map((a) => a.tipo)).not.toContain('precio_desviado');
+  });
+
+  it('detecta líneas con nota interna sin resolver', () => {
+    const capitulos = [{
+      id: 'cap1', margen_pct: 0, regimen_iva: 'obra',
+      sub_bloque: [{ id: 'sb1', linea: [
+        { id: 'l1', estado: 'firme', costo_unit_usado: 1000, cantidad: 1, nota_interna: 'revisar con el cliente' },
+      ] }],
+    }];
+    const calculado = calcularCotizacion({ capitulos, paquetes: [], config });
+    const advertencias = advertenciasEmision(calculado, {});
+    expect(advertencias.map((a) => a.tipo)).toContain('nota_interna');
+  });
+});
+
+describe('compararVersiones — sección 10', () => {
+  it('detecta líneas agregadas, eliminadas y con cambio de precio', () => {
+    const anterior = {
+      lineas: [
+        { id: 'l1', descripcion: 'A', precioUnitario: 1000 },
+        { id: 'l2', descripcion: 'B', precioUnitario: 2000 },
+      ],
+    };
+    const nueva = {
+      lineas: [
+        { id: 'l1', descripcion: 'A', precioUnitario: 1500 },
+        { id: 'l3', descripcion: 'C', precioUnitario: 500 },
+      ],
+    };
+    const diff = compararVersiones(anterior, nueva);
+    expect(diff.agregadas.map((l) => l.id)).toEqual(['l3']);
+    expect(diff.eliminadas.map((l) => l.id)).toEqual(['l2']);
+    expect(diff.cambiosPrecio.map((c) => c.actual.id)).toEqual(['l1']);
+  });
+
+  it('sin versión anterior, todas las líneas cuentan como agregadas', () => {
+    const nueva = { lineas: [{ id: 'l1', precioUnitario: 100 }] };
+    const diff = compararVersiones(null, nueva);
+    expect(diff.agregadas).toHaveLength(1);
+    expect(diff.eliminadas).toHaveLength(0);
   });
 });

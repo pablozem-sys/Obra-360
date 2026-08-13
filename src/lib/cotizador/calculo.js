@@ -173,3 +173,100 @@ export function calcularCotizacion({ capitulos, paquetes, config }) {
     totalGeneral,
   };
 }
+
+// ── Validaciones de emisión (sección 9) ───────────────────────────
+
+export function capitulosSinMargen(capitulos) {
+  return capitulos.filter((c) => c.margen_pct == null);
+}
+
+export function paquetesConCuotasInvalidas(paquetesCalculados) {
+  return paquetesCalculados.filter((p) => !p.cuotasValidas);
+}
+
+// Las 5 validaciones bloqueantes de la sección 9. `calculado` es el resultado
+// de calcularCotizacion(); `cotizacion` es la fila cruda (para validez_dias).
+export function validarEmision(cotizacion, calculado) {
+  const bloqueantes = [];
+  if (calculado.lineasSinPrecio.length > 0) {
+    bloqueantes.push({ tipo: 'lineas_sin_precio', cantidad: calculado.lineasSinPrecio.length });
+  }
+  const capSinMargen = capitulosSinMargen(calculado.capitulos);
+  if (capSinMargen.length > 0) {
+    bloqueantes.push({ tipo: 'capitulos_sin_margen', cantidad: capSinMargen.length, detalle: capSinMargen });
+  }
+  const paqCuotasInvalidas = paquetesConCuotasInvalidas(calculado.paquetes);
+  if (paqCuotasInvalidas.length > 0) {
+    bloqueantes.push({ tipo: 'cuotas_invalidas', cantidad: paqCuotasInvalidas.length, detalle: paqCuotasInvalidas });
+  }
+  if (calculado.capitulosSinPaquete.length > 0) {
+    bloqueantes.push({ tipo: 'capitulos_sin_paquete', cantidad: calculado.capitulosSinPaquete.length, detalle: calculado.capitulosSinPaquete });
+  }
+  if (!cotizacion.validez_dias) {
+    bloqueantes.push({ tipo: 'sin_validez' });
+  }
+  return { bloqueantes, puedeEmitir: bloqueantes.length === 0 };
+}
+
+// Las 2 de las 3 advertencias no bloqueantes que se pueden calcular con los
+// datos disponibles. La tercera ("precio de catálogo lleva más de X meses sin
+// actualizar") NO está implementada: partida_catalogo no tiene un
+// updated_at — costo_unitario_ref se pisa con UPDATE y no queda rastro de
+// cuándo cambió por última vez. Requeriría una columna nueva + trigger o
+// actualizarla a mano en cada edición de catálogo.
+export function advertenciasEmision(calculado, config) {
+  const advertencias = [];
+  const umbral = config.umbral_desvio_precio_pct ?? 15;
+  const lineasDesviadas = calculado.todasLasLineas.filter((l) => {
+    if (l.costo_unit_catalogo == null || l.costo_unit_usado == null || l.costo_unit_catalogo === 0) return false;
+    const desvioPct = Math.abs(l.costo_unit_usado - l.costo_unit_catalogo) / l.costo_unit_catalogo * 100;
+    return desvioPct > umbral;
+  });
+  if (lineasDesviadas.length > 0) {
+    advertencias.push({ tipo: 'precio_desviado', cantidad: lineasDesviadas.length, detalle: lineasDesviadas });
+  }
+
+  const lineasConNotaInterna = calculado.todasLasLineas.filter((l) => l.nota_interna);
+  if (lineasConNotaInterna.length > 0) {
+    advertencias.push({ tipo: 'nota_interna', cantidad: lineasConNotaInterna.length, detalle: lineasConNotaInterna });
+  }
+
+  return advertencias;
+}
+
+// Snapshot inmutable de una emisión (sección 10) — solo lo que se necesita
+// para mostrar la versión y compararla con otra, no el árbol completo.
+export function snapshotCotizacion(calculado) {
+  return {
+    lineas: calculado.todasLasLineas.map((l) => ({
+      id: l.id,
+      descripcion: l.descripcion,
+      unidad: l.unidad,
+      cantidad: l.cantidad,
+      precioUnitario: l.precioUnitario,
+      totalLinea: l.totalLinea,
+      estado: l.estado,
+    })),
+    totalCotizacion: calculado.totalCotizacion,
+    totalGeneral: calculado.totalGeneral,
+  };
+}
+
+// Compara dos snapshots (sección 10: "qué líneas se agregaron, sacaron o
+// cambiaron de precio"). `anterior`/`nueva` son snapshots de
+// snapshotCotizacion(), o null si no hay versión anterior.
+export function compararVersiones(anterior, nueva) {
+  const lineasAnteriores = anterior?.lineas ?? [];
+  const lineasNuevas = nueva?.lineas ?? [];
+  const idsAnteriores = new Set(lineasAnteriores.map((l) => l.id));
+  const idsNuevas = new Set(lineasNuevas.map((l) => l.id));
+
+  const agregadas = lineasNuevas.filter((l) => !idsAnteriores.has(l.id));
+  const eliminadas = lineasAnteriores.filter((l) => !idsNuevas.has(l.id));
+  const cambiosPrecio = lineasNuevas
+    .filter((l) => idsAnteriores.has(l.id))
+    .map((l) => ({ actual: l, anterior: lineasAnteriores.find((a) => a.id === l.id) }))
+    .filter(({ actual, anterior: a }) => actual.precioUnitario !== a.precioUnitario);
+
+  return { agregadas, eliminadas, cambiosPrecio };
+}

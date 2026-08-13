@@ -14,7 +14,7 @@ export async function getCotizadorConfig() {
     .eq('empresa_id', currentEmpresaId)
     .maybeSingle()
   if (error) throw error
-  return data ?? { empresa_id: currentEmpresaId, iva_pct: 19, iva_obra_factor: 0.5 }
+  return data ?? { empresa_id: currentEmpresaId, iva_pct: 19, iva_obra_factor: 0.5, umbral_desvio_precio_pct: 15 }
 }
 
 // ── Catálogo ──────────────────────────────────────────────────────
@@ -82,6 +82,45 @@ export async function updateCotizacion(id, updates) {
   const { data, error } = await supabase.from('cotizacion').update(updates).eq('id', id).select().single()
   if (error) throw error
   return data
+}
+
+// ── Versionamiento (sección 10) ────────────────────────────────────
+export async function getVersiones(cotizacionId) {
+  const { data, error } = await supabase
+    .from('cotizacion_version')
+    .select('*')
+    .eq('cotizacion_id', cotizacionId)
+    .order('numero', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+// Congela una versión inmutable (snapshot completo) y avanza el estado de la
+// cotización — la emisión en sí no bloquea seguir editando después.
+export async function emitirVersion({ cotizacionId, numero, autor, snapshot }) {
+  const { data, error } = await supabase
+    .from('cotizacion_version')
+    .insert([{ cotizacion_id: cotizacionId, numero, autor, snapshot }])
+    .select()
+    .single()
+  if (error) throw error
+  await updateCotizacion(cotizacionId, { version_actual: numero, estado: 'emitida' })
+  return data
+}
+
+// Solo una versión puede quedar marcada como aceptada por el cliente.
+export async function marcarVersionAceptada(cotizacionId, versionId) {
+  const { error: err1 } = await supabase
+    .from('cotizacion_version')
+    .update({ aceptada: false })
+    .eq('cotizacion_id', cotizacionId)
+  if (err1) throw err1
+  const { error: err2 } = await supabase
+    .from('cotizacion_version')
+    .update({ aceptada: true })
+    .eq('id', versionId)
+  if (err2) throw err2
+  await updateCotizacion(cotizacionId, { estado: 'aceptada' })
 }
 
 // Cotización completa: capítulos → sub-bloques → líneas, y paquetes → hitos, ordenados
