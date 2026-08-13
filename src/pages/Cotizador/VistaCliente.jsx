@@ -107,6 +107,13 @@ export default function VistaCliente() {
   // Sin librería de agente: comparte el PDF ya generado vía el share sheet
   // nativo (incluye WhatsApp entre las apps disponibles) si el navegador lo
   // soporta; si no, descarga el PDF y deja instrucciones para adjuntarlo a mano.
+  // WhatsApp Desktop (Mac/Windows) no se registra como destino del panel
+  // nativo de compartir del sistema operativo — a diferencia de WhatsApp en
+  // iOS/Android, que sí aparece ahí. Por eso el share nativo solo tiene
+  // sentido en celular; en computador vamos directo al flujo de WhatsApp Web
+  // + adjuntar a mano, que es el único que realmente funciona ahí.
+  const esMovil = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
   const handleCompartirWhatsapp = async () => {
     setCompartiendo(true)
     setAvisoCompartir('')
@@ -116,13 +123,12 @@ export default function VistaCliente() {
       const nombreArchivo = `Cotizacion - ${cotizacion.nombre_obra}.pdf`
       const file = new File([blob], nombreArchivo, { type: 'application/pdf' })
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      if (esMovil && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: nombreArchivo, text: `Cotización ${cotizacion.nombre_obra}` })
       } else {
         doc.save(nombreArchivo)
-        const mensaje = encodeURIComponent(`Cotización ${cotizacion.nombre_obra} — te la comparto en un momento.`)
-        window.open(`https://wa.me/?text=${mensaje}`, '_blank')
-        setAvisoCompartir('Tu navegador no permite adjuntar el archivo directo — se descargó el PDF, adjúntalo manualmente en el chat de WhatsApp que se abrió.')
+        window.open('https://web.whatsapp.com/', '_blank')
+        setAvisoCompartir('Se descargó el PDF — en WhatsApp Web, abre el chat del cliente y adjúntalo desde ahí (WhatsApp de escritorio no permite recibir el archivo directo desde el navegador).')
       }
     } catch (err) {
       if (err?.name !== 'AbortError') setAvisoCompartir('No se pudo compartir el PDF: ' + (err.message || 'error desconocido'))
