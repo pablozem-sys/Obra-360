@@ -2,82 +2,173 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { formatCLP, formatDate } from '../helpers'
 import { calcularCotizacion } from './calculo'
+import { cargarFuentes } from './pdfFonts'
 
-const NOMBRE_EMPRESA = 'VA CONSTRUCTORA'
+// Diseño: handoff "Plantilla de cotización VA" (ver
+// docs/cotizador/ si se versiona el HTML de referencia). Colores y
+// tipografías tomados literal de ese documento — no inventar variaciones.
+const INK = [26, 25, 18] // #1a1912
+const PAPER = [251, 250, 247] // #fbfaf7
+const ACCENT = [181, 101, 43] // #b5652b (terracota)
+const ACCENT_SOFT = [241, 228, 215] // #f1e4d7
+const LINE = [226, 222, 212] // #e2ded4
+const MUTED = [122, 118, 108] // #7a766c
+const ZEBRA = [246, 244, 239] // #f6f4ef
 
-const AMBER = [255, 149, 0]
-const AMBER_DIM = [255, 243, 224]
-const INK = [25, 25, 28]
-const TEXT = [40, 40, 44]
-const MUTED = [130, 130, 138]
-const BORDER = [232, 232, 236]
+const F_ARCHIVO_500 = 'Archivo-500'
+const F_ARCHIVO_600 = 'Archivo-600'
+const F_ARCHIVO_700 = 'Archivo-700'
+const F_ARCHIVO_800 = 'Archivo-800'
+const F_SANS_400 = 'IBMPlexSans-400'
+const F_SANS_500 = 'IBMPlexSans-500'
+const F_SANS_600 = 'IBMPlexSans-600'
+const F_MONO_400 = 'IBMPlexMono-400'
+const F_MONO_500 = 'IBMPlexMono-500'
 
-const MARGIN = 14
-const PAGE_WIDTH = 210 // A4 mm
-
-function agregarEncabezado(doc, cotizacion) {
-  // Banda de marca
-  doc.setFillColor(...INK)
-  doc.rect(0, 0, PAGE_WIDTH, 32, 'F')
-  doc.setFontSize(9)
-  doc.setTextColor(...AMBER)
-  doc.setFont(undefined, 'bold')
-  doc.text(NOMBRE_EMPRESA, MARGIN, 13)
-  doc.setFontSize(16)
-  doc.setTextColor(255, 255, 255)
-  doc.text('Cotización', MARGIN, 24)
-  doc.setFont(undefined, 'normal')
-  doc.setFontSize(10)
-  doc.text(cotizacion.nombre_obra, PAGE_WIDTH - MARGIN, 24, { align: 'right' })
-
-  // Ficha del cliente
-  let y = 42
-  doc.setFontSize(9)
-  doc.setTextColor(...TEXT)
-  const filas = [
-    ['Cliente', cotizacion.cliente_nombre],
-    cotizacion.direccion ? ['Dirección', cotizacion.direccion] : null,
-    ['Fecha', formatDate(cotizacion.fecha)],
-    ['Validez', cotizacion.validez_dias ? `${cotizacion.validez_dias} días desde la fecha de emisión` : 'Sin definir'],
-  ].filter(Boolean)
-  filas.forEach(([label, valor]) => {
-    doc.setTextColor(...MUTED)
-    doc.text(`${label}`, MARGIN, y)
-    doc.setTextColor(...TEXT)
-    doc.text(valor, MARGIN + 22, y)
-    y += 5.5
-  })
-  return y + 6
+// Placeholder — datos reales de la empresa pendientes (Pedro los pasa después).
+const EMPRESA = {
+  nombre: 'VA Constructora',
+  rut: '76.543.210-K',
+  direccion: 'Av. Las Condes 8500, Santiago',
+  telefono: '+56 9 1234 5678',
+  email: 'contacto@vaconstructora.cl',
 }
 
-function tituloSeccion(doc, texto, y) {
-  doc.setDrawColor(...AMBER)
-  doc.setLineWidth(0.8)
-  doc.line(MARGIN, y, MARGIN + 8, y)
-  doc.setFontSize(11)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(...INK)
-  doc.text(texto, MARGIN + 12, y + 1.2)
-  doc.setFont(undefined, 'normal')
-  return y + 7
+const CONDICIONES_PLACEHOLDER = {
+  pago: '40% anticipo al aprobar la cotización\n30% contra avance de obra (50%)\n30% contra entrega final',
+  plazo: '45 días hábiles desde la aprobación\ny recepción del anticipo',
+  garantia: '2 años en estructura y obra gruesa\n1 año en instalaciones y terminaciones',
+  terminos: 'Esta cotización considera los materiales y cantidades detallados por partida; cualquier modificación al alcance del proyecto será cotizada por separado. Los precios se mantienen vigentes durante el periodo de validez indicado. El inicio de obra queda sujeto a la recepción del anticipo acordado.',
 }
+
+const MARGIN = 21.6 // mm, 0.85in
+const PAGE_W = 210
+const PAGE_H = 297
+const CONTENT_W = PAGE_W - MARGIN * 2
+const px = (n) => n * 0.75 // px (96dpi) -> pt, para setFontSize
+const mm = (n) => n * 0.2646 // px (96dpi) -> mm, para posiciones/espaciados
 
 const ESTILO_TABLA = {
-  theme: 'grid',
-  styles: { fontSize: 8.5, textColor: TEXT, lineColor: BORDER, lineWidth: 0.2, cellPadding: 2.5 },
-  headStyles: { fillColor: INK, textColor: 255, fontStyle: 'bold', fontSize: 8 },
-  alternateRowStyles: { fillColor: [250, 250, 251] },
-  margin: { left: MARGIN, right: MARGIN },
+  theme: 'plain',
+  styles: { font: F_SANS_400, fontSize: px(12.5), textColor: INK, cellPadding: { top: mm(9), bottom: mm(9), left: mm(10), right: mm(10) } },
+  headStyles: { font: F_ARCHIVO_600, fontSize: px(9.5), textColor: PAPER, fillColor: INK, fontStyle: 'normal' },
+  bodyStyles: { lineColor: LINE, lineWidth: { bottom: 0.2 } },
+  alternateRowStyles: { fillColor: ZEBRA },
+  margin: { left: MARGIN, right: MARGIN, bottom: MARGIN + mm(20) },
+}
+
+function saltoDePagina(doc, y, minimoRestante) {
+  if (y + minimoRestante > PAGE_H - MARGIN - mm(30)) {
+    doc.addPage()
+    return MARGIN
+  }
+  return y
+}
+
+function agregarEncabezado(doc, cotizacion) {
+  let y = MARGIN + mm(24)
+  doc.setFont(F_ARCHIVO_800, 'normal')
+  doc.setFontSize(px(30))
+  doc.setTextColor(...INK)
+  doc.text('VA', MARGIN, y)
+
+  doc.setFont(F_ARCHIVO_600, 'normal')
+  doc.setFontSize(px(9.5))
+  doc.setTextColor(...MUTED)
+  doc.text('CONSTRUCTORA · CONSTRUCCIÓN 360°', MARGIN, y + mm(11), { charSpace: 0.3 })
+
+  const numero = String(cotizacion.numero_correlativo ?? '—').padStart(4, '0')
+  doc.setFont(F_ARCHIVO_700, 'normal')
+  doc.setFontSize(px(22))
+  doc.setTextColor(...INK)
+  doc.text('COTIZACIÓN', PAGE_W - MARGIN, y - mm(3), { align: 'right' })
+  doc.setFont(F_ARCHIVO_600, 'normal')
+  doc.setFontSize(px(9.5))
+  doc.setTextColor(...ACCENT)
+  doc.text(`N.º ${numero}`, PAGE_W - MARGIN, y + mm(6), { align: 'right' })
+
+  y += mm(30)
+
+  // Ficha de datos
+  const boxH = mm(58)
+  doc.setFillColor(...ZEBRA)
+  doc.setDrawColor(...LINE)
+  doc.setLineWidth(0.2)
+  doc.rect(MARGIN, y, CONTENT_W, boxH, 'FD')
+
+  const colW = CONTENT_W / 3.4
+  const filas = [
+    ['CLIENTE', cotizacion.cliente_nombre],
+    ['FECHA DE EMISIÓN', formatDate(cotizacion.fecha)],
+    ['VALIDEZ DE LA OFERTA', cotizacion.validez_dias ? `${cotizacion.validez_dias} días desde emisión` : 'Sin definir'],
+  ]
+  filas.forEach(([label, valor], i) => {
+    const x = MARGIN + mm(18) + i * (colW * (i === 0 ? 1.4 : 1))
+    doc.setFont(F_ARCHIVO_600, 'normal')
+    doc.setFontSize(px(9.5))
+    doc.setTextColor(...MUTED)
+    doc.text(label, x, y + mm(20))
+    doc.setFont(F_SANS_400, 'normal')
+    doc.setFontSize(px(13))
+    doc.setTextColor(...INK)
+    doc.text(valor, x, y + mm(30), { maxWidth: colW * 1.2 })
+  })
+
+  return y + boxH + mm(30)
+}
+
+function badgeNumerado(doc, x, y, numero) {
+  doc.setDrawColor(...ACCENT)
+  doc.setLineWidth(0.4)
+  doc.circle(x + mm(10), y - mm(3), mm(10), 'D')
+  doc.setFont(F_MONO_500, 'normal')
+  doc.setFontSize(px(11))
+  doc.setTextColor(...ACCENT)
+  doc.text(String(numero), x + mm(10), y - mm(0.5), { align: 'center' })
+  return x + mm(24)
+}
+
+function tituloSeccion(doc, numero, texto, y) {
+  const xTexto = badgeNumerado(doc, MARGIN, y, numero)
+  doc.setFont(F_ARCHIVO_700, 'normal')
+  doc.setFontSize(px(13.5))
+  doc.setTextColor(...INK)
+  doc.text(texto, xTexto, y)
+  return y + mm(16)
+}
+
+function barraSubtotal(doc, y, label, valor) {
+  const h = mm(17)
+  doc.setFillColor(...ACCENT_SOFT)
+  doc.rect(MARGIN, y, CONTENT_W, h, 'F')
+  doc.setDrawColor(...ACCENT)
+  doc.setLineWidth(0.6)
+  doc.line(MARGIN, y + h, MARGIN + CONTENT_W, y + h)
+
+  doc.setFont(F_ARCHIVO_600, 'normal')
+  doc.setFontSize(px(9.5))
+  doc.setTextColor(...INK)
+  const valorTexto = formatCLP(valor)
+  doc.setFont(F_MONO_500, 'normal')
+  doc.setFontSize(px(12.5))
+  const valorW = doc.getTextWidth(valorTexto)
+  doc.text(valorTexto, PAGE_W - MARGIN - mm(10), y + h / 2 + mm(3.5), { align: 'right' })
+  doc.setFont(F_ARCHIVO_600, 'normal')
+  doc.setFontSize(px(9.5))
+  doc.text(label.toUpperCase(), PAGE_W - MARGIN - mm(10) - valorW - mm(24), y + h / 2 + mm(3.5), { align: 'right' })
+
+  return y + h + mm(26)
 }
 
 function agregarCapitulos(doc, capitulos, startY) {
   let y = startY
+  let n = 0
   capitulos.forEach((cap) => {
     const lineasFirmes = cap.sub_bloque.flatMap((sb) => sb.linea).filter((l) => l.estado === 'firme')
     if (lineasFirmes.length === 0) return
-    if (y > 250) { doc.addPage(); y = 20 }
-
-    y = tituloSeccion(doc, cap.nombre, y)
+    n += 1
+    y = saltoDePagina(doc, y, mm(60))
+    y = tituloSeccion(doc, n, cap.nombre, y)
     const subtotal = lineasFirmes.reduce((acc, l) => acc + l.totalLinea, 0)
 
     autoTable(doc, {
@@ -91,63 +182,96 @@ function agregarCapitulos(doc, capitulos, startY) {
         l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—',
         formatCLP(l.totalLinea),
       ]),
-      columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      foot: [[{ content: 'Subtotal', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: INK } }, { content: formatCLP(subtotal), styles: { fontStyle: 'bold', textColor: INK } }]],
-      footStyles: { fillColor: AMBER_DIM, lineColor: BORDER, lineWidth: 0.2 },
+      columnStyles: {
+        0: { cellWidth: CONTENT_W * 0.52 },
+        2: { font: F_MONO_400, halign: 'right' },
+        3: { font: F_MONO_400, halign: 'right' },
+        4: { font: F_MONO_400, halign: 'right' },
+      },
     })
-    y = doc.lastAutoTable.finalY + 10
+    y = doc.lastAutoTable.finalY
+    y = saltoDePagina(doc, y, mm(17))
+    y = barraSubtotal(doc, y, 'Subtotal', subtotal)
   })
-  return y
+  return { y, n }
 }
 
-function agregarPlanDePago(doc, paquetes, startY) {
+function agregarPlanDePago(doc, paquetes, startY, numeroInicial) {
   const validos = paquetes.filter((p) => p.resultado)
-  if (validos.length === 0) return startY
+  if (validos.length === 0) return { y: startY, totalGeneral: null }
 
   let y = startY
-  if (y > 240) { doc.addPage(); y = 20 }
-  y = tituloSeccion(doc, 'Plan de pago', y)
+  y = saltoDePagina(doc, y, mm(60))
+  y = tituloSeccion(doc, numeroInicial, 'Plan de pago', y)
 
-  const body = []
   validos.forEach((p) => {
-    body.push([{ content: p.nombre, colSpan: 3, styles: { fillColor: [245, 245, 247], fontStyle: 'bold', textColor: INK } }])
-    p.resultado.hitos.forEach((h) => {
-      body.push([h.glosa, `${h.porcentaje}%`, formatCLP(h.total)])
+    y = saltoDePagina(doc, y, mm(50))
+    doc.setFont(F_ARCHIVO_700, 'normal')
+    doc.setFontSize(px(11))
+    doc.setTextColor(...INK)
+    doc.text(p.nombre, MARGIN, y)
+    y += mm(6)
+
+    autoTable(doc, {
+      ...ESTILO_TABLA,
+      startY: y,
+      head: [['Cuota', '%', 'Total (IVA incluido)']],
+      body: p.resultado.hitos.map((h) => [h.glosa, `${h.porcentaje}%`, formatCLP(h.total)]),
+      columnStyles: {
+        1: { font: F_MONO_400, halign: 'right' },
+        2: { font: F_MONO_400, halign: 'right' },
+      },
     })
+    y = doc.lastAutoTable.finalY
+    y = saltoDePagina(doc, y, mm(17))
+    y = barraSubtotal(doc, y, `Total ${p.nombre}`, p.resultado.total)
   })
+
   const totalGeneral = validos.reduce((acc, p) => acc + p.resultado.total, 0)
+  const subtotalGeneral = validos.reduce((acc, p) => acc + p.resultado.neto, 0)
+  const ivaGeneral = validos.reduce((acc, p) => acc + p.resultado.iva, 0)
 
-  autoTable(doc, {
-    ...ESTILO_TABLA,
-    startY: y,
-    head: [['Cuota', '%', 'Total (IVA incluido)']],
-    body,
-    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
-  })
-  y = doc.lastAutoTable.finalY + 4
-
-  // Total del contrato, destacado
-  const boxH = 14
-  if (y + boxH > 280) { doc.addPage(); y = 20 }
+  // Caja de totales generales — sección 4 del diseño. La etiqueta dice "IVA"
+  // sin "(19%)": la cotización mezcla régimen obra (9.5%) y pleno (19%), un
+  // solo porcentaje en la etiqueta sería incorrecto.
+  y = saltoDePagina(doc, y, mm(45))
+  const boxW = mm(320)
+  const boxX = PAGE_W - MARGIN - boxW
+  const boxH = mm(70)
   doc.setFillColor(...INK)
-  doc.rect(PAGE_WIDTH - MARGIN - 80, y, 80, boxH, 'F')
-  doc.setFontSize(8)
-  doc.setTextColor(...AMBER)
-  doc.text('TOTAL CONTRATO', PAGE_WIDTH - MARGIN - 76, y + 5.5)
-  doc.setFontSize(13)
-  doc.setFont(undefined, 'bold')
-  doc.setTextColor(255, 255, 255)
-  doc.text(formatCLP(totalGeneral), PAGE_WIDTH - MARGIN - 4, y + 11, { align: 'right' })
-  doc.setFont(undefined, 'normal')
+  doc.rect(boxX, y, boxW, boxH, 'F')
 
-  return y + boxH + 10
+  const filaY1 = y + mm(20)
+  const filaY2 = y + mm(38)
+  doc.setFont(F_SANS_400, 'normal')
+  doc.setFontSize(px(11.5))
+  doc.setTextColor(200, 196, 184)
+  doc.text('Subtotal general', boxX + mm(20), filaY1)
+  doc.text('IVA', boxX + mm(20), filaY2)
+  doc.setFont(F_MONO_400, 'normal')
+  doc.text(formatCLP(subtotalGeneral), boxX + boxW - mm(20), filaY1, { align: 'right' })
+  doc.text(formatCLP(ivaGeneral), boxX + boxW - mm(20), filaY2, { align: 'right' })
+
+  doc.setDrawColor(69, 67, 58)
+  doc.setLineWidth(0.3)
+  doc.line(boxX + mm(20), y + mm(46), boxX + boxW - mm(20), y + mm(46))
+
+  doc.setFont(F_ARCHIVO_700, 'normal')
+  doc.setFontSize(px(15))
+  doc.setTextColor(...PAPER)
+  doc.text('Total', boxX + mm(20), y + mm(60))
+  doc.setFont(F_MONO_400, 'normal')
+  doc.setTextColor(...ACCENT)
+  doc.text(formatCLP(totalGeneral), boxX + boxW - mm(20), y + mm(60), { align: 'right' })
+
+  return { y: y + boxH + mm(32), totalGeneral }
 }
 
-function agregarSeccionSimple(doc, titulo, lineas, startY, { conPrecio }) {
+function agregarSeccionSimple(doc, numero, titulo, lineas, startY, { conPrecio }) {
   if (lineas.length === 0) return startY
   let y = startY
-  if (y > 250) { doc.addPage(); y = 20 }
-  y = tituloSeccion(doc, titulo, y)
+  y = saltoDePagina(doc, y, mm(50))
+  y = tituloSeccion(doc, numero, titulo, y)
 
   autoTable(doc, {
     ...ESTILO_TABLA,
@@ -159,31 +283,94 @@ function agregarSeccionSimple(doc, titulo, lineas, startY, { conPrecio }) {
         ? [desc, l.unidad ?? '', String(l.cantidad), l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—', formatCLP(l.totalLinea)]
         : [desc, l.unidad ?? '', String(l.cantidad)]
     }),
-    headStyles: { ...ESTILO_TABLA.headStyles, fillColor: [90, 90, 96] },
     columnStyles: conPrecio
-      ? { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } }
-      : { 1: { halign: 'center' }, 2: { halign: 'right' } },
+      ? { 0: { cellWidth: CONTENT_W * 0.52 }, 2: { font: F_MONO_400, halign: 'right' }, 3: { font: F_MONO_400, halign: 'right' }, 4: { font: F_MONO_400, halign: 'right' } }
+      : { 0: { cellWidth: CONTENT_W * 0.6 }, 2: { font: F_MONO_400, halign: 'right' } },
   })
-  return doc.lastAutoTable.finalY + 10
+  return doc.lastAutoTable.finalY + mm(26)
+}
+
+function agregarCondiciones(doc, startY) {
+  let y = saltoDePagina(doc, startY, mm(70))
+  const colW = CONTENT_W / 2 - mm(14)
+  const bloques = [
+    ['CONDICIONES DE PAGO', CONDICIONES_PLACEHOLDER.pago],
+    ['PLAZO DE ENTREGA', CONDICIONES_PLACEHOLDER.plazo],
+    ['GARANTÍA', CONDICIONES_PLACEHOLDER.garantia],
+    ['DATOS DE LA EMPRESA', `${EMPRESA.nombre} · RUT ${EMPRESA.rut}\n${EMPRESA.direccion}`],
+  ]
+  bloques.forEach(([label, texto], i) => {
+    const col = i % 2
+    const fila = Math.floor(i / 2)
+    const x = MARGIN + col * (colW + mm(28))
+    const yy = y + fila * 26
+    doc.setFont(F_ARCHIVO_600, 'normal')
+    doc.setFontSize(px(9.5))
+    doc.setTextColor(...MUTED)
+    doc.text(label, x, yy)
+    doc.setFont(F_SANS_400, 'normal')
+    doc.setFontSize(px(12))
+    doc.setTextColor(...INK)
+    doc.text(texto, x, yy + mm(14), { lineHeightFactor: 1.5 })
+  })
+  return y + 60
+}
+
+function agregarTerminos(doc, startY) {
+  let y = saltoDePagina(doc, startY, mm(40))
+  doc.setFont(F_ARCHIVO_600, 'normal')
+  doc.setFontSize(px(9.5))
+  doc.setTextColor(...MUTED)
+  doc.text('TÉRMINOS Y CONDICIONES', MARGIN, y)
+  doc.setFont(F_SANS_400, 'normal')
+  doc.setFontSize(px(11))
+  doc.setTextColor(...MUTED)
+  const lineas = doc.splitTextToSize(CONDICIONES_PLACEHOLDER.terminos, mm(640))
+  doc.text(lineas, MARGIN, y + mm(10), { lineHeightFactor: 1.6 })
+  return y + mm(10) + lineas.length * mm(16) + mm(20)
+}
+
+function agregarFirmas(doc, startY) {
+  let y = saltoDePagina(doc, startY, mm(30))
+  y += mm(46)
+  const colW = CONTENT_W / 2 - mm(30)
+  const firmas = [
+    ['Aceptado por — Cliente', 'Nombre y fecha'],
+    [EMPRESA.nombre, 'Nombre y fecha'],
+  ]
+  firmas.forEach(([linea1, linea2], i) => {
+    const x = MARGIN + i * (colW + mm(60))
+    doc.setDrawColor(...INK)
+    doc.setLineWidth(0.2)
+    doc.line(x, y, x + colW, y)
+    doc.setFont(F_MONO_400, 'normal')
+    doc.setFontSize(px(10.5))
+    doc.setTextColor(...MUTED)
+    doc.text(linea1, x, y + 6)
+    doc.text(linea2, x, y + 11)
+  })
 }
 
 function agregarPiePagina(doc) {
   const totalPaginas = doc.internal.getNumberOfPages()
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i)
-    doc.setDrawColor(...BORDER)
+    doc.setDrawColor(...LINE)
     doc.setLineWidth(0.2)
-    doc.line(MARGIN, 287, PAGE_WIDTH - MARGIN, 287)
-    doc.setFontSize(7.5)
+    doc.line(MARGIN, PAGE_H - MARGIN - mm(2), PAGE_W - MARGIN, PAGE_H - MARGIN - mm(2))
+    doc.setFont(F_MONO_400, 'normal')
+    doc.setFontSize(px(9))
     doc.setTextColor(...MUTED)
-    doc.text(NOMBRE_EMPRESA, MARGIN, 292)
-    doc.text(`Página ${i} de ${totalPaginas}`, PAGE_WIDTH - MARGIN, 292, { align: 'right' })
+    doc.text(`${EMPRESA.nombre} · RUT ${EMPRESA.rut} · ${EMPRESA.direccion}`, MARGIN, PAGE_H - MARGIN + mm(4))
+    doc.text(`${EMPRESA.telefono} · ${EMPRESA.email}`, PAGE_W - MARGIN, PAGE_H - MARGIN + mm(4), { align: 'right' })
   }
 }
 
 // Genera el PDF de la Vista Cliente: sin costo unitario, margen ni notas
 // internas (spec sección 5). Estado 'descartado' nunca aparece (sección 7).
-export function generarPdfCliente(cotizacionCompleta, config) {
+// Async porque las fuentes del diseño se cargan on-demand (no van en el
+// bundle, ver pdfFonts.js).
+export async function generarPdfCliente(cotizacionCompleta, config) {
   const calculado = calcularCotizacion({
     capitulos: cotizacionCompleta.capitulo,
     paquetes: cotizacionCompleta.paquete_comercial,
@@ -191,21 +378,38 @@ export function generarPdfCliente(cotizacionCompleta, config) {
   })
 
   const doc = new jsPDF()
+  await cargarFuentes(doc)
+
   let y = agregarEncabezado(doc, cotizacionCompleta)
-  y = agregarCapitulos(doc, calculado.capitulos, y)
-  y = agregarPlanDePago(doc, calculado.paquetes, y)
+  const { y: y2, n } = agregarCapitulos(doc, calculado.capitulos, y)
+  y = y2
+  const { y: y3 } = agregarPlanDePago(doc, calculado.paquetes, y, n + 1)
+  y = y3
 
   const todas = calculado.todasLasLineas
-  y = agregarSeccionSimple(doc, 'Opcionales', todas.filter((l) => l.estado === 'opcional'), y, { conPrecio: true })
-  y = agregarSeccionSimple(doc, 'Alcance por definir', todas.filter((l) => l.estado === 'por_definir'), y, { conPrecio: false })
-  y = agregarSeccionSimple(doc, 'No incluye', todas.filter((l) => l.estado === 'excluido'), y, { conPrecio: false })
+  let numero = n + 2
+  if (todas.some((l) => l.estado === 'opcional')) {
+    y = agregarSeccionSimple(doc, numero, 'Opcionales', todas.filter((l) => l.estado === 'opcional'), y, { conPrecio: true })
+    numero += 1
+  }
+  if (todas.some((l) => l.estado === 'por_definir')) {
+    y = agregarSeccionSimple(doc, numero, 'Alcance por definir', todas.filter((l) => l.estado === 'por_definir'), y, { conPrecio: false })
+    numero += 1
+  }
+  if (todas.some((l) => l.estado === 'excluido')) {
+    y = agregarSeccionSimple(doc, numero, 'No incluye', todas.filter((l) => l.estado === 'excluido'), y, { conPrecio: false })
+  }
+
+  y = agregarCondiciones(doc, y)
+  y = agregarTerminos(doc, y)
+  agregarFirmas(doc, y)
 
   agregarPiePagina(doc)
   return doc
 }
 
-export function descargarPdfCliente(cotizacionCompleta, config) {
-  const doc = generarPdfCliente(cotizacionCompleta, config)
+export async function descargarPdfCliente(cotizacionCompleta, config) {
+  const doc = await generarPdfCliente(cotizacionCompleta, config)
   const nombreArchivo = `Cotizacion - ${cotizacionCompleta.nombre_obra}.pdf`
   doc.save(nombreArchivo)
   return doc

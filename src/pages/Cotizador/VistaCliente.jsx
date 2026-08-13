@@ -31,6 +31,7 @@ export default function VistaCliente() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [compartiendo, setCompartiendo] = useState(false)
+  const [descargando, setDescargando] = useState(false)
   const [avisoCompartir, setAvisoCompartir] = useState('')
   const [emitiendo, setEmitiendo] = useState(false)
   const [confirmarEmision, setConfirmarEmision] = useState(false)
@@ -78,7 +79,14 @@ export default function VistaCliente() {
   const validacion = validarEmision(cotizacion, calculado)
   const advertencias = advertenciasEmision(calculado, config)
 
-  const handleDescargar = () => descargarPdfCliente(cotizacion, config)
+  const handleDescargar = async () => {
+    setDescargando(true)
+    try {
+      await descargarPdfCliente(cotizacion, config)
+    } finally {
+      setDescargando(false)
+    }
+  }
 
   const handleEmitir = async () => {
     setEmitiendo(true)
@@ -118,7 +126,7 @@ export default function VistaCliente() {
     setCompartiendo(true)
     setAvisoCompartir('')
     try {
-      const doc = generarPdfCliente(cotizacion, config)
+      const doc = await generarPdfCliente(cotizacion, config)
       const blob = doc.output('blob')
       const nombreArchivo = `Cotizacion - ${cotizacion.nombre_obra}.pdf`
       const file = new File([blob], nombreArchivo, { type: 'application/pdf' })
@@ -147,8 +155,8 @@ export default function VistaCliente() {
           <button onClick={() => setConfirmarEmision(true)} className="btn-secondary text-sm">
             <FileCheck size={14} /> Emitir versión {(cotizacion.version_actual ?? 0) + 1}
           </button>
-          <button onClick={handleDescargar} className="btn-secondary text-sm">
-            <Download size={14} /> Descargar PDF
+          <button onClick={handleDescargar} disabled={descargando} className="btn-secondary text-sm disabled:opacity-60">
+            {descargando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Descargar PDF
           </button>
           <button onClick={handleCompartirWhatsapp} disabled={compartiendo} className="btn-primary text-sm disabled:opacity-60">
             {compartiendo ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Compartir por WhatsApp
