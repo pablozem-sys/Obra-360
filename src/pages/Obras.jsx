@@ -22,23 +22,17 @@ const FORM_INITIAL = {
 
 const TIPOS_DOC_DOC = ['foto', 'contrato', 'cotizacion', 'factura', 'boleta', 'permiso', 'comprobante']
 
-function diasEnObra(o) {
-  if (!o.fecha_inicio) return null
-  const [yi, mi, di] = o.fecha_inicio.split('-').map(Number)
-  const inicio = new Date(yi, mi - 1, di)
-  let fin
-  if (o.estado === 'finalizada') {
-    if (!o.fecha_termino) return null
-    const [yf, mf, df] = o.fecha_termino.split('-').map(Number)
-    fin = new Date(yf, mf - 1, df)
-  } else {
-    fin = new Date()
-    fin.setHours(0, 0, 0, 0)
-  }
-  if (fin < inicio) return null
-  // Días hábiles (lun-vie), excluye sábados y domingos
+// Días hábiles (lun-vie) entre hoy y la fecha de término — cuánto le queda a
+// la obra, no lo que ya transcurrió.
+function diasHabilesRestantes(o) {
+  if (!o.fecha_termino || o.estado === 'finalizada') return null
+  const [yf, mf, df] = o.fecha_termino.split('-').map(Number)
+  const fin = new Date(yf, mf - 1, df)
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  if (fin <= hoy) return 0
   let dias = 0
-  const cur = new Date(inicio)
+  const cur = new Date(hoy)
   while (cur < fin) {
     const diaSemana = cur.getDay()
     if (diaSemana !== 0 && diaSemana !== 6) dias++
@@ -226,7 +220,7 @@ export default function Obras() {
             const ventaTotal = (o.presupuesto || 0) + (m.adicionales - m.descuentos)
             const saldoPendiente = ventaTotal - m.abonos
             const saldoColor = saldoPendiente > 0 ? 'var(--amber)' : saldoPendiente < 0 ? 'var(--red)' : 'var(--green)'
-            const dias       = diasEnObra(o)
+            const diasRestantes = diasHabilesRestantes(o)
             const margenPct  = ventaTotal > 0 ? ((ventaTotal - m.cdo - m.mod) / ventaTotal * 100).toFixed(0) : null
             const margenColor = margenPct === null ? 'var(--subtle)'
               : parseInt(margenPct) >= 20 ? 'var(--green)'
@@ -248,6 +242,24 @@ export default function Obras() {
                   <h3 className="font-display font-semibold text-base leading-tight mb-1" style={{ color: 'var(--text)' }}>
                     {o.nombre}
                   </h3>
+                  {(o.fecha_inicio || o.fecha_termino) && (
+                    <p className="text-xs mb-1" style={{ color: 'var(--subtle)' }}>
+                      {o.fecha_inicio && <>Inicio {formatDate(o.fecha_inicio)}</>}
+                      {o.fecha_inicio && o.fecha_termino && ' · '}
+                      {o.fecha_termino && <>Término {formatDate(o.fecha_termino)}</>}
+                      {diasRestantes !== null && (
+                        <>
+                          {' · '}
+                          <span style={{
+                            fontWeight: 600,
+                            color: diasRestantes === 0 ? 'var(--red)' : diasRestantes <= 5 ? 'var(--amber)' : 'var(--text)',
+                          }}>
+                            {diasRestantes === 0 ? 'Atrasada' : `${diasRestantes} días hábiles restantes`}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  )}
                   {o.clients?.nombre && (
                     <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
                   )}
@@ -260,7 +272,7 @@ export default function Obras() {
                 </div>
 
                 {/* Métricas */}
-                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
+                <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-xl" style={{ background: 'var(--bg-surface)' }}>
                   <div className="col-span-2 sm:col-span-1">
                     <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Venta</p>
                     <p className="num text-sm font-bold" style={{ color: 'var(--blue)' }}>{ventaTotal > 0 ? formatCLP(ventaTotal) : '—'}</p>
@@ -280,18 +292,6 @@ export default function Obras() {
                     <p className="num text-[11px] font-semibold" style={{ color: margenColor }}>
                       {margenPct !== null ? `${margenPct}%` : '—'}
                     </p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Inicio</p>
-                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_inicio)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>Término</p>
-                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{formatDate(o.fecha_termino)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] uppercase tracking-widest mb-0.5 whitespace-nowrap" style={labelStyle}>N° Días</p>
-                    <p className="num text-[11px] font-semibold" style={{ color: 'var(--text)' }}>{dias !== null ? dias : '—'}</p>
                   </div>
                 </div>
 
