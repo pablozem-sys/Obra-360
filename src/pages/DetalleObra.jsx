@@ -6,6 +6,7 @@ import {
   Upload, Camera, DollarSign, ChevronDown, Search,
 } from 'lucide-react'
 import Badge from '../components/ui/Badge'
+import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
 import {
   getObras, getGastos, getIngresos, getDocumentos,
@@ -417,6 +418,7 @@ export default function DetalleObra() {
               {obra.estado && <Badge className={ESTADOS_OBRA[obra.estado]?.color}>{ESTADOS_OBRA[obra.estado]?.label}</Badge>}
             </div>
             <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)' }}>{obra.nombre}</h1>
+            <FechasObra obra={obra} />
             <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{obra.clients?.nombre ?? '—'}</p>
           </div>
           <div className="flex gap-2 flex-shrink-0 items-center">

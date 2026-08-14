@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Building2, MapPin, Loader2, AlertCircle, Trash2, X, FolderOpen, Upload, Check } from 'lucide-react'
 import Badge from '../components/ui/Badge'
+import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
-import { formatCLP, formatDate, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
+import { formatCLP, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
 import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getObraMetrics } from '../lib/supabase'
 
 const FILTROS = [
@@ -21,25 +22,6 @@ const FORM_INITIAL = {
 }
 
 const TIPOS_DOC_DOC = ['foto', 'contrato', 'cotizacion', 'factura', 'boleta', 'permiso', 'comprobante']
-
-// Días hábiles (lun-vie) entre hoy y la fecha de término — cuánto le queda a
-// la obra, no lo que ya transcurrió.
-function diasHabilesRestantes(o) {
-  if (!o.fecha_termino || o.estado === 'finalizada') return null
-  const [yf, mf, df] = o.fecha_termino.split('-').map(Number)
-  const fin = new Date(yf, mf - 1, df)
-  const hoy = new Date()
-  hoy.setHours(0, 0, 0, 0)
-  if (fin <= hoy) return 0
-  let dias = 0
-  const cur = new Date(hoy)
-  while (cur < fin) {
-    const diaSemana = cur.getDay()
-    if (diaSemana !== 0 && diaSemana !== 6) dias++
-    cur.setDate(cur.getDate() + 1)
-  }
-  return dias
-}
 
 export default function Obras() {
   const navigate = useNavigate()
@@ -220,7 +202,6 @@ export default function Obras() {
             const ventaTotal = (o.presupuesto || 0) + (m.adicionales - m.descuentos)
             const saldoPendiente = ventaTotal - m.abonos
             const saldoColor = saldoPendiente > 0 ? 'var(--amber)' : saldoPendiente < 0 ? 'var(--red)' : 'var(--green)'
-            const diasRestantes = diasHabilesRestantes(o)
             const margenPct  = ventaTotal > 0 ? ((ventaTotal - m.cdo - m.mod) / ventaTotal * 100).toFixed(0) : null
             const margenColor = margenPct === null ? 'var(--subtle)'
               : parseInt(margenPct) >= 20 ? 'var(--green)'
@@ -242,24 +223,7 @@ export default function Obras() {
                   <h3 className="font-display font-semibold text-base leading-tight mb-1" style={{ color: 'var(--text)' }}>
                     {o.nombre}
                   </h3>
-                  {(o.fecha_inicio || o.fecha_termino) && (
-                    <p className="text-xs mb-1" style={{ color: 'var(--subtle)' }}>
-                      {o.fecha_inicio && <>Inicio {formatDate(o.fecha_inicio)}</>}
-                      {o.fecha_inicio && o.fecha_termino && ' · '}
-                      {o.fecha_termino && <>Término {formatDate(o.fecha_termino)}</>}
-                      {diasRestantes !== null && (
-                        <>
-                          {' · '}
-                          <span style={{
-                            fontWeight: 600,
-                            color: diasRestantes === 0 ? 'var(--red)' : diasRestantes <= 5 ? 'var(--amber)' : 'var(--text)',
-                          }}>
-                            {diasRestantes === 0 ? 'Atrasada' : `${diasRestantes} días hábiles restantes`}
-                          </span>
-                        </>
-                      )}
-                    </p>
-                  )}
+                  <FechasObra obra={o} />
                   {o.clients?.nombre && (
                     <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
                   )}

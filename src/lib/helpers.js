@@ -32,6 +32,26 @@ export function formatDateShort(dateStr) {
   return `${parseInt(day)} ${months[parseInt(month) - 1]}`
 }
 
+// Días hábiles (lun-vie) entre hoy y la fecha de término de una obra —
+// cuánto le queda, no lo que ya transcurrió. null si no aplica (sin fecha
+// de término, o ya finalizada).
+export function diasHabilesRestantes(o) {
+  if (!o.fecha_termino || o.estado === 'finalizada') return null
+  const [yf, mf, df] = o.fecha_termino.split('-').map(Number)
+  const fin = new Date(yf, mf - 1, df)
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  if (fin <= hoy) return 0
+  let dias = 0
+  const cur = new Date(hoy)
+  while (cur < fin) {
+    const diaSemana = cur.getDay()
+    if (diaSemana !== 0 && diaSemana !== 6) dias++
+    cur.setDate(cur.getDate() + 1)
+  }
+  return dias
+}
+
 export function calcGastosObra(gastos, obraId) {
   return gastos
     .filter(g => g.project_id === obraId)
