@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Plus, Loader2, Eye, Download, Pencil, AlertCircle,
   TrendingDown, TrendingUp, Clock, CheckCircle2, X, Info, Trash2,
-  Upload, Camera, DollarSign, ChevronDown,
+  Upload, Camera, DollarSign, ChevronDown, Search,
 } from 'lucide-react'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -66,6 +66,10 @@ export default function DetalleObra() {
   const [editForm,  setEditForm]  = useState(null)
   const [saving,    setSaving]    = useState(false)
   const [editError, setEditError] = useState('')
+
+  // Búsqueda / filtro de gastos y abonos
+  const [movBusqueda,   setMovBusqueda]   = useState('')
+  const [movFiltroTipo, setMovFiltroTipo] = useState('todos')
 
   // Modal agregar abono
   const [showAbono,    setShowAbono]    = useState(false)
@@ -391,6 +395,14 @@ export default function DetalleObra() {
     return b.fecha.localeCompare(a.fecha)
   })
 
+  const movimientosFiltrados = movimientos.filter(m => {
+    const matchTipo = movFiltroTipo === 'todos' || m.tipo === movFiltroTipo
+    const matchBusqueda = !movBusqueda ||
+      m.desc?.toLowerCase().includes(movBusqueda.toLowerCase()) ||
+      m.sub?.toLowerCase().includes(movBusqueda.toLowerCase())
+    return matchTipo && matchBusqueda
+  })
+
   return (
     <div className="space-y-5">
       {/* ── Header ───────────────────────────────── */}
@@ -712,8 +724,45 @@ export default function DetalleObra() {
           </div>
         </div>
 
+        {movimientos.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-2 px-5 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--subtle)' }} />
+              <input
+                type="text"
+                placeholder="Buscar por descripción o categoría..."
+                value={movBusqueda}
+                onChange={e => setMovBusqueda(e.target.value)}
+                className="input pl-9 text-sm"
+              />
+            </div>
+            <div className="flex gap-1.5 flex-shrink-0">
+              {[
+                { key: 'todos', label: 'Todos' },
+                { key: 'gasto', label: 'Gastos' },
+                { key: 'abono', label: 'Abonos' },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setMovFiltroTipo(f.key)}
+                  className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150"
+                  style={{
+                    background: movFiltroTipo === f.key ? 'var(--amber)' : 'var(--bg-card)',
+                    color:      movFiltroTipo === f.key ? '#000' : 'var(--muted)',
+                    border:     movFiltroTipo === f.key ? 'none' : '1px solid var(--border)',
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {movimientos.length === 0 ? (
           <p className="text-sm text-center py-8" style={{ color: 'var(--subtle)' }}>Sin movimientos registrados</p>
+        ) : movimientosFiltrados.length === 0 ? (
+          <p className="text-sm text-center py-8" style={{ color: 'var(--subtle)' }}>Sin resultados para este filtro</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[480px]">
@@ -731,7 +780,7 @@ export default function DetalleObra() {
                 </tr>
               </thead>
               <tbody>
-                {movimientos.map(m => (
+                {movimientosFiltrados.map(m => (
                   <tr key={`${m.tipo}-${m.id}`} className="table-row">
                     <td className="px-5 py-3.5">
                       <span
