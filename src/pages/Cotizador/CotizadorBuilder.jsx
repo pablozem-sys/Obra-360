@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Plus, Trash2, Loader2, ChevronDown, ChevronRight, Search, History, X, AlertCircle, Eye, ArrowLeft,
@@ -20,10 +20,37 @@ import { calcularCotizacion } from '../../lib/cotizador/calculo'
 
 const LINEA_INICIAL = { partida_id: null, descripcion: '', unidad: '', cantidad: 1, costo_unit_catalogo: null, costo_unit_usado: 0, estado: 'firme' }
 
+// Escribir a Supabase en cada tecla (nombre de capítulo, descripción de
+// línea, etc.) hacía la app sentirse lenta — un guardado de red por cada
+// carácter. El estado local sigue actualizándose al instante (se ve fluido
+// al tipear); el guardado real espera a que la persona deje de escribir, y
+// fusiona ediciones sucesivas al mismo campo/fila en un solo request.
+function useDebouncedWriter(delay = 600) {
+  const timers = useRef({})
+  const pending = useRef({}) // { [key]: { updates, writeFn } } — writeFn guardado junto a los datos para poder volcarlo al desmontar
+  useEffect(() => () => {
+    Object.entries(pending.current).forEach(([key, { updates, writeFn }]) => {
+      clearTimeout(timers.current[key])
+      writeFn(updates)
+    })
+  }, [])
+  return useCallback((key, updates, writeFn) => {
+    const prevUpdates = pending.current[key]?.updates
+    pending.current[key] = { updates: { ...prevUpdates, ...updates }, writeFn }
+    clearTimeout(timers.current[key])
+    timers.current[key] = setTimeout(() => {
+      const { updates: merged, writeFn: fn } = pending.current[key]
+      delete pending.current[key]
+      fn(merged)
+    }, delay)
+  }, [delay])
+}
+
 export default function CotizadorBuilder() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const debouncedWrite = useDebouncedWriter()
   const [cotizacion, setCotizacion] = useState(null)
   const [catalogo, setCatalogo] = useState([])
   const [config, setConfig] = useState({ iva_pct: 19, iva_obra_factor: 0.5 })
@@ -110,12 +137,12 @@ export default function CotizadorBuilder() {
     }
   }
 
-  const handleUpdatePaquete = async (paqueteId, updates) => {
+  const handleUpdatePaquete = (paqueteId, updates) => {
     setCotizacion((c) => ({
       ...c,
       paquete_comercial: c.paquete_comercial.map((p) => (p.id === paqueteId ? { ...p, ...updates } : p)),
     }))
-    await updatePaquete(paqueteId, updates)
+    debouncedWrite(`paquete:${paqueteId}`, updates, (merged) => updatePaquete(paqueteId, merged))
   }
 
   const handleDeletePaquete = async (paqueteId) => {
@@ -149,7 +176,7 @@ export default function CotizadorBuilder() {
     }))
   }
 
-  const handleUpdateHito = async (paqueteId, hitoId, updates) => {
+  const handleUpdateHito = (paqueteId, hitoId, updates) => {
     setCotizacion((c) => ({
       ...c,
       paquete_comercial: c.paquete_comercial.map((p) => p.id !== paqueteId ? p : {
@@ -157,7 +184,7 @@ export default function CotizadorBuilder() {
         hito_pago: p.hito_pago.map((h) => (h.id === hitoId ? { ...h, ...updates } : h)),
       }),
     }))
-    await updateHito(hitoId, updates)
+    debouncedWrite(`hito:${hitoId}`, updates, (merged) => updateHito(hitoId, merged))
   }
 
   const handleDeleteHito = async (paqueteId, hitoId) => {
@@ -189,12 +216,12 @@ export default function CotizadorBuilder() {
     setCapExpandido((prev) => new Set(prev).add(nuevo.id))
   }
 
-  const handleUpdateCapitulo = async (capId, updates) => {
+  const handleUpdateCapitulo = (capId, updates) => {
     setCotizacion((c) => ({
       ...c,
       capitulo: c.capitulo.map((cap) => (cap.id === capId ? { ...cap, ...updates } : cap)),
     }))
-    await updateCapitulo(capId, updates)
+    debouncedWrite(`capitulo:${capId}`, updates, (merged) => updateCapitulo(capId, merged))
   }
 
   const handleDeleteCapitulo = async (capId) => {
@@ -213,7 +240,7 @@ export default function CotizadorBuilder() {
     }))
   }
 
-  const handleUpdateSubBloque = async (capId, sbId, updates) => {
+  const handleUpdateSubBloque = (capId, sbId, updates) => {
     setCotizacion((c) => ({
       ...c,
       capitulo: c.capitulo.map((cp) => cp.id !== capId ? cp : {
@@ -221,7 +248,7 @@ export default function CotizadorBuilder() {
         sub_bloque: cp.sub_bloque.map((sb) => (sb.id === sbId ? { ...sb, ...updates } : sb)),
       }),
     }))
-    await updateSubBloque(sbId, updates)
+    debouncedWrite(`subbloque:${sbId}`, updates, (merged) => updateSubBloque(sbId, merged))
   }
 
   const handleDeleteSubBloque = async (capId, sbId) => {
@@ -266,9 +293,20 @@ export default function CotizadorBuilder() {
     setSelectorPartida(null)
   }
 
+  // Inmediata — la usan el blur de costo y la confirmación del override
+  // (sección "Override de costo" más abajo), donde no hay tecleo rápido que
+  // debounce y sí importa que el motivo/historial queden en el mismo momento.
   const handleUpdateLineaField = async (capId, sbId, lineaId, field, value) => {
     patchLinea(capId, sbId, lineaId, { [field]: value })
     await updateLinea(lineaId, { [field]: value })
+  }
+
+  // Debounced — la usan descripción/unidad/cantidad/observaciones (onChange
+  // en cada tecla). El estado local se actualiza al instante para que se
+  // sienta fluido al tipear; el guardado real espera a que la persona pare.
+  const handleUpdateLineaFieldDebounced = (capId, sbId, lineaId, field, value) => {
+    patchLinea(capId, sbId, lineaId, { [field]: value })
+    debouncedWrite(`linea:${lineaId}`, { [field]: value }, (merged) => updateLinea(lineaId, merged))
   }
 
   const handleDeleteLinea = async (capId, sbId, lineaId) => {
@@ -358,7 +396,7 @@ export default function CotizadorBuilder() {
             onUpdateSubBloque={(sbId, updates) => handleUpdateSubBloque(cap.id, sbId, updates)}
             onDeleteSubBloque={(sbId) => handleDeleteSubBloque(cap.id, sbId)}
             onAbrirSelectorPartida={(sbId) => setSelectorPartida({ capId: cap.id, sbId })}
-            onUpdateLineaField={(sbId, lineaId, field, value) => handleUpdateLineaField(cap.id, sbId, lineaId, field, value)}
+            onUpdateLineaField={(sbId, lineaId, field, value) => handleUpdateLineaFieldDebounced(cap.id, sbId, lineaId, field, value)}
             onCostoBlur={(sbId, linea, valor) => handleCostoBlur(cap.id, sbId, linea, valor)}
             onDeleteLinea={(sbId, lineaId) => handleDeleteLinea(cap.id, sbId, lineaId)}
             lineasCalculadas={todasLasLineas}
