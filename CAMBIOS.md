@@ -339,3 +339,18 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Root cause real: la fecha "hoy" que usa por defecto la pestaña Registros se calculaba en horario UTC en vez de horario de Chile. Como Chile va 4 horas atrás, entre las ~20:00 y la medianoche la app buscaba el día siguiente (que todavía no tiene nadie marcado) en vez del día real — la lista se veía vacía justo en el horario en que se suele revisar la asistencia del día
 - Fix: se unificó ese cálculo para que use siempre la misma función de hora local que ya usaba el resto del sistema para guardar las marcaciones
 - Disponible en ambas plataformas (VAION y VRION)
+
+## Nuevo módulo: Cotizador (2026-08-13)
+- Permite armar cotizaciones de obra directamente en VAION en vez de Excel
+- Cada cotización nueva llega con la estructura típica ya cargada (piscina, quincho, terraza, etc.) para ajustar en vez de armar desde cero — se puede borrar lo que no aplique a esa obra
+- Catálogo de partidas con el precio usado en obras anteriores, para no perder esa referencia al cotizar
+- Paquetes comerciales y plan de pago (cuotas) con IVA calculado automáticamente
+- PDF con el diseño oficial de VA Constructora, listo para enviar
+- Botón para compartir la cotización por WhatsApp directo desde el sistema
+- Historial de versiones por cotización, y opción de marcar cuál fue aceptada por el cliente
+- Se puede eliminar una cotización completa
+- Disponible solo en VAION por ahora (el catálogo de precios cargado es específico de VA Constructora)
+
+## Resumen por ítem en la primera hoja del PDF — en espera (2026-08-13)
+- Se armó una versión donde la primera hoja del PDF de cotización muestra un resumen (cada ítem con su costo total) y recién desde la segunda hoja viene el detalle línea por línea
+- Ya está lista y probada, pero **todavía no se activó** — queda guardada para aplicarla más adelante si se decide usarla con el cliente
