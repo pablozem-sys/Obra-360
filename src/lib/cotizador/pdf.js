@@ -160,6 +160,44 @@ function barraSubtotal(doc, y, label, valor) {
   return y + h + mm(26)
 }
 
+// Página 1: resumen por ítem (capítulo) y su costo — antes de entrar al
+// detalle línea por línea de cada uno.
+function agregarResumen(doc, capitulos, startY) {
+  let y = startY
+  doc.setFont(F_ARCHIVO_700, 'normal')
+  doc.setFontSize(px(13.5))
+  doc.setTextColor(...INK)
+  doc.text('Resumen', MARGIN, y)
+  y += mm(10)
+
+  const filas = []
+  let total = 0
+  let n = 0
+  capitulos.forEach((cap) => {
+    const lineas = cap.sub_bloque.flatMap((sb) => sb.linea)
+    if (lineas.length === 0) return
+    n += 1
+    const subtotal = lineas.reduce((acc, l) => acc + l.totalLinea, 0)
+    total += subtotal
+    filas.push([String(n), cap.nombre, formatCLP(subtotal)])
+  })
+
+  autoTable(doc, {
+    ...ESTILO_TABLA,
+    startY: y,
+    head: [['#', 'Ítem', 'Costo']],
+    body: filas,
+    columnStyles: {
+      0: { cellWidth: mm(30), font: F_MONO_400 },
+      2: { font: F_MONO_500, halign: 'right' },
+    },
+    foot: [['', 'Total', { content: formatCLP(total), styles: { halign: 'right' } }]],
+    footStyles: { font: F_ARCHIVO_700, fontSize: px(11), textColor: INK, fillColor: ACCENT_SOFT },
+  })
+
+  return doc.lastAutoTable.finalY + mm(26)
+}
+
 function agregarCapitulos(doc, capitulos, startY) {
   let y = startY
   let n = 0
@@ -358,6 +396,10 @@ export async function generarPdfCliente(cotizacionCompleta, config) {
   await cargarFuentes(doc)
 
   let y = agregarEncabezado(doc, cotizacionCompleta)
+  y = agregarResumen(doc, calculado.capitulos, y)
+
+  doc.addPage()
+  y = MARGIN
   const { y: y2, n } = agregarCapitulos(doc, calculado.capitulos, y)
   y = y2
   const { y: y3 } = agregarPlanDePago(doc, calculado.paquetes, y, n + 1)
