@@ -31,6 +31,16 @@ export async function getObras() {
   return data
 }
 
+export async function getObraById(id) {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*, clients(nombre)')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data
+}
+
 export async function createObra(obra) {
   const { data, error } = await supabase
     .from('projects')
@@ -287,12 +297,13 @@ export async function getCuentasPagar() {
   return data
 }
 
-export async function getIngresos() {
-  const { data, error } = await supabase
+export async function getIngresos(projectId) {
+  let query = supabase
     .from('income')
     .select('*, projects(nombre)')
     .eq('empresa_id', currentEmpresaId)
-    .order('fecha', { ascending: false })
+  if (projectId) query = query.eq('project_id', projectId)
+  const { data, error } = await query.order('fecha', { ascending: false })
   if (error) throw error
   return data ?? []
 }

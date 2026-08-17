@@ -9,7 +9,7 @@ import Badge from '../components/ui/Badge'
 import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
 import {
-  getObras, getGastos, getIngresos, getDocumentos,
+  getObraById, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
   getAdditionalSales, createAdditionalSale, deleteAdditionalSale,
   updateGasto, deleteGasto, uploadDocumento, createDocumento, deleteDocumento,
@@ -102,16 +102,16 @@ export default function DetalleObra() {
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 6000)
     Promise.all([
-      getObras().catch(() => []),
+      getObraById(id).catch(() => null),
       getGastos(id).catch(() => []),
-      getIngresos().catch(() => []),
+      getIngresos(id).catch(() => []),
       getDocumentos(id).catch(() => []),
       getAttendanceByProject(id).catch(() => []),
       getAdditionalSales(id).catch(() => []),
-    ]).then(([obras, g, ing, d, asis, addSales]) => {
-      setObra(obras.find(o => o.id === id) ?? null)
+    ]).then(([obra, g, ing, d, asis, addSales]) => {
+      setObra(obra)
       setGastos(g)
-      setIngresos(ing.filter(i => i.project_id === id))
+      setIngresos(ing)
       setDocs(d)
       setAsistencia(asis)
       setAdditionalSales(addSales)
