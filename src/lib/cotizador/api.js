@@ -39,6 +39,66 @@ export async function createPartidaCatalogo(partida) {
   return data
 }
 
+// Incluye inactivos — a diferencia de getCatalogo() (solo para el selector de
+// líneas), el modal de Inventario necesita ver y poder reactivar productos
+// desactivados.
+export async function getCatalogoCompleto() {
+  const { data, error } = await supabase
+    .from('partida_catalogo')
+    .select('*')
+    .eq('empresa_id', currentEmpresaId)
+    .order('familia')
+    .order('linea_producto')
+    .order('descripcion')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function updatePartidaCatalogo(id, updates) {
+  const { data, error } = await supabase.from('partida_catalogo').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
+// Soft delete — nunca borrar de verdad (rompería linea.partida_id de
+// cotizaciones existentes y los snapshots ya emitidos en cotizacion_version).
+export async function desactivarPartidaCatalogo(id) {
+  return updatePartidaCatalogo(id, { activa: false })
+}
+
+// ── Tramos de descuento por volumen (sección 11) ──────────────────
+export async function getDescuentoTramos() {
+  const { data, error } = await supabase
+    .from('descuento_tramo')
+    .select('*')
+    .eq('empresa_id', currentEmpresaId)
+    .order('familia')
+    .order('cantidad_desde')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createDescuentoTramo(tramo) {
+  const { data, error } = await supabase
+    .from('descuento_tramo')
+    .insert([{ ...tramo, empresa_id: currentEmpresaId }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateDescuentoTramo(id, updates) {
+  const { data, error } = await supabase.from('descuento_tramo').update(updates).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteDescuentoTramo(id) {
+  const { error } = await supabase.from('descuento_tramo').delete().eq('id', id)
+  if (error) throw error
+}
+
 // Histórico de precios de una partida en obras anteriores (spec sección 4 regla 4)
 export async function getHistorialPrecio(partidaId) {
   const { data, error } = await supabase
@@ -208,7 +268,7 @@ export async function getCotizacionCompleta(id) {
         *,
         sub_bloque (
           *,
-          linea (*)
+          linea (*, partida_catalogo(familia, codigo))
         )
       ),
       paquete_comercial (

@@ -8,7 +8,7 @@ import Modal from '../../components/ui/Modal'
 import { useAuth } from '../../context/AuthContext'
 import { formatCLP, formatDate, ESTADOS_COTIZACION, REGIMENES_IVA } from '../../lib/helpers'
 import {
-  getCotizacionCompleta, getCatalogo, getCotizadorConfig, getHistorialPrecio, registrarHistorialPrecio,
+  getCotizacionCompleta, getCatalogo, getCotizadorConfig, getDescuentoTramos, getHistorialPrecio, registrarHistorialPrecio,
   createCapitulo, updateCapitulo, deleteCapitulo,
   createSubBloque, updateSubBloque, deleteSubBloque,
   createLinea, updateLinea, deleteLinea,
@@ -53,6 +53,7 @@ export default function CotizadorBuilder() {
   const debouncedWrite = useDebouncedWriter()
   const [cotizacion, setCotizacion] = useState(null)
   const [catalogo, setCatalogo] = useState([])
+  const [tramosDescuento, setTramosDescuento] = useState([])
   const [config, setConfig] = useState({ iva_pct: 19, iva_obra_factor: 0.5 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -64,14 +65,16 @@ export default function CotizadorBuilder() {
   const [overridePendiente, setOverridePendiente] = useState(null)
 
   const cargar = useCallback(async () => {
-    const [cot, cat, cfg] = await Promise.all([
+    const [cot, cat, cfg, tramos] = await Promise.all([
       getCotizacionCompleta(id),
       getCatalogo(),
       getCotizadorConfig(),
+      getDescuentoTramos(),
     ])
     setCotizacion(cot)
     setCatalogo(cat)
     setConfig(cfg)
+    setTramosDescuento(tramos)
     setCapExpandido(new Set(cot.capitulo.map((c) => c.id)))
   }, [id])
 
@@ -102,6 +105,7 @@ export default function CotizadorBuilder() {
     capitulos: cotizacion.capitulo,
     paquetes: cotizacion.paquete_comercial,
     config: { ivaPct: config.iva_pct, ivaObraFactor: config.iva_obra_factor },
+    tramosDescuento,
   })
   const { todasLasLineas, totalCotizacion, lineasSinPrecio, capitulosSinPaquete } = calculado
 
@@ -659,6 +663,11 @@ function LineaRow({ linea, calculada, onUpdateField, onCostoBlur, onDelete }) {
         </td>
         <td className="px-1 py-1.5 num text-sm font-semibold" style={{ color: 'var(--text)' }}>
           {formatCLP(calculada?.totalLinea ?? 0)}
+          {calculada?.descuentoMonto > 0 && (
+            <p className="text-[10px] font-normal mt-0.5" style={{ color: 'var(--green)' }}>
+              Descuento por mayor ({calculada.descuentoPct}%): -{formatCLP(calculada.descuentoMonto)}
+            </p>
+          )}
         </td>
         <td className="px-1 py-1.5">
           <input
@@ -831,19 +840,43 @@ function DestinoPicker({ capitulos, destinosOcupados, onAdd }) {
 
 function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
   const [busqueda, setBusqueda] = useState('')
+  const [familiaFiltro, setFamiliaFiltro] = useState('')
+  const [lineaProductoFiltro, setLineaProductoFiltro] = useState('')
   const [seleccionada, setSeleccionada] = useState(null)
   const [historico, setHistorico] = useState(null)
+  const [m2Cobertura, setM2Cobertura] = useState('')
 
   useEffect(() => {
-    if (!open) { setBusqueda(''); setSeleccionada(null); setHistorico(null) }
+    if (!open) {
+      setBusqueda(''); setFamiliaFiltro(''); setLineaProductoFiltro('')
+      setSeleccionada(null); setHistorico(null); setM2Cobertura('')
+    }
   }, [open])
 
-  const filtradas = catalogo.filter((p) => p.descripcion.toLowerCase().includes(busqueda.toLowerCase()))
+  const familias = [...new Set(catalogo.map((p) => p.familia).filter(Boolean))].sort()
+  const lineasProducto = [...new Set(
+    catalogo.filter((p) => !familiaFiltro || p.familia === familiaFiltro).map((p) => p.linea_producto).filter(Boolean)
+  )].sort()
+
+  const filtradas = catalogo.filter((p) => {
+    const q = busqueda.toLowerCase()
+    const matchTexto = !q || p.descripcion.toLowerCase().includes(q) || (p.codigo ?? '').toLowerCase().includes(q)
+    const matchFamilia = !familiaFiltro || p.familia === familiaFiltro
+    const matchLinea = !lineaProductoFiltro || p.linea_producto === lineaProductoFiltro
+    return matchTexto && matchFamilia && matchLinea
+  })
 
   const handleClickPartida = async (partida) => {
     setSeleccionada(partida)
+    setM2Cobertura('')
     setHistorico(await getHistorialPrecio(partida.id))
   }
+
+  const esPorCaja = seleccionada?.cobertura_m2_caja != null
+  const cantidadCalculada = esPorCaja
+    ? Math.ceil(Number(m2Cobertura || 0) / seleccionada.cobertura_m2_caja)
+    : 1
+  const puedeConfirmarConPartida = seleccionada && (!esPorCaja || cantidadCalculada > 0)
 
   const confirmarConPartida = () => {
     onSeleccionar({
@@ -852,7 +885,7 @@ function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
       unidad: seleccionada.unidad_sugerida,
       costo_unit_catalogo: seleccionada.costo_unitario_ref,
       costo_unit_usado: seleccionada.costo_unitario_ref,
-      cantidad: 1,
+      cantidad: esPorCaja ? cantidadCalculada : 1,
     })
   }
 
@@ -869,10 +902,30 @@ function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
           <input
             autoFocus
             className="input pl-9"
-            placeholder="Buscar en el catálogo..."
+            placeholder="Buscar por nombre o código..."
             value={busqueda}
             onChange={(e) => { setBusqueda(e.target.value); setSeleccionada(null); setHistorico(null) }}
           />
+        </div>
+
+        <div className="flex gap-2">
+          <select
+            className="select flex-1 text-sm"
+            value={familiaFiltro}
+            onChange={(e) => { setFamiliaFiltro(e.target.value); setLineaProductoFiltro(''); setSeleccionada(null) }}
+          >
+            <option value="">Toda familia</option>
+            {familias.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select
+            className="select flex-1 text-sm"
+            value={lineaProductoFiltro}
+            onChange={(e) => { setLineaProductoFiltro(e.target.value); setSeleccionada(null) }}
+            disabled={lineasProducto.length === 0}
+          >
+            <option value="">Toda línea</option>
+            {lineasProducto.map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
         </div>
 
         <div className="max-h-64 overflow-y-auto rounded-xl" style={{ border: '1px solid var(--border)' }}>
@@ -889,7 +942,7 @@ function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
                   borderBottom: '1px solid var(--border)',
                 }}
               >
-                <span style={{ color: 'var(--text)' }}>{p.descripcion}</span>
+                <span style={{ color: 'var(--text)' }}>{p.codigo ? `${p.codigo} — ` : ''}{p.descripcion}</span>
                 <span className="num flex-shrink-0 ml-3" style={{ color: 'var(--muted)' }}>
                   {p.unidad_sugerida ?? '—'} · {p.costo_unitario_ref != null ? formatCLP(p.costo_unitario_ref) : 'sin precio'}
                 </span>
@@ -897,6 +950,26 @@ function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
             ))
           )}
         </div>
+
+        {esPorCaja && (
+          <div className="rounded-xl p-3" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <label className="text-xs" style={{ color: 'var(--subtle)' }}>
+              m² a cubrir (cada caja cubre {seleccionada.cobertura_m2_caja}m²)
+            </label>
+            <input
+              type="number"
+              className="input num mt-1"
+              placeholder="Ej: 53"
+              value={m2Cobertura}
+              onChange={(e) => setM2Cobertura(e.target.value)}
+            />
+            {Number(m2Cobertura) > 0 && (
+              <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
+                = <strong style={{ color: 'var(--text)' }}>{cantidadCalculada} caja(s)</strong> (redondeado hacia arriba)
+              </p>
+            )}
+          </div>
+        )}
 
         {seleccionada && (
           <div className="rounded-xl p-3 text-xs" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
@@ -922,7 +995,7 @@ function SelectorPartidaModal({ open, onClose, catalogo, onSeleccionar }) {
           <button onClick={confirmarSinPartida} disabled={!busqueda.trim() || seleccionada} className="btn-secondary flex-1 justify-center disabled:opacity-40">
             Agregar sin catálogo
           </button>
-          <button onClick={confirmarConPartida} disabled={!seleccionada} className="btn-primary flex-1 justify-center disabled:opacity-40">
+          <button onClick={confirmarConPartida} disabled={!puedeConfirmarConPartida} className="btn-primary flex-1 justify-center disabled:opacity-40">
             <Plus size={14} /> Agregar del catálogo
           </button>
         </div>

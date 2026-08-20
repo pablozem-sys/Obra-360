@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, Download, Share2, AlertCircle, FileCheck, Check, Ch
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../../components/ui/Modal'
 import { formatCLP, formatDate } from '../../lib/helpers'
-import { getCotizacionCompleta, getCotizadorConfig, getVersiones, emitirVersion, marcarVersionAceptada } from '../../lib/cotizador/api'
+import { getCotizacionCompleta, getCotizadorConfig, getDescuentoTramos, getVersiones, emitirVersion, marcarVersionAceptada } from '../../lib/cotizador/api'
 import { calcularCotizacion, validarEmision, advertenciasEmision, snapshotCotizacion, compararVersiones } from '../../lib/cotizador/calculo'
 import { generarPdfCliente } from '../../lib/cotizador/pdf'
 
@@ -27,6 +27,7 @@ export default function VistaCliente() {
   const { user } = useAuth()
   const [cotizacion, setCotizacion] = useState(null)
   const [config, setConfig] = useState({ iva_pct: 19, iva_obra_factor: 0.5 })
+  const [tramosDescuento, setTramosDescuento] = useState([])
   const [versiones, setVersiones] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -44,10 +45,13 @@ export default function VistaCliente() {
   const [pdfError, setPdfError] = useState('')
 
   const cargar = useCallback(async () => {
-    const [cot, cfg, vers] = await Promise.all([getCotizacionCompleta(id), getCotizadorConfig(), getVersiones(id)])
+    const [cot, cfg, vers, tramos] = await Promise.all([
+      getCotizacionCompleta(id), getCotizadorConfig(), getVersiones(id), getDescuentoTramos(),
+    ])
     setCotizacion(cot)
     setConfig(cfg)
     setVersiones(vers)
+    setTramosDescuento(tramos)
   }, [id])
 
   useEffect(() => {
@@ -60,7 +64,7 @@ export default function VistaCliente() {
     let cancelado = false
     setPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
     setPdfError('')
-    generarPdfCliente(cotizacion, config)
+    generarPdfCliente(cotizacion, config, tramosDescuento)
       .then((doc) => {
         if (cancelado) return
         const blob = doc.output('blob')
@@ -70,7 +74,7 @@ export default function VistaCliente() {
       .catch((err) => !cancelado && setPdfError(err.message || 'Error al generar el PDF'))
     return () => { cancelado = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cotizacion, config])
+  }, [cotizacion, config, tramosDescuento])
 
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl) }, [pdfUrl])
 
@@ -95,6 +99,7 @@ export default function VistaCliente() {
     capitulos: cotizacion.capitulo,
     paquetes: cotizacion.paquete_comercial,
     config: { ivaPct: config.iva_pct, ivaObraFactor: config.iva_obra_factor },
+    tramosDescuento,
   })
 
   const validacion = validarEmision(cotizacion, calculado)

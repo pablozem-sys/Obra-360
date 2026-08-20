@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, FileText, Loader2, AlertCircle, Trash2, X } from 'lucide-react'
+import { Plus, FileText, Loader2, AlertCircle, Trash2, X, Package } from 'lucide-react'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
+import InventarioModal from './InventarioModal'
 import { useAuth } from '../../context/AuthContext'
 import { formatDate, ESTADOS_COTIZACION } from '../../lib/helpers'
 import { getCotizaciones, createCotizacion, crearCotizacionDesdeTemplate, deleteCotizacion } from '../../lib/cotizador/api'
@@ -24,6 +25,7 @@ export default function CotizadorList() {
   const [formError, setFormError] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [showInventario, setShowInventario] = useState(false)
 
   useEffect(() => {
     getCotizaciones().then(setCotizaciones).catch(() => {}).finally(() => setLoading(false))
@@ -82,12 +84,20 @@ export default function CotizadorList() {
           <h1 className="font-display font-bold text-2xl" style={{ color: 'var(--text)', letterSpacing: '-0.04em' }}>Cotizador</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{cotizaciones.length} cotizaciones</p>
         </div>
-        <button onClick={() => { setShowForm(true); setFormError('') }} className="btn-primary text-sm">
-          <Plus size={16} />
-          <span className="hidden sm:inline">Nueva Cotización</span>
-          <span className="sm:hidden">Nueva</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowInventario(true)} className="btn-secondary text-sm">
+            <Package size={16} />
+            <span className="hidden sm:inline">Inventario</span>
+          </button>
+          <button onClick={() => { setShowForm(true); setFormError('') }} className="btn-primary text-sm">
+            <Plus size={16} />
+            <span className="hidden sm:inline">Nueva Cotización</span>
+            <span className="sm:hidden">Nueva</span>
+          </button>
+        </div>
       </div>
+
+      <InventarioModal open={showInventario} onClose={() => setShowInventario(false)} />
 
       {cotizaciones.length === 0 ? (
         <div className="card p-12 text-center">

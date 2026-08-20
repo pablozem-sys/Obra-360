@@ -213,13 +213,18 @@ function agregarCapitulos(doc, capitulos, startY) {
       ...ESTILO_TABLA,
       startY: y,
       head: [['Descripción', 'Unidad', 'Cant.', 'Precio unit.', 'Total']],
-      body: lineas.map((l) => [
-        l.nota_cliente ? `${l.descripcion}\n${l.nota_cliente}` : l.descripcion,
-        l.unidad ?? '',
-        String(l.cantidad),
-        l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—',
-        formatCLP(l.totalLinea),
-      ]),
+      body: lineas.map((l) => {
+        const partes = [l.descripcion]
+        if (l.nota_cliente) partes.push(l.nota_cliente)
+        if (l.descuentoMonto > 0) partes.push(`Descuento por mayor (${l.descuentoPct}%): -${formatCLP(l.descuentoMonto)}`)
+        return [
+          partes.join('\n'),
+          l.unidad ?? '',
+          String(l.cantidad),
+          l.precioUnitario != null ? formatCLP(l.precioUnitario) : '—',
+          formatCLP(l.totalLinea),
+        ]
+      }),
       columnStyles: {
         0: { cellWidth: CONTENT_W * 0.52 },
         2: { font: F_MONO_400, halign: 'right' },
@@ -385,11 +390,12 @@ function agregarPiePagina(doc) {
 // internas (spec sección 5). Estado 'descartado' nunca aparece (sección 7).
 // Async porque las fuentes del diseño se cargan on-demand (no van en el
 // bundle, ver pdfFonts.js).
-export async function generarPdfCliente(cotizacionCompleta, config) {
+export async function generarPdfCliente(cotizacionCompleta, config, tramosDescuento = []) {
   const calculado = calcularCotizacion({
     capitulos: cotizacionCompleta.capitulo,
     paquetes: cotizacionCompleta.paquete_comercial,
     config: { ivaPct: config.iva_pct, ivaObraFactor: config.iva_obra_factor },
+    tramosDescuento,
   })
 
   const doc = new jsPDF()

@@ -10,10 +10,28 @@ export function calcularTotalLinea(precioUnitario, cantidad) {
   return redondear(precioUnitario * cantidad);
 }
 
-export function calcularLinea({ costoUnitario, margenPct, cantidad }) {
+export function calcularLinea({ costoUnitario, margenPct, cantidad, descuentoPct = 0 }) {
   const precioUnitario = calcularPrecioUnitario(costoUnitario, margenPct);
-  const totalLinea = calcularTotalLinea(precioUnitario, cantidad);
-  return { precioUnitario, totalLinea };
+  const totalLineaBruto = calcularTotalLinea(precioUnitario, cantidad);
+  const descuentoMonto = redondear(totalLineaBruto * (descuentoPct / 100));
+  const totalLinea = totalLineaBruto - descuentoMonto;
+  return { precioUnitario, totalLineaBruto, descuentoPct, descuentoMonto, totalLinea };
+}
+
+// Sección 11 (mármoles/mosaicos): elige el tramo de descuento por mayor
+// aplicable a una línea, según la familia de su partida de catálogo y su
+// propia cantidad (no el agregado de la cotización — decisión del cliente).
+// Si dos tramos se solaparan (no debería, la UI de tramos lo evita, pero por
+// robustez) se usa el de cantidad_desde más alto.
+export function resolverDescuentoTramo(tramos, familia, cantidad) {
+  if (!familia || cantidad == null) return 0;
+  const aplicables = tramos.filter((t) =>
+    t.familia === familia &&
+    cantidad >= t.cantidad_desde &&
+    (t.cantidad_hasta == null || cantidad <= t.cantidad_hasta)
+  );
+  if (aplicables.length === 0) return 0;
+  return aplicables.reduce((max, t) => (t.cantidad_desde > max.cantidad_desde ? t : max), aplicables[0]).porcentaje;
 }
 
 // Suma líneas ya redondeadas (no recalcula sobre el subtotal de costos) para
@@ -111,19 +129,24 @@ function regimenDeDestino(capitulos, destino) {
 // paquetes → hitos) a partir de los datos crudos tal como los devuelve
 // getCotizacionCompleta(). Única fuente de verdad para el builder, la vista
 // cliente y el PDF — evita que cada uno recalcule (y eventualmente diverja).
-export function calcularCotizacion({ capitulos, paquetes, config }) {
+export function calcularCotizacion({ capitulos, paquetes, config, tramosDescuento = [] }) {
   const capitulosCalculados = capitulos.map((cap) => ({
     ...cap,
     sub_bloque: cap.sub_bloque.map((sb) => ({
       ...sb,
       linea: sb.linea.map((l) => {
-        if (l.costo_unit_usado == null) return { ...l, precioUnitario: null, totalLinea: 0 };
-        const { precioUnitario, totalLinea } = calcularLinea({
+        if (l.costo_unit_usado == null) {
+          return { ...l, precioUnitario: null, totalLinea: 0, totalLineaBruto: 0, descuentoPct: 0, descuentoMonto: 0 };
+        }
+        const familia = l.partida_catalogo?.familia ?? null;
+        const descuentoPct = resolverDescuentoTramo(tramosDescuento, familia, l.cantidad);
+        const { precioUnitario, totalLinea, totalLineaBruto, descuentoMonto } = calcularLinea({
           costoUnitario: l.costo_unit_usado,
           margenPct: cap.margen_pct ?? 0,
           cantidad: l.cantidad,
+          descuentoPct,
         });
-        return { ...l, precioUnitario, totalLinea };
+        return { ...l, precioUnitario, totalLinea, totalLineaBruto, descuentoPct, descuentoMonto };
       }),
     })),
   }));

@@ -13,6 +13,7 @@ import {
   advertenciasEmision,
   compararVersiones,
   lineasSinPrecio,
+  resolverDescuentoTramo,
 } from './calculo.js';
 
 describe('redondear', () => {
@@ -39,6 +40,51 @@ describe('calcularLinea', () => {
       cantidad: 20,
     });
     expect(precioUnitario).toBe(45990);
+    expect(totalLinea).toBe(919800);
+  });
+});
+
+describe('resolverDescuentoTramo', () => {
+  const tramos = [
+    { familia: 'Mármol Travertino', cantidad_desde: 10, cantidad_hasta: 29, porcentaje: 5 },
+    { familia: 'Mármol Travertino', cantidad_desde: 30, cantidad_hasta: 59, porcentaje: 10 },
+    { familia: 'Mármol Travertino', cantidad_desde: 60, cantidad_hasta: null, porcentaje: 15 },
+  ];
+
+  it('no aplica descuento por debajo del primer tramo', () => {
+    expect(resolverDescuentoTramo(tramos, 'Mármol Travertino', 9)).toBe(0);
+  });
+
+  it('elige el tramo correcto según la cantidad (dato real: 20 ML de Borde 50x2)', () => {
+    expect(resolverDescuentoTramo(tramos, 'Mármol Travertino', 20)).toBe(5);
+  });
+
+  it('un tramo sin cantidad_hasta cubre "en adelante"', () => {
+    expect(resolverDescuentoTramo(tramos, 'Mármol Travertino', 100)).toBe(15);
+  });
+
+  it('ignora tramos de otras familias', () => {
+    expect(resolverDescuentoTramo(tramos, 'Mosaico', 40)).toBe(0);
+  });
+
+  it('sin familia (línea sin catálogo) no aplica descuento', () => {
+    expect(resolverDescuentoTramo(tramos, null, 100)).toBe(0);
+  });
+});
+
+describe('calcularLinea con descuento', () => {
+  it('aplica el tramo de descuento sobre el total con margen (dato real: PS 7736 Jeju, 30 cajas, tramo 10%)', () => {
+    const { totalLineaBruto, descuentoMonto, totalLinea } = calcularLinea({
+      costoUnitario: 21668, margenPct: 0, cantidad: 30, descuentoPct: 10,
+    });
+    expect(totalLineaBruto).toBe(650040);
+    expect(descuentoMonto).toBe(65004);
+    expect(totalLinea).toBe(585036);
+  });
+
+  it('sin descuentoPct el resultado es idéntico al caso sin descuento (compat)', () => {
+    const { totalLinea, descuentoMonto } = calcularLinea({ costoUnitario: 45990, margenPct: 0, cantidad: 20 });
+    expect(descuentoMonto).toBe(0);
     expect(totalLinea).toBe(919800);
   });
 });
@@ -195,6 +241,30 @@ describe('calcularCotizacion — orquestación', () => {
     const resultado = calcularCotizacion({ capitulos, paquetes, config });
     expect(resultado.paquetes[0].cuotasValidas).toBe(false);
     expect(resultado.totalGeneral).toBeNull();
+  });
+
+  it('propaga el descuento por tramo hasta el total de la cotización (catálogo → familia → tramo → totalLinea)', () => {
+    const tramosDescuento = [
+      { familia: 'Mosaico', cantidad_desde: 20, cantidad_hasta: null, porcentaje: 10 },
+    ];
+    const capitulos = [
+      {
+        id: 'cap1', margen_pct: 0, regimen_iva: 'obra',
+        sub_bloque: [
+          {
+            id: 'sb1',
+            linea: [{
+              id: 'l1', estado: 'firme', costo_unit_usado: 21668, cantidad: 30,
+              partida_catalogo: { familia: 'Mosaico' },
+            }],
+          },
+        ],
+      },
+    ];
+    const resultado = calcularCotizacion({ capitulos, paquetes: [], config, tramosDescuento });
+    expect(resultado.todasLasLineas[0].descuentoPct).toBe(10);
+    expect(resultado.todasLasLineas[0].totalLinea).toBe(585036);
+    expect(resultado.totalCotizacion).toBe(585036);
   });
 });
 
