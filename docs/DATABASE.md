@@ -1,5 +1,7 @@
 # DATABASE.md — VAION / Control Obras 360
 
+> ⚠️ Ver sección **"Estado real del esquema (2026-08-30)"** al final de este documento para el estado verificado contra producción vía `supabase db pull` — el resto de este documento (secciones 1 en adelante) puede estar desactualizado.
+
 ## ⚠️ Nota metodológica importante
 
 Este documento se construyó combinando **dos fuentes**:
@@ -385,3 +387,77 @@ Ningún archivo del repo define políticas RLS que filtren por `empresa_id`. Dad
 3. **Todo cambio posterior** (multi-tenancy completo, fix de `is_dueno()`, políticas de Storage, nuevas tablas `banos_quimicos`/`tasks`/`providers`/`additional_sales`, nuevas columnas) se aplicó **directamente en Supabase SQL Editor**, sin dejar un tercer archivo `.sql` versionado en el repo.
 
 **Riesgo operativo:** si se necesita recrear el proyecto de Supabase desde cero, los dos archivos SQL del repo **no son suficientes** — falta una porción significativa del schema real. Se recomienda exportar el schema completo actual (`pg_dump --schema-only`, o desde el SQL Editor con `\d+` por tabla) y versionarlo como un tercer archivo (ej. `supabase/schema_v2_multitenant.sql`) para cerrar esta brecha.
+
+> **Nota (2026-08-30):** esta brecha ya se cerró — ver sección "Estado real del esquema" abajo. La recomendación de este párrafo quedó resuelta por `supabase/migrations/20260830205325_baseline_produccion.sql`.
+
+---
+
+## Estado real del esquema (2026-08-30)
+
+**Fuente:** `supabase db pull --schema public` corrido directo contra producción VAION (`ffxexpasoneowquvtouz`), volcado en `supabase/migrations/20260830205325_baseline_produccion.sql`. A diferencia del resto de este documento, todo lo que sigue es introspección real del catálogo de Postgres, no inferencia de código. Verificado con `supabase db diff --linked --schema public` → **"No schema changes found"** (el baseline es un espejo exacto de producción al momento de este pull).
+
+Alcance: solo schema `public`. No incluye VRION (proyecto Supabase separado, cuenta distinta — pendiente si se necesita en el futuro).
+
+### Tablas — ¿tienen `empresa_id`?
+
+**Sí tienen `empresa_id`** (16): `accounts_payable`, `accounts_receivable`, `banos_quimicos`, `clients`, `cotizacion` (NOT NULL), `cotizador_config` (es su PK), `descuento_tramo` (NOT NULL), `documents`, `expenses`, `income`, `partida_catalogo` (NOT NULL), `projects`, `tasks`, `user_companies`, `worker_projects`, `workers`.
+
+**NO tienen `empresa_id`** (14): `additional_sales`, `attendance`, `banos_quimicos_pagos`, `capitulo`, `companies` (es la tabla misma), `cotizacion_version`, `geolocation_logs`, `historial_precio`, `hito_pago`, `linea`, `paquete_capitulo`, `paquete_comercial`, `providers` (global por decisión de negocio, ver [[project_vaion]]), `sub_bloque`, `users` (identidad global, el vínculo a empresa vive en `user_companies`).
+
+De las tablas sin `empresa_id`, la mayoría del módulo Cotizador (`capitulo`, `cotizacion_version`, `historial_precio`, `hito_pago`, `linea`, `paquete_capitulo`, `paquete_comercial`, `sub_bloque`) resuelve el scoping indirectamente vía `cotizador_tiene_acceso()` (encadenando hasta `cotizacion.empresa_id`), no vía columna propia — es un diseño válido, no un gap.
+
+### Políticas RLS por tabla — ¿filtran por empresa?
+
+Leyenda: ✅ scoped correctamente por empresa · ⚠️ **NO** filtra por empresa (usa `is_dueno()`/`is_administrativo()` globales, o `USING(true)`) · 🔴 acceso abierto a `anon`/`public` sin autenticar.
+
+| Tabla | Policy | Rol | Alcance |
+|---|---|---|---|
+| accounts_payable | accounts_payable_rls | authenticated | ⚠️ `is_dueno()` global, no filtra empresa |
+| accounts_receivable | accounts_receivable_rls | authenticated | ⚠️ `is_dueno()` global |
+| additional_sales | additional_sales_rls | authenticated | ⚠️ `is_dueno()` global (tabla ni siquiera tiene `empresa_id`) |
+| attendance | anon_insert_attend / anon_select_attend / anon_update_attend | **anon** | 🔴 `USING(true)`/`WITH CHECK(true)` — cualquiera sin login puede leer/escribir TODA la asistencia (kiosco, Fase 3 pendiente) |
+| attendance | attendance_auth_rls | authenticated | ⚠️ `is_dueno()` global |
+| banos_quimicos | "authenticated full access" | authenticated | ⚠️ `USING(true)` — cualquier autenticado, cualquier empresa |
+| banos_quimicos_pagos | "authenticated full access" | authenticated | ⚠️ `USING(true)` |
+| capitulo | capitulo_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| clients | clients_rls | authenticated | ⚠️ `USING(true)` (tabla sí tiene `empresa_id`, policy no lo usa) |
+| companies | "authenticated puede leer empresas" | authenticated | ⚠️ `USING(true)` — cualquier autenticado ve el nombre/slug de TODAS las empresas (VA y VR) |
+| cotizacion | cotizacion_rls | authenticated | ✅ vía `user_companies.empresa_id` |
+| cotizacion_version | cotizacion_version_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| cotizador_config | cotizador_config_rls | authenticated | ✅ vía `user_companies.empresa_id` |
+| descuento_tramo | descuento_tramo_rls | authenticated | ✅ vía `user_companies.empresa_id` |
+| documents | documents_rls | authenticated | ⚠️ `is_dueno()`/`is_administrativo()` globales (tabla sí tiene `empresa_id`, policy no lo usa) |
+| expenses | auth_insert / auth_select / auth_update | authenticated | 🔴 `USING(true)`/`WITH CHECK(true)` — cualquier autenticado, cualquier empresa, sobre gastos |
+| expenses | expenses_rls | authenticated | ⚠️ `is_dueno()` global (además coexiste con las 3 policies abiertas de arriba — Postgres las combina con OR, así que las abiertas dominan) |
+| geolocation_logs | geolocation_rls | authenticated | ⚠️ `is_dueno()` global |
+| historial_precio | historial_precio_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` / `user_companies.empresa_id` |
+| hito_pago | hito_pago_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| income | income_rls | authenticated | ⚠️ `is_dueno()` global |
+| linea | linea_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| paquete_capitulo | paquete_capitulo_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| paquete_comercial | paquete_comercial_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| partida_catalogo | partida_catalogo_rls | authenticated | ✅ vía `user_companies.empresa_id` |
+| projects | anon_read_projects | **anon** | 🔴 `USING(true)` — cualquiera sin login lee TODAS las obras de TODAS las empresas |
+| projects | projects_rls | authenticated | ⚠️ `is_dueno()` global |
+| providers | providers_all | **PUBLIC** (sin login) | 🔴 el más grave: `USING(true)`/`WITH CHECK(true)` para rol `PUBLIC` — accesible sin siquiera la anon key |
+| providers | providers_rls | authenticated | ⚠️ `USING(true)`, redundante con la de arriba |
+| sub_bloque | sub_bloque_rls | authenticated | ✅ vía `cotizador_tiene_acceso()` |
+| tasks | "authenticated full access" | authenticated | ⚠️ `USING(true)` |
+| user_companies | "usuario ve sus propias membresías" | authenticated | ✅ `auth.uid() = user_id` (solo su propia fila) |
+| user_companies | dueno_administrativo_select_user_companies | authenticated | ⚠️ `is_dueno() OR is_administrativo()` global — un dueño/administrativo de CUALQUIER empresa ve el `user_companies` de TODAS |
+| user_companies | dueno_insert_user_companies | authenticated | ⚠️ `is_dueno()` global — un dueño de cualquier empresa puede insertar membresías en OTRA empresa |
+| users | users_delete_rls | authenticated | ⚠️ `is_dueno()` global |
+| users | users_insert_rls | authenticated | ⚠️ `is_dueno()` global |
+| users | users_select_rls | authenticated | ⚠️ `USING(true)` — cualquier autenticado ve nombre/email/rol de TODOS los usuarios, de cualquier empresa |
+| users | users_update_rls | authenticated | ⚠️ `is_dueno()` global |
+| worker_projects | anon_select | **anon** | 🔴 `USING(true)` — asignaciones trabajador↔obra visibles sin login |
+| worker_projects | worker_projects_rls | authenticated | ⚠️ `is_dueno()` global |
+| workers | workers_select_rls | authenticated | ⚠️ `USING(true)` — cualquier autenticado de cualquier empresa lee TODOS los trabajadores, **incluido el PIN en texto plano** |
+| workers | workers_write_rls | authenticated | ⚠️ `is_dueno()` global |
+| storage.objects (bucket `documents`) | 3 policies (select/insert/delete) | authenticated | ⚠️ solo filtran por `bucket_id = 'documents'`, sin ninguna relación a empresa — cualquier autenticado de cualquier empresa puede ver/subir/borrar documentos de storage de cualquier otra empresa |
+
+**Nota:** esta tabla confirma en vivo, contra el catálogo real de Postgres, los mismos hallazgos ya descritos en `docs/AUDITORIA.md` (auditoría iniciada 2026-08-28) — el fix preparado en `supabase/security_fix_2026-08-28.sql` (Fase 1) **todavía no se aplicó** a esta base (ver [[project_vaion]] en memoria), así que todo lo marcado ⚠️/🔴 arriba sigue así en producción al momento de este pull. No se corrigió nada como parte de este trabajo — es documentación pura, tal como se pidió.
+
+### Funciones `SECURITY DEFINER`
+
+`create_user_profile`, `delete_obra`, `delete_user`, `delete_worker`, `get_public_workers`, `is_administrativo`, `is_dueno`, `verify_worker_pin`, `verify_worker_pin_only`, `cotizador_tiene_acceso`, `get_dashboard_kpis`, `get_flujo_caja_mensual`, `get_flujo_caja_semanal`, `get_meses_disponibles`, `get_obra_metrics`, `handle_new_user_companies` (trigger). Definiciones completas y verificación de si validan `empresa_id` internamente: ver `docs/AUDITORIA.md`.
