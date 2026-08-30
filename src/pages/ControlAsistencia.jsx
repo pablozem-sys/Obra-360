@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react'
 import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search } from 'lucide-react'
 import { formatCLP, horasBaseJornada } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 import {
   getAllWorkers,
   createWorker,
@@ -299,6 +300,7 @@ function TurnoRow({
 const HOY = localDateString()
 
 export default function ControlAsistencia() {
+  const { rol } = useAuth()
   const [tab, setTab]               = useState('registros') // registros | por_fecha | trabajadores
   const [registros, setRegistros]   = useState([])
   const [workers, setWorkers]       = useState([])
@@ -1765,8 +1767,8 @@ export default function ControlAsistencia() {
                       }
                     </button>
 
-                    {/* Eliminar trabajador */}
-                    {confirmDeleteWorkerId === w.id ? (
+                    {/* Eliminar trabajador — solo dueño */}
+                    {rol === 'dueno' && (confirmDeleteWorkerId === w.id ? (
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <span className="text-[10px]" style={{ color: 'var(--red)' }}>¿Eliminar?</span>
                         <button
@@ -1789,7 +1791,7 @@ export default function ControlAsistencia() {
                       >
                         <Trash2 size={12} style={{ color: 'var(--red)' }} />
                       </button>
-                    )}
+                    ))}
                   </div>
 
                   {/* Obras asignadas — fila secundaria con botón siempre visible */}

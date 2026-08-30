@@ -1,5 +1,23 @@
 # VAION — Cambios recientes
 
+## Auditoría de seguridad (2026-08-28)
+
+Auditoría completa de RLS/Storage/RPC en VAION y VRION — ver `docs/AUDITORIA.md` para el detalle completo de los 15 hallazgos.
+
+**Preparado, SQL de RLS aún NO aplicado a producción (Fase 1):**
+- Script listo en `supabase/security_fix_2026-08-28.sql` (verificación en `supabase/verify_security_fix_2026-08-28.sql`) para: políticas de `expenses` que anulaban el control de acceso, `providers` con acceso público sin autenticación, y multi-tenancy (`is_dueno()`/`is_administrativo()` no filtran por empresa) vía nuevas funciones `tiene_acceso_empresa()`/`es_dueno_empresa()` en `expenses`, `workers`, `attendance`, `accounts_payable`, `accounts_receivable`, `additional_sales`, `worker_projects`, `documents`, `income`, `projects`, `geolocation_logs`, `clients`, `tasks`, `banos_quimicos*`, `companies`, `users`, `user_companies`.
+- **Hallazgo nuevo encontrado durante la preparación:** `delete_obra`, `delete_worker` y `create_user_profile` eran RPC `SECURITY DEFINER` sin ninguna verificación interna — cualquier autenticado podía borrar cualquier obra/trabajador o crearse un perfil con rol `dueno`. El script agrega verificación de `es_dueno_empresa()`/`is_dueno()` dentro de cada función.
+- El script también unifica `attendance_auth_rls` entre VAION y VRION (el fix de julio para `administrativo` solo había quedado en VRION), y revoca `EXECUTE` de las RPC legacy `verify_worker_pin`/`get_public_workers` (código muerto).
+- **Estado real confirmado 2026-08-30:** al intentar correrlo en el SQL Editor del Dashboard, la verificación en VRION mostró que no se aplicó nada; el resultado en VAION nunca se confirmó. Sigue pendiente — ver `docs/DATABASE.md` sección "Estado real del esquema" para confirmación en vivo de que estos hallazgos siguen abiertos en producción, y `docs/MIGRATIONS.md` para el flujo correcto (migración versionada, no Dashboard) con el que debe aplicarse de ahora en más.
+- **Código sí deployado (esto no depende del SQL):** botones "Eliminar obra" (Obras.jsx) y "Eliminar trabajador" (ControlAsistencia.jsx) ahora ocultos para `administrativo` — antes no tenían ningún control, ni en la UI ni en el servidor. Deployado en VAION y VRION.
+- Decisión de negocio confirmada: el PIN de trabajadores lo sigue viendo `administrativo` dentro de su propia empresa (uso real en detección de PIN duplicado) — solo se busca cerrar la fuga entre VA/VR.
+
+**Pendiente (Fase 3, requiere más tiempo/testing):**
+- Kiosco de asistencia (`attendance` abierta a `anon`) — mover a una RPC que valide el PIN server-side.
+- Bucket de Storage `documents` público → privado con URLs firmadas (toca Biblioteca, DetalleObra, CuentasPagar, NuevoGasto, Obras).
+
+---
+
 ## Dashboard principal
 
 - **Fila 1:** Venta · Egresos · Utilidad · % Utilidad (4 cards)

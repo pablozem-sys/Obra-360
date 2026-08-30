@@ -6,6 +6,7 @@ import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
 import { formatCLP, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
 import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getObraMetrics } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 const FILTROS = [
   { key: 'en_ejecucion', label: 'En Ejecución' },
@@ -25,6 +26,7 @@ const TIPOS_DOC_DOC = ['foto', 'contrato', 'cotizacion', 'factura', 'boleta', 'p
 
 export default function Obras() {
   const navigate = useNavigate()
+  const { rol } = useAuth()
   const docFileRef = useRef()
   const [obras, setObras]       = useState([])
   const [metricas, setMetricas] = useState({})
@@ -267,7 +269,7 @@ export default function Obras() {
                   className="flex items-center justify-end gap-1.5 pt-3 lg:pt-0 lg:pl-4 lg:flex-shrink-0 border-t lg:border-t-0 lg:border-l"
                   style={{ borderColor: 'var(--border)' }}
                 >
-                  {confirmDeleteId === o.id ? (
+                  {confirmDeleteId === o.id && rol === 'dueno' ? (
                     <div
                       className="flex items-center gap-1.5"
                       onClick={e => e.stopPropagation()}
@@ -294,14 +296,16 @@ export default function Obras() {
                       >
                         <FolderOpen size={11} style={{ color: 'var(--amber)' }} />
                       </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); setConfirmDeleteId(o.id) }}
-                        className="p-1.5 rounded-lg transition-all hover:opacity-80"
-                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                        title="Eliminar obra"
-                      >
-                        <Trash2 size={11} style={{ color: 'var(--red)' }} />
-                      </button>
+                      {rol === 'dueno' && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setConfirmDeleteId(o.id) }}
+                          className="p-1.5 rounded-lg transition-all hover:opacity-80"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                          title="Eliminar obra"
+                        >
+                          <Trash2 size={11} style={{ color: 'var(--red)' }} />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
