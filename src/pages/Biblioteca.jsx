@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Search, FolderOpen, Download, Eye, Loader2, Trash2, X, Check, Plus, Upload, AlertCircle } from 'lucide-react'
 import Badge from '../components/ui/Badge'
-import { getDocumentos, getObras, deleteDocumento, uploadDocumento, createDocumento } from '../lib/supabase'
+import { getDocumentos, getObras, deleteDocumento, uploadDocumento, createDocumento, getSignedDocUrl } from '../lib/supabase'
 import { formatCLP, formatDate, TIPOS_DOC } from '../lib/helpers'
 
 const TIPOS = ['todos', 'factura', 'boleta', 'contrato', 'cotizacion', 'foto', 'permiso', 'comprobante']
@@ -34,6 +34,15 @@ export default function Biblioteca() {
     ]).then(([d, o]) => { setDocs(d); setObras(o) })
       .finally(() => { clearTimeout(t); setLoading(false) })
   }, [])
+
+  const handleAbrirDocumento = async (doc, { download } = {}) => {
+    try {
+      const url = await getSignedDocUrl(doc.archivo_url, { download })
+      if (url) window.open(url, '_blank', 'noreferrer')
+    } catch (err) {
+      console.error('Error al generar URL firmada:', err)
+    }
+  }
 
   const handleDelete = async (doc) => {
     setDeleting(true)
@@ -253,12 +262,12 @@ export default function Biblioteca() {
                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2" style={{ background: 'rgba(0,0,0,0.5)' }}>
                       {d.archivo_url && (
                         <>
-                          <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                          <button onClick={e => { e.stopPropagation(); handleAbrirDocumento(d) }} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
                             <Eye size={14} className="text-white" />
-                          </a>
-                          <a href={d.archivo_url} download className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); handleAbrirDocumento(d, { download: true }) }} className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{ background: 'rgba(255,255,255,0.1)' }}>
                             <Download size={14} className="text-white" />
-                          </a>
+                          </button>
                         </>
                       )}
                       <button

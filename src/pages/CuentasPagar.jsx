@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, Clock, Loader2, CreditCard, Pencil, X, FileText, Upload, ExternalLink } from 'lucide-react'
-import { getEgresosCredito, updateGasto, uploadDocumento } from '../lib/supabase'
+import { getEgresosCredito, updateGasto, uploadDocumento, getSignedDocUrl } from '../lib/supabase'
+
+async function abrirDocumento(url) {
+  try {
+    const signed = await getSignedDocUrl(url)
+    if (signed) window.open(signed, '_blank', 'noreferrer')
+  } catch (err) {
+    console.error('Error al generar URL firmada:', err)
+  }
+}
 import { formatCLP, CATEGORIAS_GASTO } from '../lib/helpers'
 
 const PLAZOS = [1, 2, 3, 6, 12]
@@ -141,15 +150,13 @@ function EditModal({ gasto, onSave, onClose }) {
             {gasto.documento_url && !archivoFactura && (
               <div className="flex items-center gap-2 mb-2">
                 <FileText size={13} style={{ color: 'var(--amber)' }} />
-                <a
-                  href={gasto.documento_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => abrirDocumento(gasto.documento_url)}
                   className="text-xs font-medium underline"
                   style={{ color: 'var(--amber)' }}
                 >
                   Ver factura adjunta
-                </a>
+                </button>
               </div>
             )}
             <div
@@ -406,16 +413,14 @@ export default function CuentasPagar() {
                     </td>
                     <td className="px-5 py-3.5">
                       {c.documento_url ? (
-                        <a
-                          href={c.documento_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          onClick={() => abrirDocumento(c.documento_url)}
                           className="flex items-center gap-1.5 text-[11px] font-semibold transition-colors"
                           style={{ color: 'var(--amber)', fontFamily: 'Unbounded' }}
                         >
                           <FileText size={12} />
                           Ver
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-[11px]" style={{ color: 'var(--subtle)' }}>—</span>
                       )}

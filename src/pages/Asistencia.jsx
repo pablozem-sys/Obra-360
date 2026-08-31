@@ -62,21 +62,30 @@ export default function Asistencia() {
   const [obraSeleccionada, setObraSeleccionada] = useState(null)
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!user?.id || !user?.session_token) {
       navigate('/trabajador', { replace: true })
       return
     }
     const t = setTimeout(() => setInitLoading(false), 6000)
 
     Promise.all([
-      getTodayOpenAttendance(user.id).catch(() => null),
-      getWorkerObras(user.id).catch(() => []),
+      getTodayOpenAttendance(user.id, user.session_token).catch(() => null),
+      getWorkerObras(user.id, user.session_token).catch(() => []),
     ]).then(([registro, listaObras]) => {
       setRegistroAbierto(registro ?? null)
       setObras(listaObras)
       if (listaObras.length === 1) setObraSeleccionada(listaObras[0])
     }).finally(() => { clearTimeout(t); setInitLoading(false) })
   }, [user?.id])
+
+  const handleSesionExpirada = (err) => {
+    if (err?.code === '28000') {
+      logout()
+      navigate('/trabajador', { replace: true })
+      return true
+    }
+    return false
+  }
 
   const valorHora = user?.valor_hora ?? user?.valorHora ?? 5000
 
@@ -92,7 +101,7 @@ export default function Asistencia() {
     const geo = await getGeo()
     try {
       const [record, address] = await Promise.all([
-        registrarEntrada(user.id, obraSeleccionada.id, geo, valorHora),
+        registrarEntrada(user.id, obraSeleccionada.id, geo, user.session_token),
         geo ? reverseGeocode(geo.lat, geo.lng) : Promise.resolve(null),
       ])
       setRegistroAbierto({ ...record, projects: obraSeleccionada })
@@ -100,6 +109,7 @@ export default function Asistencia() {
       setStep('confirmado')
     } catch (err) {
       console.error('registrarEntrada:', err)
+      handleSesionExpirada(err)
     } finally {
       setLoading(false)
     }
@@ -111,11 +121,12 @@ export default function Asistencia() {
     const geo = await getGeo()
     let horas, costo
     try {
-      const updated = await registrarSalida(registroAbierto.id, registroAbierto.entrada, geo, valorHora)
+      const updated = await registrarSalida(user.id, registroAbierto.id, registroAbierto.entrada, geo, valorHora, user.session_token)
       horas = updated.horas_trabajadas
       costo = updated.costo_total
     } catch (err) {
       console.error('registrarSalida:', err)
+      if (handleSesionExpirada(err)) { setLoading(false); return }
       horas = Math.round(((new Date() - new Date(registroAbierto.entrada)) / 3600000) * 100) / 100
       costo = Math.round(horas * valorHora)
     }

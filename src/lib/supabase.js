@@ -267,17 +267,35 @@ export async function createDocumento(doc) {
   return data
 }
 
+// Bucket 'documents' es privado (Fase 3) — las URLs guardadas en DB tienen
+// el formato viejo de URL pública, pero solo se usa el path que traen para
+// borrar del storage o para pedir una URL firmada nueva.
+function extraerPathDocumento(value) {
+  if (!value) return null
+  const marker = '/object/public/documents/'
+  const idx = value.indexOf(marker)
+  return idx !== -1 ? decodeURIComponent(value.slice(idx + marker.length)) : value
+}
+
 export async function deleteDocumento(doc) {
-  if (doc.archivo_url) {
-    const marker = '/object/public/documents/'
-    const idx = doc.archivo_url.indexOf(marker)
-    if (idx !== -1) {
-      const path = decodeURIComponent(doc.archivo_url.slice(idx + marker.length))
-      await supabase.storage.from('documents').remove([path]).catch(() => {})
-    }
+  const path = extraerPathDocumento(doc.archivo_url)
+  if (path) {
+    await supabase.storage.from('documents').remove([path]).catch(() => {})
   }
   const { error } = await supabase.from('documents').delete().eq('id', doc.id)
   if (error) throw error
+}
+
+// Genera una URL firmada de corta duración para ver/descargar un documento
+// del bucket privado. Acepta tanto el formato viejo de URL pública (docs
+// subidos antes de Fase 3) como un path bare.
+export async function getSignedDocUrl(urlOrPath, { download } = {}) {
+  const path = extraerPathDocumento(urlOrPath)
+  if (!path) return null
+  const { data, error } = await supabase.storage.from('documents')
+    .createSignedUrl(path, 3600, download ? { download: true } : undefined)
+  if (error) throw error
+  return data.signedUrl
 }
 
 export async function getExpensasPorObraLite() {
@@ -521,13 +539,16 @@ export async function toggleWorkerProject(workerId, projectId, assign) {
   }
 }
 
-export async function getWorkerObras(workerId) {
-  const { data, error } = await supabase
-    .from('worker_projects')
-    .select('projects(id, nombre, direccion)')
-    .eq('worker_id', workerId)
+// Kiosco: obras asignadas al trabajador. Fase 3 — pasa por RPC con el
+// token de sesión de kiosco (ver worker_kiosk_sessions), ya no lee
+// worker_projects directo como `anon`.
+export async function getWorkerObras(workerId, sessionToken) {
+  const { data, error } = await supabase.rpc('kiosko_get_obras', {
+    p_worker_id: workerId,
+    p_token: sessionToken,
+  })
   if (error) throw error
-  return data.map(r => r.projects).filter(Boolean)
+  return data ?? []
 }
 
 // Kiosco público: solo nombre + avatar, sin valor_hora ni PIN
@@ -550,20 +571,10 @@ export async function verifyWorkerPin(workerId, pin) {
 // Verifica PIN solo (sin seleccionar trabajador de lista).
 // Escopado por empresa (COMPANY_SLUG) para que el kiosco de una plataforma
 // (VAION/VRION) nunca pueda devolver un trabajador de la otra empresa.
-// Requiere crear esta función en Supabase SQL Editor (en AMBAS bases,
-// VAION y VRION, ya que comparten el mismo código cliente):
-//
-//   DROP FUNCTION IF EXISTS verify_worker_pin_only(text);
-//   CREATE OR REPLACE FUNCTION verify_worker_pin_only(p_pin text, p_company_slug text)
-//   RETURNS TABLE(id uuid, nombre text, avatar text, valor_hora numeric)
-//   LANGUAGE sql SECURITY DEFINER AS $$
-//     SELECT w.id, w.nombre, w.avatar, w.valor_hora
-//     FROM workers w
-//     JOIN companies c ON c.id = w.empresa_id
-//     WHERE w.pin = p_pin AND w.activo = true AND c.slug = p_company_slug
-//     LIMIT 1;
-//   $$;
-//   GRANT EXECUTE ON FUNCTION verify_worker_pin_only(text, text) TO anon;
+// Desde Fase 3 (supabase/migrations/20260831143609_fase3_kiosco_storage.sql)
+// además abre una sesión de kiosco y devuelve `session_token` — el resto
+// de las operaciones del kiosco (ver getWorkerObras/getTodayOpenAttendance/
+// registrarEntrada/registrarSalida) lo requieren para poder ejecutarse.
 export async function verifyWorkerPinSolo(pin) {
   const { data, error } = await supabase.rpc('verify_worker_pin_only', {
     p_pin: pin,
@@ -734,17 +745,27 @@ export function localDateString() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export async function getTodayOpenAttendance(workerId) {
-  const today = localDateString()
-  const { data, error } = await supabase
-    .from('attendance')
-    .select('*, projects(id, nombre, direccion)')
-    .eq('worker_id', workerId)
-    .eq('fecha', today)
-    .is('salida', null)
-    .maybeSingle()
+// Kiosco: turno abierto de hoy. Fase 3 — pasa por RPC con el token de
+// sesión de kiosco, ya no lee attendance directo como `anon`.
+export async function getTodayOpenAttendance(workerId, sessionToken) {
+  const { data, error } = await supabase.rpc('kiosko_get_estado', {
+    p_worker_id: workerId,
+    p_token: sessionToken,
+    p_fecha: localDateString(),
+  })
   if (error) throw error
-  return data
+  const row = data?.[0]
+  if (!row) return null
+  return {
+    id: row.id,
+    worker_id: row.worker_id,
+    project_id: row.project_id,
+    fecha: row.fecha,
+    entrada: row.entrada,
+    salida: row.salida,
+    valor_hora: row.valor_hora,
+    projects: { id: row.project_id, nombre: row.proyecto_nombre, direccion: row.proyecto_direccion },
+  }
 }
 
 function localOffset() {
@@ -789,21 +810,18 @@ export async function registrarAsistenciaManual({ workerId, projectId, fecha, ho
   return data
 }
 
-export async function registrarEntrada(workerId, projectId, geo, valorHora) {
-  const now = new Date().toISOString()
-  const { data, error } = await supabase
-    .from('attendance')
-    .insert([{
-      worker_id: workerId,
-      project_id: projectId,
-      fecha: localDateString(),
-      entrada: now,
-      lat_entrada: geo?.lat ?? null,
-      lng_entrada: geo?.lng ?? null,
-      valor_hora: valorHora,
-    }])
-    .select()
-    .single()
+// Kiosco: marcar entrada. Fase 3 — pasa por RPC con el token de sesión de
+// kiosco; valor_hora ya no se manda desde el cliente, la RPC lo lee de
+// workers server-side.
+export async function registrarEntrada(workerId, projectId, geo, sessionToken) {
+  const { data, error } = await supabase.rpc('kiosko_registrar_entrada', {
+    p_worker_id: workerId,
+    p_token: sessionToken,
+    p_project_id: projectId,
+    p_fecha: localDateString(),
+    p_lat: geo?.lat ?? null,
+    p_lng: geo?.lng ?? null,
+  })
   if (error) throw error
   return data
 }
@@ -845,22 +863,25 @@ export async function deleteAttendance(attendanceId) {
   if (error) throw error
 }
 
-export async function registrarSalida(attendanceId, entrada, geo, valorHora) {
+// Kiosco: marcar salida. Fase 3 — pasa por RPC con el token de sesión de
+// kiosco; horas/costo se siguen calculando en el cliente (mismo criterio
+// de siempre, incluida la jornada especial de sábado) y se mandan ya
+// resueltos — la RPC solo valida que el turno sea del propio trabajador.
+export async function registrarSalida(workerId, attendanceId, entrada, geo, valorHora, sessionToken) {
   const now = new Date().toISOString()
   const horasTrabajadas = Math.round(((new Date(now) - new Date(entrada)) / 3600000) * 100) / 100
   const horasBase = horasBaseJornada(entrada)
-  const { data, error } = await supabase
-    .from('attendance')
-    .update({
-      salida: now,
-      lat_salida: geo?.lat ?? null,
-      lng_salida: geo?.lng ?? null,
-      horas_trabajadas: horasTrabajadas,
-      costo_total: horasTrabajadas >= horasBase ? valorHora : Math.round((horasTrabajadas / horasBase) * valorHora),
-    })
-    .eq('id', attendanceId)
-    .select()
-    .single()
+  const costoTotal = horasTrabajadas >= horasBase ? valorHora : Math.round((horasTrabajadas / horasBase) * valorHora)
+
+  const { data, error } = await supabase.rpc('kiosko_registrar_salida', {
+    p_worker_id: workerId,
+    p_token: sessionToken,
+    p_attendance_id: attendanceId,
+    p_horas_trabajadas: horasTrabajadas,
+    p_costo_total: costoTotal,
+    p_lat: geo?.lat ?? null,
+    p_lng: geo?.lng ?? null,
+  })
   if (error) throw error
   return data
 }

@@ -12,7 +12,7 @@ import {
   getObraById, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
   getAdditionalSales, createAdditionalSale, deleteAdditionalSale,
-  updateGasto, deleteGasto, uploadDocumento, createDocumento, deleteDocumento,
+  updateGasto, deleteGasto, uploadDocumento, createDocumento, deleteDocumento, getSignedDocUrl,
 } from '../lib/supabase'
 import {
   formatCLP, formatDate,
@@ -320,6 +320,15 @@ export default function DetalleObra() {
       setGastos(prev => prev.filter(g => g.id !== gastoId))
       setConfirmDelGasto(null)
     } catch { /* silencioso */ } finally { setDeletingGasto(false) }
+  }
+
+  const handleAbrirDocumento = async (doc, { download } = {}) => {
+    try {
+      const url = await getSignedDocUrl(doc.archivo_url, { download })
+      if (url) window.open(url, '_blank', 'noreferrer')
+    } catch (err) {
+      console.error('Error al generar URL firmada:', err)
+    }
   }
 
   const handleDeleteDoc = async (doc) => {
@@ -936,12 +945,12 @@ export default function DetalleObra() {
                       <>
                         {d.archivo_url && (
                           <>
-                            <a href={d.archivo_url} target="_blank" rel="noreferrer" className="w-7 h-7 rounded-lg flex items-center justify-center ml-2" style={{ background: 'var(--bg-card)' }}>
+                            <button onClick={() => handleAbrirDocumento(d)} className="w-7 h-7 rounded-lg flex items-center justify-center ml-2" style={{ background: 'var(--bg-card)' }}>
                               <Eye size={13} style={{ color: 'var(--muted)' }} />
-                            </a>
-                            <a href={d.archivo_url} download className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
+                            </button>
+                            <button onClick={() => handleAbrirDocumento(d, { download: true })} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--bg-card)' }}>
                               <Download size={13} style={{ color: 'var(--muted)' }} />
-                            </a>
+                            </button>
                           </>
                         )}
                         <button
