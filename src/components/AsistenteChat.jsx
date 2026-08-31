@@ -132,7 +132,7 @@ export default function AsistenteChat() {
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex flex-col lg:inset-auto lg:bottom-6 lg:right-6 lg:w-[400px] lg:h-[600px] lg:rounded-2xl lg:overflow-hidden"
+          className="fixed top-[var(--env-banner-h)] right-0 bottom-0 left-0 z-50 flex flex-col lg:top-auto lg:inset-auto lg:bottom-6 lg:right-6 lg:w-[400px] lg:h-[600px] lg:rounded-2xl lg:overflow-hidden"
           style={{ background: 'var(--bg-base)', border: '1px solid var(--border-light)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
         >
           {/* Header */}

@@ -223,7 +223,8 @@ Reglas estrictas:
 - Si la pregunta es ambigua sin obra ni fecha (ej. "los gastos"), asumí "todas las obras, últimos 30 días" y decilo explícito en la respuesta.
 - Si una búsqueda no da resultados, decilo explícito y sugerí ampliar el rango — no aproximes ni inventes un resultado parecido.
 - Nunca uses ni menciones datos de otra empresa — no es algo que decidas vos, RLS ya lo garantiza, pero nunca asumas ni inventes qué vería otro usuario.
-- Redactá la respuesta final en 2-4 líneas como máximo. Los resultados detallados los muestra la interfaz en tarjetas, vos solo resumís.`;
+- Redactá la respuesta final en 2-4 líneas como máximo. Los resultados detallados los muestra la interfaz en tarjetas, vos solo resumís.
+- Texto plano, sin markdown — nada de **negrita**, _cursiva_ ni bullets con guiones. La interfaz no lo renderiza, se vería el asterisco literal.`;
 }
 
 Deno.serve(async (req: Request) => {
