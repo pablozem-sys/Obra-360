@@ -7,7 +7,7 @@
 | Frontend (build estático) | **Vercel** | Proyecto `pablozem-sys-projects/vaion`. Dominio custom: `https://vaion.app` (alias sobre el deployment de Vercel). |
 | Backend / datos | **Supabase** | Proyecto único (Postgres + Auth + Storage), URL: `https://ffxexpasoneowquvtouz.supabase.co` |
 
-No hay ambientes separados (no existe un proyecto de Supabase de staging/desarrollo distinto al de producción, ni un dominio de preview usado activamente para QA — se prueba localmente contra el mismo proyecto de Supabase de producción). **PENDIENTE DE CONFIRMAR:** si existe o se planea un ambiente de staging separado.
+**Actualizado 2026-08-30:** ya existe un segundo proyecto Supabase de staging (`vaion-staging`) — ver sección 2.1. Antes de esto, el desarrollo local se conectaba directo al proyecto de producción; eso ya no debería hacerse.
 
 No hay CDN propio ni balanceador de carga configurado explícitamente — se depende de la infraestructura estándar de Vercel (edge network) y de Supabase.
 
@@ -20,19 +20,39 @@ No hay CDN propio ni balanceador de carga configurado explícitamente — se dep
   - **Auth** — email/password para usuarios admin/dueño. Método: `supabase.auth.signInWithPassword`. Sesión persistida en `localStorage` (claves `sb-*`), con `autoRefreshToken: true` y `persistSession: true` (ver `src/lib/supabase.js`).
   - **Storage** — un bucket llamado `documents` (público), usado para todo archivo subido desde la app (comprobantes de egresos, documentos de obra, ventas adicionales). Ver `DATABASE.md` y el hallazgo documentado sobre políticas RLS de Storage.
   - **RPC (funciones Postgres `SECURITY DEFINER`)** — para operaciones que requieren bypasear RLS de forma controlada (borrados en cascada, creación de usuarios, verificación de PIN de trabajador). Ver `API.md`.
-- **Gestión de esquema:** no hay CLI de Supabase configurado en el repo (no hay `supabase/config.toml` ni carpeta `migrations/` con migraciones numeradas). Existen dos archivos SQL de referencia en `supabase/` (`schema.sql`, `rls_role_based.sql`) que documentan el estado en un punto del tiempo, pero **la base de datos real en producción ha divergido de esos archivos** (se agregaron tablas y columnas — multi-tenancy con `companies`/`user_companies`/`empresa_id`, `banos_quimicos`, `tasks`, `providers`, columna `pin` en `workers`, etc. — directamente vía Supabase Dashboard → SQL Editor, sin dejar el SQL correspondiente versionado en el repo). Ver detalle en `DATABASE.md`.
+- **Gestión de esquema:** desde 2026-08-30, versionado con Supabase CLI (`supabase/config.toml` + `supabase/migrations/`). Ver `docs/MIGRATIONS.md` para el procedimiento completo. Los archivos `supabase/legacy/schema.sql` y `supabase/legacy/rls_role_based.sql` son históricos, no la fuente de verdad — ver `DATABASE.md`.
+
+### 2.1 Dos proyectos Supabase — producción y staging
+
+| Proyecto | Ref | Para qué sirve |
+|---|---|---|
+| **VAION (producción)** | `ffxexpasoneowquvtouz` | Datos reales de VA Constructora, cliente pagado. **Nunca** correr `db push`/`db reset`/seeds de prueba acá. |
+| **Vaion Staging** | `mcqeqwcqkcxehwjpggnr` (URL: `https://mcqeqwcqkcxehwjpggnr.supabase.co`) | Datos 100% ficticios (`supabase/seed.sql`, constructora inventada "Rukan SpA") para desarrollo local y demos comerciales. Acá sí se prueba libremente — se puede resetear sin miedo. Cuenta Supabase separada (`pablozem@hotmail.com`, misma cuenta que aloja VRION) — el CLI necesita `SUPABASE_ACCESS_TOKEN` de esa cuenta para operar sobre este proyecto (no comparte sesión con la cuenta de producción). |
+
+**Cómo apuntar el local a uno u otro:** el proyecto se elige por las variables de `.env.local` — no hay switch en la app, es 100% configuración de entorno.
+
+1. Copiar `.env.example` a `.env.local` si no existe.
+2. Completar `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` con las credenciales del proyecto que corresponda (producción o staging — pedirlas si no las tenés).
+3. `VITE_ENV=staging` (o `local` si querés seguir apuntando a producción para debug puntual — no recomendado; dejar `VITE_ENV=staging` cuando `.env.local` apunte a `vaion-staging`) — cualquier valor distinto de `production` muestra el banner de "ambiente de pruebas" en toda la app, así nunca hay dudas de en qué base estás parado mirando la pantalla.
+4. Reiniciar el dev server (`npm run dev`) — Vite solo lee `.env.local` al arrancar.
+
+**Ya no hay fallback hardcodeado:** si `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` faltan, la app tira un error claro al arrancar y no renderiza nada — antes (antes de 2026-08-30) caía silenciosamente a producción, lo cual ahora está prohibido explícitamente. Ver `src/lib/supabase.js`.
 
 ## 3. Variables de entorno
 
-Definidas en `.env.local` (no versionado — existe `.env.local` en el directorio del proyecto, ignorado por git). **Solo se listan los nombres, no los valores:**
+Definidas en `.env.local` (no versionado, ignorado por git). Nombres documentados también en `.env.example` (versionado, sin valores). **Acá solo se listan los nombres, no los valores:**
 
 | Variable | Usada en | Propósito |
 |---|---|---|
-| `VITE_SUPABASE_URL` | `src/lib/supabase.js` | URL del proyecto Supabase |
-| `VITE_SUPABASE_ANON_KEY` | `src/lib/supabase.js` | Clave pública (anon/publishable) del proyecto Supabase |
+| `VITE_SUPABASE_URL` | `src/lib/supabase.js` | URL del proyecto Supabase (producción o staging, según a cuál se quiera apuntar) |
+| `VITE_SUPABASE_ANON_KEY` | `src/lib/supabase.js` | Clave pública (anon/publishable) del proyecto Supabase correspondiente |
+| `VITE_ENV` | `src/lib/supabase.js` (`VITE_ENV`, `IS_PRODUCTION`) | `production` \| `staging` \| `local` — controla el banner de "ambiente de pruebas" (ver 2.1) |
+| `VITE_BRAND_NAME` | `src/lib/helpers.js` | Nombre de marca mostrado en la UI (`VAION`/`VRION`) |
+| `VITE_COMPANY_SLUG` | `src/lib/helpers.js` | Empresa a la que se fija este despliegue (`va-constructora`/`vr-asociados`) |
 
 **Notas importantes:**
-- Ambas variables tienen un **valor hardcodeado de fallback** en el código (`src/lib/supabase.js` línea 3-4): si las variables de entorno no están disponibles en build time, la app usa el proyecto de Supabase de producción igual. Esto fue una decisión deliberada documentada en el historial de commits (`"fix: hardcodear fallback Supabase URL+key — env vars no se incorporan en build Vercel"`), porque en algún momento las env vars no se propagaban correctamente al build de Vercel.
+- **Ya NO hay fallback hardcodeado** (cambiado 2026-08-30 — antes existía un valor de producción hardcodeado en `src/lib/supabase.js` como red de seguridad ante un problema histórico de env vars en el build de Vercel). Ahora, si `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` faltan, la app tira un error explícito al arrancar y no renderiza nada — **nunca vuelve a caer en producción silenciosamente**.
+- **Consecuencia directa — verificar Vercel antes de deployar:** como ya no hay red de seguridad, si las env vars de producción llegaran a faltar o borrarse en el proyecto de Vercel, el build seguiría compilando (Vite no ejecuta el código en build time) pero **la app quedaría completamente rota en el navegador de los usuarios** (pantalla en blanco). Antes de cualquier deploy a producción: `vercel env ls` (o el dashboard de Vercel → Settings → Environment Variables) y confirmar que `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` y **`VITE_ENV=production`** están cargadas en el entorno Production. Si `VITE_ENV` faltara ahí, la app en producción mostraría el banner de "ambiente de pruebas" a los clientes reales — igual de grave visualmente aunque no rompa la conexión a datos.
 - La `ANON_KEY` es una clave **pública/publishable** por diseño de Supabase (se embebe en el bundle JS que llega al navegador) — no es un secreto en el sentido tradicional, pero de todas formas no se incluye su valor en esta documentación por instrucción explícita.
 - No hay una `SERVICE_ROLE_KEY` configurada como variable de entorno en el proyecto — las operaciones privilegiadas se resuelven vía RPC `SECURITY DEFINER` en Postgres, no exponiendo una service key en el cliente. Cuando se necesitó una operación administrativa puntual (ej. reseteo de contraseña de emergencia) se usó la Admin API de Supabase manualmente vía `curl`, fuera del código de la app.
 - Prefijo `VITE_`: requerido por Vite para que la variable esté disponible en `import.meta.env` en el bundle del cliente.

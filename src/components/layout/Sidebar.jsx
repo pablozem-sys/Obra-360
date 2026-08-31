@@ -36,8 +36,8 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="hidden lg:flex flex-col w-60 min-h-screen fixed top-0 left-0 z-30"
-      style={{ background: 'var(--bg-surface)', borderRight: '1px solid var(--border)' }}
+      className="hidden lg:flex flex-col w-60 min-h-screen fixed left-0 z-30"
+      style={{ top: 'var(--env-banner-h)', height: 'calc(100vh - var(--env-banner-h))', background: 'var(--bg-surface)', borderRight: '1px solid var(--border)' }}
     >
       {/* Brand */}
       <div className="px-5 pt-6 pb-5" style={{ borderBottom: '1px solid var(--border)' }}>

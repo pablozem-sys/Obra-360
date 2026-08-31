@@ -27,6 +27,11 @@
     --muted:       #596085;
     --subtle:      #353A57;
     --bg-header:   rgba(6,7,9,0.92);
+    --env-banner-h: 0px;
+  }
+
+  html.has-env-banner {
+    --env-banner-h: 28px;
   }
 
   [data-theme="light"] {

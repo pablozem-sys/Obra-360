@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext'
 import { Loader2 } from 'lucide-react'
 
 import AppLayout         from './components/layout/AppLayout'
+import EnvironmentBanner from './components/EnvironmentBanner'
 
 const Landing           = lazy(() => import('./pages/Landing'))
 const Login             = lazy(() => import('./pages/Login'))
@@ -103,6 +104,8 @@ function DuenoRoute({ children }) {
 export default function App() {
   return (
     <>
+    <EnvironmentBanner />
+    <div style={{ paddingTop: 'var(--env-banner-h)' }}>
     <RecoveryRedirect />
     <Suspense fallback={<Spinner />}>
     <Routes>
@@ -141,6 +144,7 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </Suspense>
+    </div>
     </>
   )
 }

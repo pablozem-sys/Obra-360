@@ -11,8 +11,9 @@ export default function AppLayout() {
 
       {/* Mobile top bar */}
       <header
-        className="lg:hidden sticky top-0 z-20 px-4 py-3 flex items-center"
+        className="lg:hidden sticky z-20 px-4 py-3 flex items-center"
         style={{
+          top: 'var(--env-banner-h)',
           background: 'var(--bg-header)',
           backdropFilter: 'blur(16px)',
           borderBottom: '1px solid var(--border)',

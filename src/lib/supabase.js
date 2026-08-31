@@ -1,8 +1,22 @@
 import { createClient } from '@supabase/supabase-js'
 import { COMPANY_SLUG, horasBaseJornada } from './helpers'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ffxexpasoneowquvtouz.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_zuBevuFpwaSkbokwjXNJzg_XEmRfe5h'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error(
+    'Faltan variables de entorno VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. ' +
+    'La app no puede arrancar sin ellas — no hay fallback a producción. ' +
+    'Copiá .env.example a .env.local y completá los valores (ver docs/INFRASTRUCTURE.md).'
+  )
+}
+
+// 'production' | 'staging' | 'local' — sin VITE_ENV configurada se asume 'local'
+// (nunca 'production' por defecto, para que el banner de ambiente de pruebas
+// se muestre ante la duda en vez de ocultarse).
+export const VITE_ENV = import.meta.env.VITE_ENV || 'local'
+export const IS_PRODUCTION = VITE_ENV === 'production'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
