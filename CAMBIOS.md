@@ -12,9 +12,23 @@ Auditoría completa de RLS/Storage/RPC en VAION y VRION — ver `docs/AUDITORIA.
 - **Código sí deployado (esto no depende del SQL):** botones "Eliminar obra" (Obras.jsx) y "Eliminar trabajador" (ControlAsistencia.jsx) ahora ocultos para `administrativo` — antes no tenían ningún control, ni en la UI ni en el servidor. Deployado en VAION y VRION.
 - Decisión de negocio confirmada: el PIN de trabajadores lo sigue viendo `administrativo` dentro de su propia empresa (uso real en detección de PIN duplicado) — solo se busca cerrar la fuga entre VA/VR.
 
-**Pendiente (Fase 3, requiere más tiempo/testing):**
-- Kiosco de asistencia (`attendance` abierta a `anon`) — mover a una RPC que valide el PIN server-side.
-- Bucket de Storage `documents` público → privado con URLs firmadas (toca Biblioteca, DetalleObra, CuentasPagar, NuevoGasto, Obras).
+**Fase 3 — hecha (2026-08-31):**
+- Kiosco de asistencia: cerrado el acceso directo de `anon` a `attendance`/`worker_projects`/`projects` — ahora todo pasa por RPC que validan una sesión de kiosco (se abre al validar el PIN, dura 14h). Sin cambios de UX, el trabajador sigue marcando entrada/salida igual que antes.
+- Bucket de Storage `documents`: pasó de público a privado. Ver/descargar un documento ahora usa una URL firmada de corta duración, generada al momento del click — funciona igual para documentos nuevos y viejos, no hizo falta migrar nada.
+- Aplicado y verificado en VAION, VRION y staging.
+
+---
+
+## Asistente de búsqueda por lenguaje natural (2026-08-31)
+
+Nuevo chat flotante (ícono ✨, abajo a la derecha, en toda la app menos el kiosco) donde se pregunta en español y el asistente busca en Egresos, Documentos, Cuentas por Pagar, Cuentas por Cobrar y Ventas Adicionales — sin navegar filtros a mano. Útil en terreno con el celular.
+
+- Entiende sinónimos de categoría ("sueldos", "materiales", "mano de obra", etc.).
+- Si pide un total o conteo, lo calcula de verdad contra la base — nunca lo inventa.
+- Si no hay resultados, lo dice explícito en vez de aproximar.
+- Si pregunta algo que el buscador todavía no cubre (ej. horas trabajadas), lo aclara sin inventar una respuesta.
+- Respeta los mismos permisos de siempre — nadie ve datos de la otra empresa a través del asistente.
+- Probado y funcionando en staging. **Todavía no está en producción** — falta reemplazar la API key de prueba por una a nombre del cliente antes de activarlo ahí.
 
 ---
 
