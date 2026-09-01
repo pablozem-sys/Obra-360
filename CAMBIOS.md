@@ -15,6 +15,8 @@ aparece para nadie más).
   invisible salvo cuando algo realmente falla.
 - Probado en staging. **Todavía no está activo en producción** — decisión
   pendiente de Pedro.
+- Además, un número rojo al lado de "Monitoreo" en el menú avisa cuántos
+  errores nuevos hay desde la última vez que entraste a mirarlo.
 
 ## Auditoría de seguridad (2026-08-28)
 
