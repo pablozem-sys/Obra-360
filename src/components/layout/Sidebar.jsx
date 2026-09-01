@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
   BarChart3, Wallet, FolderOpen, Receipt,
@@ -6,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
+import { getConteoErrores, MONITOREO_LAST_SEEN_KEY } from '../../lib/supabase'
 
 const navAll = [
   { to: '/dashboard',          label: 'Dashboard',       icon: LayoutDashboard, perm: null },
@@ -33,8 +35,20 @@ const roleBadge = {
 
 export default function Sidebar() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user, can, logout, empresa, isAdmin } = useAuth()
   const { theme, toggle } = useTheme()
+  const [errorCount, setErrorCount] = useState(0)
+
+  // Badge de errores nuevos junto a "Monitoreo" — se refresca en cada
+  // navegación (no en tiempo real). "Nuevo" = desde la última vez que Pedro
+  // entró a /monitoreo (localStorage, por dispositivo/navegador).
+  useEffect(() => {
+    if (!isAdmin) return
+    const lastSeen = localStorage.getItem(MONITOREO_LAST_SEEN_KEY)
+      || new Date(Date.now() - 24 * 3600000).toISOString()
+    getConteoErrores(lastSeen).then(setErrorCount).catch(() => {})
+  }, [isAdmin, location.pathname])
 
   const visibleNav = navAll.filter(item => !item.perm || can(item.perm))
   if (isAdmin) visibleNav.push(monitoreoItem)
@@ -123,7 +137,15 @@ export default function Sidebar() {
               <>
                 <Icon size={15} style={{ color: isActive ? 'var(--amber)' : 'var(--subtle)', flexShrink: 0 }} />
                 <span style={{ fontFamily: 'Instrument Sans' }}>{label}</span>
-                {isActive && (
+                {to === '/monitoreo' && errorCount > 0 && (
+                  <span
+                    className="ml-auto num text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ minWidth: 18, height: 18, padding: '0 5px', background: 'var(--red)', color: '#fff' }}
+                  >
+                    {errorCount > 99 ? '99+' : errorCount}
+                  </span>
+                )}
+                {isActive && to !== '/monitoreo' && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full"
                     style={{ background: 'var(--amber)', boxShadow: '0 0 6px var(--amber)' }} />
                 )}

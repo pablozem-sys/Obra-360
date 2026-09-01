@@ -948,6 +948,12 @@ export async function getRegistrosAbiertosAnteriores() {
 // RLS de app_errors/app_errors_resumen ya filtra a solo admins — estas
 // funciones devuelven [] silenciosamente para cualquier otro usuario
 // (0 filas, no un 403), no hace falta chequear el rol acá también.
+
+// Key de localStorage compartida entre Sidebar.jsx (lee, para el badge) y
+// Monitoreo.jsx (escribe, al visitar la página) — cuándo fue la última vez
+// que Pedro entró al panel, para saber qué errores son "nuevos".
+export const MONITOREO_LAST_SEEN_KEY = 'vaion_monitoreo_last_seen'
+
 export async function getResumenErrores({ origen, desde } = {}) {
   let q = supabase.from('app_errors_resumen').select('*').order('ultima_vez', { ascending: false })
   if (origen) q = q.eq('origen', origen)

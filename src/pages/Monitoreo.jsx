@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Users, Building2 } from 'lucide-react'
-import { getResumenErrores, getOcurrenciasError, getConteoErrores } from '../lib/supabase'
+import { getResumenErrores, getOcurrenciasError, getConteoErrores, MONITOREO_LAST_SEEN_KEY } from '../lib/supabase'
 
 const ORIGENES = ['todos', 'ui', 'data', 'auth', 'storage', 'unhandled', 'promise']
 
@@ -69,6 +69,12 @@ export default function Monitoreo() {
   const [origenFiltro, setOrigenFiltro] = useState('todos')
   const [rangoDias, setRangoDias] = useState(7)
   const [expandido, setExpandido] = useState(null)
+
+  // Marca "visto ahora" para que el badge del sidebar se limpie — los
+  // errores que ya pasaron a estar visibles acá dejan de contar como nuevos.
+  useEffect(() => {
+    try { localStorage.setItem(MONITOREO_LAST_SEEN_KEY, new Date().toISOString()) } catch { /* ignorar */ }
+  }, [])
 
   useEffect(() => {
     setLoading(true)
