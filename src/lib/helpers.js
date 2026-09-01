@@ -9,12 +9,15 @@ export const ADMIN_EMAILS = ['pablozem@gmail.com']
 export const COMPANY_SLUG = import.meta.env.VITE_COMPANY_SLUG || 'va-constructora'
 
 // El asistente de búsqueda (Edge Function) y el monitoreo de errores
-// (app_errors) solo tienen su parte de base de datos instalada en VAION —
-// nunca se aplicaron a la base de VRION. Con esto se ocultan sus piezas de
-// UI cuando la app corre como VRION, sin tocar la base de datos de VRION
-// para nada. Si en algún momento se decide instalarlas ahí también, borrar
-// este flag (o hacer que dependa de otra cosa).
-export const IS_VAION = COMPANY_SLUG === 'va-constructora'
+// (app_errors) solo tienen su parte de base de datos instalada del lado de
+// VAION (producción Y staging) — nunca se aplicaron a la base de VRION. Con
+// esto se ocultan sus piezas de UI cuando la app corre como VRION, sin tocar
+// la base de datos de VRION para nada. Si en algún momento se decide
+// instalarlas ahí también, borrar este flag (o hacer que dependa de otra cosa).
+// OJO: se compara contra BRAND_NAME, no COMPANY_SLUG — staging usa
+// COMPANY_SLUG='rukan-demo' (no 'va-constructora') pero SÍ tiene este
+// backend instalado, así que COMPANY_SLUG no sirve para distinguir esto.
+export const IS_VAION = BRAND_NAME === 'VAION'
 
 // Jornada base por día: sábado (08:30-15:00) = 6.5h, resto de la semana = 8h.
 // Acepta 'YYYY-MM-DD' o cualquier string/Date parseable (ej. timestamp ISO de entrada).
