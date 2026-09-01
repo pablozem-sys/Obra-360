@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { COMPANY_SLUG, horasBaseJornada } from './helpers'
+// Import circular con logger.js (logger importa `supabase` de acá) — seguro
+// porque ambos usos ocurren dentro de closures llamadas en runtime, nunca
+// en el cuerpo top-level de ninguno de los dos módulos.
+import { logError } from './logger'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -939,6 +943,141 @@ export async function getRegistrosAbiertosAnteriores() {
   if (error) throw error
   return data ?? []
 }
+
+// ── Panel /monitoreo (app_errors) ────────────────────────────────
+// RLS de app_errors/app_errors_resumen ya filtra a solo admins — estas
+// funciones devuelven [] silenciosamente para cualquier otro usuario
+// (0 filas, no un 403), no hace falta chequear el rol acá también.
+export async function getResumenErrores({ origen, desde } = {}) {
+  let q = supabase.from('app_errors_resumen').select('*').order('ultima_vez', { ascending: false })
+  if (origen) q = q.eq('origen', origen)
+  if (desde) q = q.gte('ultima_vez', desde)
+  const { data, error } = await q
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getOcurrenciasError(fingerprint, limite = 10) {
+  const { data, error } = await supabase
+    .from('app_errors')
+    .select('id, mensaje, stack, ruta, empresa_id, rol, user_agent, online, app_version, created_at')
+    .eq('fingerprint', fingerprint)
+    .order('created_at', { ascending: false })
+    .limit(limite)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getConteoErrores(desde) {
+  const { count, error } = await supabase
+    .from('app_errors')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', desde)
+  if (error) throw error
+  return count ?? 0
+}
+
+// ── Instrumentación de errores (capa de datos) ──────────────────
+// Reasigna cada función exportada de arriba a una versión que loguea
+// cualquier excepción (origen 'data', operacion = nombre de la función) y
+// la RE-LANZA sin alterarla — el catch de cada página sigue funcionando
+// exactamente igual, esto no cambia ningún comportamiento visible. No toca
+// ninguna función ni ninguna página que las importa: son reasignaciones de
+// la misma binding exportada, JS permite reasignar una función declarada
+// con `function` y eso se refleja en quien la importó por nombre.
+function withLog(nombre, fn) {
+  return async function (...args) {
+    try {
+      return await fn.apply(this, args)
+    } catch (err) {
+      logError(err, { origen: 'data', operacion: nombre })
+      throw err
+    }
+  }
+}
+
+getObras = withLog('getObras', getObras)
+getObraById = withLog('getObraById', getObraById)
+createObra = withLog('createObra', createObra)
+updateObra = withLog('updateObra', updateObra)
+deleteObra = withLog('deleteObra', deleteObra)
+deleteWorker = withLog('deleteWorker', deleteWorker)
+getAdditionalSales = withLog('getAdditionalSales', getAdditionalSales)
+getAllAdditionalSales = withLog('getAllAdditionalSales', getAllAdditionalSales)
+createAdditionalSale = withLog('createAdditionalSale', createAdditionalSale)
+deleteAdditionalSale = withLog('deleteAdditionalSale', deleteAdditionalSale)
+getGastos = withLog('getGastos', getGastos)
+getEgresosCredito = withLog('getEgresosCredito', getEgresosCredito)
+getGastosDetallado = withLog('getGastosDetallado', getGastosDetallado)
+getUltimosGastos = withLog('getUltimosGastos', getUltimosGastos)
+getObraMetrics = withLog('getObraMetrics', getObraMetrics)
+getDashboardKPIs = withLog('getDashboardKPIs', getDashboardKPIs)
+getMesesDisponibles = withLog('getMesesDisponibles', getMesesDisponibles)
+getFlujoCajaMensual = withLog('getFlujoCajaMensual', getFlujoCajaMensual)
+getFlujoCajaSemanal = withLog('getFlujoCajaSemanal', getFlujoCajaSemanal)
+createGasto = withLog('createGasto', createGasto)
+updateGasto = withLog('updateGasto', updateGasto)
+deleteGasto = withLog('deleteGasto', deleteGasto)
+uploadDocumento = withLog('uploadDocumento', uploadDocumento)
+getDocumentos = withLog('getDocumentos', getDocumentos)
+createDocumento = withLog('createDocumento', createDocumento)
+deleteDocumento = withLog('deleteDocumento', deleteDocumento)
+getSignedDocUrl = withLog('getSignedDocUrl', getSignedDocUrl)
+getExpensasPorObraLite = withLog('getExpensasPorObraLite', getExpensasPorObraLite)
+getAttendanceCostsPorObra = withLog('getAttendanceCostsPorObra', getAttendanceCostsPorObra)
+getCuentasPagar = withLog('getCuentasPagar', getCuentasPagar)
+getIngresos = withLog('getIngresos', getIngresos)
+createIngreso = withLog('createIngreso', createIngreso)
+updateIngreso = withLog('updateIngreso', updateIngreso)
+deleteIngreso = withLog('deleteIngreso', deleteIngreso)
+getUsuarios = withLog('getUsuarios', getUsuarios)
+createUsuario = withLog('createUsuario', createUsuario)
+deleteUsuario = withLog('deleteUsuario', deleteUsuario)
+updateUsuarioPerfil = withLog('updateUsuarioPerfil', updateUsuarioPerfil)
+updateCuentaPagar = withLog('updateCuentaPagar', updateCuentaPagar)
+getCuentasCobrar = withLog('getCuentasCobrar', getCuentasCobrar)
+updateCuentaCobrar = withLog('updateCuentaCobrar', updateCuentaCobrar)
+getObrasActivas = withLog('getObrasActivas', getObrasActivas)
+getObraByClaveActiva = withLog('getObraByClaveActiva', getObraByClaveActiva)
+getWorkers = withLog('getWorkers', getWorkers)
+getAllWorkers = withLog('getAllWorkers', getAllWorkers)
+createWorker = withLog('createWorker', createWorker)
+updateWorker = withLog('updateWorker', updateWorker)
+getWorkerProjectIds = withLog('getWorkerProjectIds', getWorkerProjectIds)
+toggleWorkerProject = withLog('toggleWorkerProject', toggleWorkerProject)
+getWorkerObras = withLog('getWorkerObras', getWorkerObras)
+getPublicWorkers = withLog('getPublicWorkers', getPublicWorkers)
+verifyWorkerPin = withLog('verifyWorkerPin', verifyWorkerPin)
+verifyWorkerPinSolo = withLog('verifyWorkerPinSolo', verifyWorkerPinSolo)
+getActiveBanoByProject = withLog('getActiveBanoByProject', getActiveBanoByProject)
+getBanosQuimicos = withLog('getBanosQuimicos', getBanosQuimicos)
+createBanoQuimico = withLog('createBanoQuimico', createBanoQuimico)
+updateBanoQuimico = withLog('updateBanoQuimico', updateBanoQuimico)
+deleteBanoQuimico = withLog('deleteBanoQuimico', deleteBanoQuimico)
+getPagosBano = withLog('getPagosBano', getPagosBano)
+createPagoBano = withLog('createPagoBano', createPagoBano)
+deletePagoBano = withLog('deletePagoBano', deletePagoBano)
+getTareas = withLog('getTareas', getTareas)
+createTarea = withLog('createTarea', createTarea)
+updateTarea = withLog('updateTarea', updateTarea)
+deleteTarea = withLog('deleteTarea', deleteTarea)
+getProviders = withLog('getProviders', getProviders)
+upsertProvider = withLog('upsertProvider', upsertProvider)
+getProjectsList = withLog('getProjectsList', getProjectsList)
+getAttendance = withLog('getAttendance', getAttendance)
+getTodayOpenAttendance = withLog('getTodayOpenAttendance', getTodayOpenAttendance)
+registrarAsistenciaManual = withLog('registrarAsistenciaManual', registrarAsistenciaManual)
+registrarEntrada = withLog('registrarEntrada', registrarEntrada)
+actualizarTurno = withLog('actualizarTurno', actualizarTurno)
+deleteAttendance = withLog('deleteAttendance', deleteAttendance)
+registrarSalida = withLog('registrarSalida', registrarSalida)
+getAttendanceByProject = withLog('getAttendanceByProject', getAttendanceByProject)
+getAttendanceRange = withLog('getAttendanceRange', getAttendanceRange)
+getAllTodayAttendance = withLog('getAllTodayAttendance', getAllTodayAttendance)
+getRegistrosAbiertosAnteriores = withLog('getRegistrosAbiertosAnteriores', getRegistrosAbiertosAnteriores)
+getResumenErrores = withLog('getResumenErrores', getResumenErrores)
+getOcurrenciasError = withLog('getOcurrenciasError', getOcurrenciasError)
+getConteoErrores = withLog('getConteoErrores', getConteoErrores)
 
 /*
   ── Supabase Schema ──────────────────────────────────────────

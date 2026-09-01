@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase, setEmpresaId } from '../lib/supabase'
+import { configureLogger } from '../lib/logger'
 import { setCotizadorEmpresaId } from '../lib/cotizador/api'
-import { COMPANY_SLUG } from '../lib/helpers'
+import { COMPANY_SLUG, ADMIN_EMAILS } from '../lib/helpers'
 
 const AuthContext = createContext(null)
 
@@ -70,6 +71,7 @@ export function AuthProvider({ children }) {
     setEmpresaState(entry)
     setEmpresaId(entry?.empresa_id ?? null)
     setCotizadorEmpresaId(entry?.empresa_id ?? null)
+    configureLogger({ empresaId: entry?.empresa_id ?? null, rol: entry?.rol ?? null })
   }
 
   // Cada despliegue queda fijo a UNA sola empresa (COMPANY_SLUG, por variable
@@ -194,12 +196,15 @@ export function AuthProvider({ children }) {
     return PERMISOS[rol]?.[permiso] ?? false
   }
 
+  const isAdmin = !!session?.user?.email && ADMIN_EMAILS.includes(session.user.email)
+
   return (
     <AuthContext.Provider value={{
       user: session?.user ?? null,
       rol,
       empresa,
       isAuth: !!session,
+      isAdmin,
       loading,
       loginAdmin,
       loginTrabajador,

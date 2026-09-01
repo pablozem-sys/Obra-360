@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'fs'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -8,8 +9,16 @@ export default defineConfig(({ mode }) => {
   const supabaseHost = env.VITE_SUPABASE_URL
     ? new URL(env.VITE_SUPABASE_URL).host
     : 'ffxexpasoneowquvtouz.supabase.co'
+  // Identificador de build para app_errors.app_version — no existía ninguno
+  // antes de esto. Versión de package.json + timestamp del build (no
+  // depende de git estar disponible en el entorno de build de Vercel).
+  const pkgVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url))).version
+  const appVersion = `${pkgVersion}+${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`
 
   return {
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   build: {
     rollupOptions: {
       output: {

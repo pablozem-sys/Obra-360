@@ -1,4 +1,11 @@
 export const BRAND_NAME = import.meta.env.VITE_BRAND_NAME || 'VAION'
+
+// Allowlist de emails con acceso al panel /monitoreo (app_errors). Solo
+// controla la UI (ocultar el link, bloquear la ruta con mensaje) — el
+// límite real lo pone la policy de SELECT en la migración de app_errors,
+// que usa esta misma lista en SQL. Si se agrega alguien acá, agregarlo
+// también en la policy "solo_admins_leen_app_errors" con una migración nueva.
+export const ADMIN_EMAILS = ['pablozem@gmail.com']
 export const COMPANY_SLUG = import.meta.env.VITE_COMPANY_SLUG || 'va-constructora'
 
 // Jornada base por día: sábado (08:30-15:00) = 6.5h, resto de la semana = 8h.

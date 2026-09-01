@@ -28,6 +28,7 @@ const Gestion           = lazy(() => import('./pages/Gestion'))
 const CotizadorList     = lazy(() => import('./pages/Cotizador/CotizadorList'))
 const CotizadorBuilder  = lazy(() => import('./pages/Cotizador/CotizadorBuilder'))
 const VistaCliente      = lazy(() => import('./pages/Cotizador/VistaCliente'))
+const Monitoreo         = lazy(() => import('./pages/Monitoreo'))
 
 // Detecta token de recovery en cualquier ruta y redirige a /reset-password
 function RecoveryRedirect() {
@@ -101,6 +102,15 @@ function DuenoRoute({ children }) {
   return children
 }
 
+// Ruta solo para la allowlist de ADMIN_EMAILS (app_errors es de plataforma,
+// no de tenant — ver comment en la migración). No usa `rol`/`can()`, es un
+// control aparte del sistema de permisos por empresa.
+function AdminRoute({ children }) {
+  const { isAdmin } = useAuth()
+  if (!isAdmin) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 export default function App() {
   return (
     <>
@@ -137,6 +147,7 @@ export default function App() {
         <Route path="/eerr"             element={<DuenoRoute><EstadoResultado /></DuenoRoute>} />
         <Route path="/flujo-caja"       element={<DuenoRoute><FlujoCaja /></DuenoRoute>} />
         <Route path="/usuarios"         element={<DuenoRoute><Usuarios /></DuenoRoute>} />
+        <Route path="/monitoreo"        element={<AdminRoute><Monitoreo /></AdminRoute>} />
 
         <Route path="*"                 element={<Navigate to="/dashboard" replace />} />
       </Route>

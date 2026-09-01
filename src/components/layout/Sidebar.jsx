@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Building2, Plus, ArrowDownCircle,
   BarChart3, Wallet, FolderOpen, Receipt,
-  Users, UserCog, LogOut, Sun, Moon, Droplets, ClipboardList, FileText
+  Users, UserCog, LogOut, Sun, Moon, Droplets, ClipboardList, FileText, ShieldAlert
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -22,6 +22,10 @@ const navAll = [
   { to: '/usuarios',          label: 'Usuarios',         icon: UserCog,         perm: 'editarTodo' },
 ]
 
+// Aparte de navAll porque no es un permiso por rol/empresa — es la
+// allowlist de ADMIN_EMAILS (app_errors es de plataforma, no de tenant).
+const monitoreoItem = { to: '/monitoreo', label: 'Monitoreo', icon: ShieldAlert, perm: null }
+
 const roleBadge = {
   dueno:         { label: 'Dueño',    style: { background: 'rgba(255,149,0,0.12)', color: 'var(--amber)', border: '1px solid rgba(255,149,0,0.25)' } },
   administrativo:{ label: 'Admin',    style: { background: 'rgba(67,97,238,0.12)', color: '#6B8AFF',      border: '1px solid rgba(67,97,238,0.25)' } },
@@ -29,10 +33,11 @@ const roleBadge = {
 
 export default function Sidebar() {
   const navigate = useNavigate()
-  const { user, can, logout, empresa } = useAuth()
+  const { user, can, logout, empresa, isAdmin } = useAuth()
   const { theme, toggle } = useTheme()
 
   const visibleNav = navAll.filter(item => !item.perm || can(item.perm))
+  if (isAdmin) visibleNav.push(monitoreoItem)
 
   return (
     <aside
