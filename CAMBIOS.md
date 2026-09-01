@@ -1,5 +1,21 @@
 # VAION — Cambios recientes
 
+## Monitoreo de errores internos (2026-09-01)
+
+Nuevo: cuando algo falla en la app (una pantalla que no carga, un guardado
+que no funciona), ahora queda registrado automáticamente — antes, si un
+usuario reportaba un bug que no se podía reproducir, no había forma de
+investigarlo. Solo lo ve Pedro, en una pantalla nueva `/monitoreo` (no
+aparece para nadie más).
+
+- No guarda montos, nombres de clientes, RUT ni datos sensibles — solo el
+  tipo de error, en qué pantalla pasó y quién lo sufrió (sin exponer datos
+  de negocio).
+- No cambia nada de cómo funciona la app para los usuarios — es 100%
+  invisible salvo cuando algo realmente falla.
+- Probado en staging. **Todavía no está activo en producción** — decisión
+  pendiente de Pedro.
+
 ## Auditoría de seguridad (2026-08-28)
 
 Auditoría completa de RLS/Storage/RPC en VAION y VRION — ver `docs/AUDITORIA.md` para el detalle completo de los 15 hallazgos.
