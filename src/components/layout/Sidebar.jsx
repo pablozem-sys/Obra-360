@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import { getConteoErrores, MONITOREO_LAST_SEEN_KEY } from '../../lib/supabase'
+import { IS_VAION } from '../../lib/helpers'
 
 const navAll = [
   { to: '/dashboard',          label: 'Dashboard',       icon: LayoutDashboard, perm: null },
@@ -44,14 +45,14 @@ export default function Sidebar() {
   // navegación (no en tiempo real). "Nuevo" = desde la última vez que Pedro
   // entró a /monitoreo (localStorage, por dispositivo/navegador).
   useEffect(() => {
-    if (!isAdmin) return
+    if (!isAdmin || !IS_VAION) return
     const lastSeen = localStorage.getItem(MONITOREO_LAST_SEEN_KEY)
       || new Date(Date.now() - 24 * 3600000).toISOString()
     getConteoErrores(lastSeen).then(setErrorCount).catch(() => {})
   }, [isAdmin, location.pathname])
 
   const visibleNav = navAll.filter(item => !item.perm || can(item.perm))
-  if (isAdmin) visibleNav.push(monitoreoItem)
+  if (isAdmin && IS_VAION) visibleNav.push(monitoreoItem)
 
   return (
     <aside

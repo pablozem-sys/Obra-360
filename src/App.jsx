@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { useAuth } from './context/AuthContext'
+import { IS_VAION } from './lib/helpers'
 import { Loader2 } from 'lucide-react'
 
 import AppLayout         from './components/layout/AppLayout'
@@ -107,7 +108,8 @@ function DuenoRoute({ children }) {
 // control aparte del sistema de permisos por empresa.
 function AdminRoute({ children }) {
   const { isAdmin } = useAuth()
-  if (!isAdmin) return <Navigate to="/dashboard" replace />
+  // + IS_VAION: app_errors no está instalada en la base de VRION todavía.
+  if (!isAdmin || !IS_VAION) return <Navigate to="/dashboard" replace />
   return children
 }
 
