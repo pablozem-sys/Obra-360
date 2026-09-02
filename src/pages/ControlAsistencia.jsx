@@ -349,6 +349,7 @@ export default function ControlAsistencia() {
   const [obrasToggling, setObrasToggling]     = useState({})
   const [addObraId, setAddObraId]             = useState('')
   const [obrasPanel, setObrasPanel]           = useState([]) // obras frescas cargadas al abrir panel
+  const [obrasError, setObrasError]           = useState('')
 
   // Registro manual de asistencia
   const [showManual, setShowManual]           = useState(false)
@@ -649,6 +650,7 @@ export default function ControlAsistencia() {
     if (expandedObras === worker.id) { setExpandedObras(null); return }
     setExpandedObras(worker.id)
     setObrasLoading(true)
+    setObrasError('')
     try {
       const [ids, todas] = await Promise.all([
         getWorkerProjectIds(worker.id),
@@ -656,7 +658,9 @@ export default function ControlAsistencia() {
       ])
       setWorkerObras(prev => ({ ...prev, [worker.id]: new Set(ids) }))
       setObrasPanel(todas)
-    } catch { /* silent */ }
+    } catch (err) {
+      setObrasError(err.message || 'No se pudieron cargar las obras')
+    }
     finally { setObrasLoading(false) }
   }
 
@@ -664,6 +668,7 @@ export default function ControlAsistencia() {
     const key = `${worker.id}-${projectId}`
     const current = workerObras[worker.id] ?? new Set()
     const assign = !current.has(projectId)
+    setObrasError('')
     setWorkerObras(prev => {
       const next = new Set(prev[worker.id] ?? [])
       assign ? next.add(projectId) : next.delete(projectId)
@@ -672,7 +677,8 @@ export default function ControlAsistencia() {
     setObrasToggling(prev => ({ ...prev, [key]: true }))
     try {
       await toggleWorkerProject(worker.id, projectId, assign)
-    } catch {
+    } catch (err) {
+      setObrasError(err.message || 'No se pudo guardar el cambio')
       setWorkerObras(prev => {
         const next = new Set(prev[worker.id] ?? [])
         assign ? next.delete(projectId) : next.add(projectId)
@@ -1825,6 +1831,14 @@ export default function ControlAsistencia() {
                       className="px-5 pb-4"
                       style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', paddingTop: 14 }}
                     >
+                      {obrasError && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <AlertCircle size={12} style={{ color: 'var(--red)' }} />
+                          <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--red)', letterSpacing: '0.06em' }}>
+                            {obrasError.toUpperCase()}
+                          </p>
+                        </div>
+                      )}
                       {obrasLoading ? (
                         <div className="flex justify-center py-4">
                           <Loader2 size={18} className="animate-spin" style={{ color: 'var(--amber)' }} />

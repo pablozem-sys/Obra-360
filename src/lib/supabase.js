@@ -531,7 +531,7 @@ export async function toggleWorkerProject(workerId, projectId, assign) {
   if (assign) {
     const { error } = await supabase
       .from('worker_projects')
-      .insert([{ worker_id: workerId, project_id: projectId }])
+      .insert([{ worker_id: workerId, project_id: projectId, empresa_id: currentEmpresaId }])
     if (error) throw error
   } else {
     const { error } = await supabase
