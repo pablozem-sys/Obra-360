@@ -1,5 +1,14 @@
 # VAION — Cambios recientes
 
+## Bug corregido: asignar obra a un trabajador no hacía nada (2026-09-02)
+
+Reportado por Pedro: al agregar una obra a un trabajador en Asistencia →
+Trabajadores, no pasaba nada visible. La causa era un control de seguridad
+interno que bloqueaba el guardado sin avisar. Corregido para nuevas
+asignaciones, y además se revisaron y corrigieron las asignaciones viejas
+que habían quedado invisibles por el mismo motivo — ya se ven todas
+correctamente. Aplicado en VAION y VRION.
+
 ## QA general de la plataforma + corrección de monto cortado en el Dashboard mobile (2026-09-02)
 
 Se revisó la app completa (todas las pantallas, formularios, kiosco de
