@@ -30,7 +30,7 @@ export default function StatCard({ icon: Icon, label, value, sub, accent, trend,
       </div>
 
       {/* Value */}
-      <div className={`num font-mono font-medium text-2xl leading-none mb-1.5 ${t.text}`}>
+      <div className={`num font-mono font-medium text-xl sm:text-2xl leading-none mb-1.5 ${t.text}`}>
         {value}
       </div>
 
