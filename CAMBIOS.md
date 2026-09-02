@@ -1,5 +1,22 @@
 # VAION — Cambios recientes
 
+## QA general de la plataforma + corrección de monto cortado en el Dashboard mobile (2026-09-02)
+
+Se revisó la app completa (todas las pantallas, formularios, kiosco de
+trabajador y asistente de búsqueda) en el ambiente de pruebas. Se encontró
+y corrigió un bug real: en el Dashboard visto desde el celular, el monto
+de "Venta" se veía cortado cuando la cifra era grande (ej. mostraba
+"$104.000.00" en vez de "$104.000.000") — el número no entraba en la
+tarjeta. Ya está arreglado y desplegado en VAION y VRION.
+
+## Bug corregido: el asistente de búsqueda aparecía activado (pero roto) en producción (2026-09-01)
+
+El chat del asistente había quedado visible en `vaion.app` real sin
+querer — todavía no tiene su parte de servidor instalada ahí (solo existe
+en el ambiente de pruebas), así que cualquier cliente que lo abriera se
+encontraba con un error. Corregido: vuelve a estar oculto en producción,
+sigue disponible normalmente en el ambiente de pruebas.
+
 ## Monitoreo de errores internos (2026-09-01)
 
 Nuevo: cuando algo falla en la app (una pantalla que no carga, un guardado
