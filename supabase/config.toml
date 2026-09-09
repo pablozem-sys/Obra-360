@@ -403,6 +403,13 @@ s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
 
+# whatsapp-agente recibe el webhook de Meta, que no manda un JWT de
+# Supabase — la única verificación de identidad de la request es la firma
+# X-Hub-Signature-256 (ver index.ts), no el verify_jwt default de la
+# plataforma.
+[functions.whatsapp-agente]
+verify_jwt = false
+
 # pg-delta is the schema diff engine for db diff / db pull / db remote commit.
 # Set enabled = false to fall back to the legacy migra engine.
 [experimental.pgdelta]
