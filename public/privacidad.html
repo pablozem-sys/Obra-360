@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de Privacidad — VAION</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: #060709;
+    --bg-card: #11131C;
+    --border: #1E2235;
+    --text: #ECEEF8;
+    --muted: #A0A6C0;
+    --amber: #FF9500;
+    --blue: #4361EE;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background-color: var(--bg-base);
+    background-image: radial-gradient(circle at 15% 0%, rgba(67,97,238,0.10), transparent 45%);
+    color: var(--text);
+    font-family: 'Instrument Sans', sans-serif;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 56px 24px 96px; }
+  h1 {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--text);
+  }
+  .updated { color: var(--muted); font-size: 0.85rem; margin-bottom: 40px; }
+  h2 {
+    font-family: 'Unbounded', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--amber);
+    margin: 36px 0 12px;
+  }
+  p, li { color: var(--text); font-size: 0.95rem; }
+  ul { padding-left: 20px; }
+  a { color: var(--blue); }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 40px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Política de Privacidad — VAION</h1>
+    <p class="updated">Última actualización: septiembre de 2026</p>
+
+    <p>VAION es una plataforma de gestión de obras de construcción (control de obras, gastos, asistencia y documentos) usada por empresas constructoras y su personal autorizado.</p>
+
+    <h2>Qué datos recopilamos</h2>
+    <p>Datos de cuenta (nombre, email, rol) y los datos operativos que cada empresa carga en su propia cuenta: obras, gastos, ingresos, documentos, asistencia de trabajadores y cuentas por cobrar/pagar. Estos datos pertenecen a la empresa que los ingresa y solo son visibles para usuarios autorizados de esa misma empresa.</p>
+
+    <h2>Integración con WhatsApp</h2>
+    <p>VAION ofrece, de forma opcional y solo para usuarios autorizados de una empresa (rol dueño o administrativo), un asistente que responde consultas sobre los datos de su propia empresa a través de WhatsApp. Cuando un usuario autorizado escribe al número del asistente:</p>
+    <ul>
+      <li>Se recibe el número de teléfono y el contenido del mensaje enviado.</li>
+      <li>El mensaje se procesa con la API de Anthropic (Claude) para interpretar la consulta en lenguaje natural y generar una respuesta.</li>
+      <li>Las consultas a la base de datos siempre quedan acotadas a la empresa a la que pertenece el usuario que escribe — nunca se accede a datos de otra empresa.</li>
+      <li>No se comparten estos datos con terceros más allá de los proveedores de infraestructura mencionados en esta política (Anthropic para el procesamiento del lenguaje, Meta para la entrega del mensaje de WhatsApp).</li>
+      <li>Un número de teléfono que no fue dado de alta explícitamente por la empresa no tiene acceso a ninguna funcionalidad ni dato.</li>
+    </ul>
+
+    <h2>Cómo almacenamos los datos</h2>
+    <p>Los datos se almacenan en Supabase, con cifrado en tránsito (HTTPS/TLS) y controles de acceso a nivel de base de datos que restringen cada consulta a la empresa correspondiente.</p>
+
+    <h2>Tus derechos</h2>
+    <p>Podés solicitar acceso, corrección o eliminación de tus datos, o dar de baja el acceso de un número de WhatsApp en cualquier momento, escribiendo al contacto abajo.</p>
+
+    <div class="card">
+      <strong>Contacto</strong>
+      <p style="margin-bottom:0">Para consultas sobre esta política o tus datos: <a href="mailto:pablozem@gmail.com">pablozem@gmail.com</a></p>
+    </div>
+  </div>
+</body>
+</html>
