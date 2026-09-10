@@ -327,6 +327,8 @@ Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas ape
 
 Para cambiar_estado_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId).
 
+Si el usuario responde a una pregunta de confirmación con algo que no es un simple "sí"/"no" (ej. "no, mejor en la obra X" o "cambiale el texto a Y"), la propuesta anterior ya se canceló sola — entendé que te está corrigiendo, volvé a llamar la tool correspondiente con los datos ajustados y pedí confirmación de nuevo. No asumas que ya confirmó nada.
+
 # Qué no hacer
 - No muestres menús numerados para que el usuario elija — dejá que escriba en lenguaje natural.
 - No saludes ni te reintroduzcas en cada respuesta.
@@ -393,30 +395,39 @@ async function procesarMensaje(
 
   const sesion = await cargarSesion(supabase, from);
 
-  // ── Confirmación pendiente: se resuelve 100% por código, nunca por el
-  // modelo. Ni siquiera se llama a Anthropic para este turno. ──
+  // ── Confirmación pendiente: la ejecución SIEMPRE se resuelve 100% por
+  // código, nunca por el modelo — esto no cambia. Lo que sí admite ahora
+  // es una tercera salida: si la respuesta no es un "sí"/"no" limpio,
+  // puede ser una corrección ("no, mejor en la obra X") en vez de un
+  // simple rechazo. En ese caso se cancela la propuesta vieja en
+  // silencio y el mensaje sigue el flujo normal con el modelo más abajo
+  // — que puede volver a proponer algo ajustado, siempre con una
+  // confirmación nueva antes de ejecutar nada. ──
   if (sesion.estado === "esperando_confirmacion_tarea") {
     const normalizado = texto.trim().toLowerCase();
     const esAfirmativo = /^(s[ií]|dale|ok(ay)?|confirmo|correcto)\b/.test(normalizado);
-    const esNegativo = /^no\b/.test(normalizado);
+    const esNegativoPuro = /^no[.!]?\s*$/.test(normalizado); // "no" solo, sin nada más
 
-    if (!esAfirmativo && !esNegativo) {
-      await enviarWhatsApp(from, "No te entendí — respondé SÍ o NO para confirmar.", waPhoneId, waToken);
-      return; // se queda esperando_confirmacion_tarea, no se toca la sesión
+    if (esAfirmativo || esNegativoPuro) {
+      const respuesta = esAfirmativo
+        ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, sesion.contexto)
+        : "Listo, no se hizo ningún cambio.";
+
+      await enviarWhatsApp(from, respuesta, waPhoneId, waToken);
+      await guardarSesion(
+        supabase, from, acceso.whatsappUserId,
+        [...sesion.mensajes, { role: "user", content: texto }, { role: "assistant", content: respuesta }],
+        "idle",
+        { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] },
+      );
+      return;
     }
 
-    const respuesta = esAfirmativo
-      ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, sesion.contexto)
-      : "Listo, no se hizo ningún cambio.";
-
-    await enviarWhatsApp(from, respuesta, waPhoneId, waToken);
-    await guardarSesion(
-      supabase, from, acceso.whatsappUserId,
-      [...sesion.mensajes, { role: "user", content: texto }, { role: "assistant", content: respuesta }],
-      "idle",
-      { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] },
-    );
-    return;
+    // Ni sí ni no puro → probable corrección. Se cancela la propuesta
+    // pendiente (nunca queda una ejecución colgada) y se sigue el flujo
+    // normal de abajo con estado ya en 'idle'.
+    sesion.estado = "idle";
+    sesion.contexto = { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] };
   }
 
   const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA];
