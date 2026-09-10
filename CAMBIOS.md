@@ -1,5 +1,20 @@
 # VAION — Cambios recientes
 
+## Piloto interno: asistente de VAION por WhatsApp (2026-09-10)
+
+Nuevo canal para consultar la información de VAION directo desde WhatsApp,
+sin entrar a la plataforma — mismo asistente que ya existe dentro de la app,
+ahora también accesible por mensaje. Funciona con las mismas fuentes de
+siempre (egresos, documentos, cuentas por pagar/cobrar, ventas adicionales)
+y, para el dueño, también resúmenes financieros por obra o de toda la
+empresa (Venta, CDO, MOD, GAV, Margen, Utilidad).
+
+Por ahora es un **piloto interno solo en staging**, con acceso habilitado
+número por número (no cualquiera puede escribirle al bot — solo usuarios
+dados de alta a propósito, con el mismo control de roles que ya existe en
+la plataforma: un trabajador no tiene acceso). Probado de punta a punta con
+un número real.
+
 ## Bug corregido: asignar obra a un trabajador no hacía nada (2026-09-02)
 
 Reportado por Pedro: al agregar una obra a un trabajador en Asistencia →
