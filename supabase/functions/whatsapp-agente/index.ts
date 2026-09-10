@@ -7,9 +7,13 @@
 // conversación — nunca se infieren del mensaje ni los decide el modelo.
 // Cliente Supabase con service_role: única excepción del proyecto, cada
 // query fuerza el filtro de empresa explícito (ver _shared/asistente-tools.ts).
-// Desde 2026-09-10 ya no es 100% solo-lectura: cambiar_estado_tarea es la
-// única tool mutante, gateada por confirmación explícita del usuario en el
-// propio chat (ver systemPromptWhatsApp) antes de que el modelo la invoque.
+// Desde 2026-09-10 ya no es 100% solo-lectura: crear_tarea y
+// cambiar_estado_tarea existen, pero NUNCA mutan datos cuando el modelo
+// las invoca — arman una "propuesta" en whatsapp_sesiones (estado
+// 'esperando_confirmacion_tarea' + contexto) y devuelven el texto de
+// confirmación para que el modelo lo relaye. La ejecución real del
+// INSERT/UPDATE solo ocurre cuando el CÓDIGO (no el modelo) detecta una
+// respuesta afirmativa al mensaje siguiente — ver procesarMensaje.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk@0.68";
 import {
@@ -17,8 +21,10 @@ import {
   TOOLS_BUSQUEDA,
   TOOL_RESUMEN_FINANCIERO,
   TOOL_BUSCAR_TAREAS,
+  TOOL_CREAR_TAREA,
   TOOL_CAMBIAR_ESTADO_TAREA,
   ejecutarTool,
+  resolverObraId,
 } from "../_shared/asistente-tools.ts";
 
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-opus-5";
@@ -57,24 +63,140 @@ function yaProcesado(messageId: string): boolean {
 const MAX_MENSAJES_SESION = 12; // últimos 6 intercambios usuario/bot
 const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
 
-async function cargarSesion(supabase: any, phoneE164: string): Promise<{ mensajes: Anthropic.MessageParam[]; esNueva: boolean }> {
+type PropuestaTarea =
+  | { accion: "crear_tarea"; obra_id: string; obra_nombre: string; tarea_texto: string }
+  | { accion: "cambiar_estado_tarea"; tarea_id: string; tarea_texto: string; obra: string; nuevo_estado: string };
+
+type TareaMostrada = { id: string; tarea: string; obraNombre: string; status: string };
+
+type Contexto = { tareas_mostradas?: TareaMostrada[] } & Partial<PropuestaTarea>;
+
+type SesionCargada = {
+  mensajes: Anthropic.MessageParam[];
+  esNueva: boolean;
+  estado: string;
+  contexto: Contexto;
+};
+
+async function cargarSesion(supabase: any, phoneE164: string): Promise<SesionCargada> {
   const { data, error } = await supabase
     .from("whatsapp_sesiones")
-    .select("mensajes, ultima_actividad")
+    .select("mensajes, ultima_actividad, estado, contexto")
     .eq("phone_e164", phoneE164)
     .maybeSingle();
   if (error) throw error;
-  if (!data) return { mensajes: [], esNueva: true };
+  if (!data) return { mensajes: [], esNueva: true, estado: "idle", contexto: {} };
   const esNueva = Date.now() - new Date(data.ultima_actividad).getTime() > VENTANA_SESION_MS;
-  return { mensajes: esNueva ? [] : (data.mensajes as Anthropic.MessageParam[]), esNueva };
+  if (esNueva) return { mensajes: [], esNueva: true, estado: "idle", contexto: {} };
+  return {
+    mensajes: data.mensajes as Anthropic.MessageParam[],
+    esNueva: false,
+    estado: (data.estado as string) || "idle",
+    contexto: (data.contexto as Contexto) || {},
+  };
 }
 
-async function guardarSesion(supabase: any, phoneE164: string, mensajes: Anthropic.MessageParam[]) {
+async function guardarSesion(
+  supabase: any,
+  phoneE164: string,
+  whatsappUserId: string,
+  mensajes: Anthropic.MessageParam[],
+  estado: string,
+  contexto: Contexto,
+) {
   const recortados = mensajes.length > MAX_MENSAJES_SESION ? mensajes.slice(-MAX_MENSAJES_SESION) : mensajes;
   const { error } = await supabase
     .from("whatsapp_sesiones")
-    .upsert({ phone_e164: phoneE164, mensajes: recortados, ultima_actividad: new Date().toISOString() });
+    .upsert({
+      phone_e164: phoneE164,
+      whatsapp_user_id: whatsappUserId,
+      mensajes: recortados,
+      estado,
+      contexto,
+      ultima_actividad: new Date().toISOString(),
+    });
   if (error) console.error("whatsapp-agente: error guardando sesión", error);
+}
+
+// ── Propuestas de tareas: nunca ejecutan el INSERT/UPDATE directo ──
+// Llamadas desde el loop de tool-use cuando el modelo invoca crear_tarea o
+// cambiar_estado_tarea. Devuelven el texto a relayar + (si corresponde)
+// la "propuesta" que se guarda en la sesión, pendiente de confirmación.
+async function prepararCrearTarea(supabase: any, empresaId: string, input: Record<string, unknown>) {
+  const tareaTexto = typeof input.tarea === "string" ? input.tarea.trim() : "";
+  const obraNombre = typeof input.obraNombre === "string" ? input.obraNombre.trim() : "";
+  if (!tareaTexto || !obraNombre) {
+    return { mensaje: "Me falta el texto de la tarea o el nombre de la obra." };
+  }
+
+  const resuelto = await resolverObraId(supabase, empresaId, obraNombre);
+  if (resuelto.ids.length === 0) {
+    const sugerencias = (resuelto as any).sugerencias?.join(", ") || "ninguna obra cargada";
+    return { mensaje: `No encontré ninguna obra parecida a "${obraNombre}". Las obras de la empresa son: ${sugerencias}.` };
+  }
+  if (resuelto.ids.length > 1) {
+    return { mensaje: `Encontré varias obras parecidas a "${obraNombre}": ${resuelto.nombres.join(", ")}. ¿Cuál es?` };
+  }
+
+  const obraId = resuelto.ids[0];
+  const obraNombreReal = resuelto.nombres[0];
+  const propuesta: PropuestaTarea = { accion: "crear_tarea", obra_id: obraId, obra_nombre: obraNombreReal, tarea_texto: tareaTexto };
+  return { mensaje: `¿Confirmás crear la tarea "${tareaTexto}" en ${obraNombreReal}? Respondé SÍ o NO.`, propuesta };
+}
+
+function prepararCambiarEstadoTarea(input: Record<string, unknown>, tareasMostradas: TareaMostrada[]) {
+  const tareaId = typeof input.tareaId === "string" ? input.tareaId : "";
+  const nuevoEstado = typeof input.nuevoEstado === "string" ? input.nuevoEstado : "";
+  if (!tareaId || (nuevoEstado !== "pendiente" && nuevoEstado !== "finalizado")) {
+    return { mensaje: "Falta el id de la tarea o el estado no es válido." };
+  }
+  const tarea = tareasMostradas.find((t) => t.id === tareaId);
+  if (!tarea) {
+    return { mensaje: "Esa tarea no está entre los últimos resultados de esta conversación — buscala de nuevo con buscar_tareas primero." };
+  }
+  if (tarea.status === nuevoEstado) {
+    return { mensaje: `"${tarea.tarea}" ya está ${nuevoEstado === "finalizado" ? "finalizada" : "pendiente"} — no hay nada que cambiar.` };
+  }
+  const propuesta: PropuestaTarea = {
+    accion: "cambiar_estado_tarea", tarea_id: tareaId, tarea_texto: tarea.tarea, obra: tarea.obraNombre, nuevo_estado: nuevoEstado,
+  };
+  const verbo = nuevoEstado === "finalizado" ? "finalizada" : "pendiente";
+  return { mensaje: `¿Confirmás marcar "${tarea.tarea}" (obra: ${tarea.obraNombre}) como ${verbo}? Respondé SÍ o NO.`, propuesta };
+}
+
+// ── Ejecución real — SOLO se llama desde el chequeo de confirmación por
+// código en procesarMensaje, nunca desde el loop de tool-use del modelo. ──
+async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, contexto: Contexto): Promise<string> {
+  if (contexto.accion === "crear_tarea") {
+    const { error } = await supabase.from("tasks").insert({
+      empresa_id: empresaId, obra_id: (contexto as any).obra_id, tarea: (contexto as any).tarea_texto, status: "pendiente",
+    });
+    if (error) {
+      console.error("whatsapp-agente: error creando tarea", error);
+      return "Hubo un error creando la tarea. Probá de nuevo.";
+    }
+    return `Listo, tarea creada en ${(contexto as any).obra_nombre}.`;
+  }
+  if (contexto.accion === "cambiar_estado_tarea") {
+    const nuevoEstado = (contexto as any).nuevo_estado as string;
+    const updates = nuevoEstado === "finalizado"
+      ? { status: "finalizado", completed_at: new Date().toISOString() }
+      : { status: "pendiente", completed_at: null };
+    const { error, data } = await supabase
+      .from("tasks")
+      .update(updates)
+      .eq("id", (contexto as any).tarea_id)
+      .eq("empresa_id", empresaId) // nunca confiar solo en el id — service_role sortea RLS
+      .select("id")
+      .maybeSingle();
+    if (error) {
+      console.error("whatsapp-agente: error actualizando tarea", error);
+      return "Hubo un error actualizando la tarea. Probá de nuevo.";
+    }
+    if (!data) return "No encontré esa tarea en tu empresa — probá buscarla de nuevo.";
+    return `Listo, tarea marcada como ${nuevoEstado === "finalizado" ? "finalizada" : "pendiente"}.`;
+  }
+  return "No tengo ningún cambio pendiente para confirmar.";
 }
 
 function fechaChile(d = new Date()): string {
@@ -111,7 +233,7 @@ async function verificarFirmaMeta(rawBody: string, signatureHeader: string | nul
 async function resolverAcceso(supabase: any, phoneE164: string) {
   const { data: wu, error: wuErr } = await supabase
     .from("whatsapp_users")
-    .select("user_id, empresa_id, activo")
+    .select("id, user_id, empresa_id, activo")
     .eq("phone_e164", phoneE164)
     .maybeSingle();
   if (wuErr) throw wuErr;
@@ -127,6 +249,7 @@ async function resolverAcceso(supabase: any, phoneE164: string) {
   if (!uc || uc.rol === "trabajador") return null;
 
   return {
+    whatsappUserId: wu.id as string,
     userId: wu.user_id as string,
     empresaId: wu.empresa_id as string,
     rol: uc.rol as string,
@@ -199,15 +322,17 @@ Para VARIOS registros (2 o más): numerá cada uno en una sola línea compacta p
 
 Omití un campo solo si de verdad no aplica al tipo de registro (una tarea no tiene "forma de pago", por ejemplo) — no omitas campos que sí existen aunque estén vacíos, decilos explícito ("sin obra asignada"), pero en su propia línea, no encadenados con "y".
 
-# Acciones que cambian datos
-cambiar_estado_tarea nunca se ejecuta directo. Cuando el usuario pida cambiar el estado de una tarea: primero llamá a buscar_tareas para encontrarla, mostrale exactamente qué vas a cambiar ("¿Confirmás marcar 'Pedir fierro' (obra: QUILLAYES 20) como finalizada? Respondé SÍ o NO.") y esperá una confirmación explícita antes de invocar cambiar_estado_tarea. Un "sí" o "no" ambiguo → repreguntá, no asumas.
+# Acciones que cambian datos (crear_tarea, cambiar_estado_tarea)
+Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas apenas tengas los datos necesarios (no hace falta que vos le preguntes "confirmás" antes de llamarlas): el sistema arma la propuesta y te devuelve un mensaje de confirmación en el resultado de la tool. Tu única tarea ahí es **relayar ese mensaje tal cual al usuario, sin reformularlo**. La ejecución real (crear la tarea, cambiar el estado) la hace el sistema en el siguiente mensaje, cuando el usuario confirma — vos no volvés a llamar la tool para eso, solo seguís la conversación con naturalidad si el usuario pregunta algo más.
+
+Para cambiar_estado_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId).
 
 # Qué no hacer
 - No muestres menús numerados para que el usuario elija — dejá que escriba en lenguaje natural.
 - No saludes ni te reintroduzcas en cada respuesta.
 - No mandes un registro completo en una sola línea con guiones — separá por saltos de línea, como en la sección de formato de arriba.
 - No inventes datos si una tool no devuelve resultados — decilo explícito y sugerí ampliar el rango.
-- No ejecutes ningún cambio de estado sin la confirmación explícita descrita arriba.
+- No reformules ni "adelantes" el mensaje de confirmación de crear_tarea/cambiar_estado_tarea — relayalo tal cual lo devuelve la tool.
 - Si la pregunta pide algo fuera de estas fuentes (ej. asistencia, sueldos por hora, cotizaciones), decilo explícito: "Eso no está disponible en este asistente todavía."
 - Para cualquier suma, total o conteo de egresos, SIEMPRE llamá a sumar_egresos — nunca sumes vos los montos a mano.${tieneResumen ? "\n- Para Venta Total, CDO, MOD, GAV, Margen o Utilidad, SIEMPRE llamá a obtener_resumen_financiero — nunca calcules esos números combinando otras tools vos mismo." : ""}
 - Nunca reveles IDs internos (UUID) en la respuesta, ni menciones datos de otra empresa.
@@ -230,11 +355,13 @@ Sin obra asignada
 Sin comprobante"
 
 Usuario: "marca como lista la tarea de pedir fierro"
-[llamás a buscar_tareas con textoLibre "pedir fierro", encontrás 1 resultado]
-Vos: "¿Confirmás marcar 'Pedir fierro' (obra: QUILLAYES 20) como finalizada? Respondé SÍ o NO."
-Usuario: "sí"
-[recién ahora llamás a cambiar_estado_tarea]
-Vos: "Listo, tarea marcada como finalizada."
+[llamás a buscar_tareas con texto "pedir fierro", encontrás 1 resultado. Llamás a cambiar_estado_tarea con ese tareaId y nuevoEstado "finalizado" — la tool te devuelve el mensaje de confirmación, no aplica el cambio todavía]
+Vos: "¿Confirmás marcar "Pedir fierro" (obra: QUILLAYES 20) como finalizada? Respondé SÍ o NO."
+[el sistema espera la respuesta del usuario en el siguiente mensaje — vos no hacés nada más acá]
+
+Usuario: "quiero crear una tarea en quillayes: pedir cemento"
+[llamás a crear_tarea con obraNombre "quillayes" y tarea "pedir cemento" — la tool resuelve la obra y te devuelve el mensaje de confirmación]
+Vos: "¿Confirmás crear la tarea "pedir cemento" en QUILLAYES 20? Respondé SÍ o NO."
 
 Usuario: "asdasd" (no matchea ninguna intención)
 Vos: "No te entendí bien. Puedo ayudarte con egresos, documentos, cuentas, tareas${tieneResumen ? ", resumen financiero" : ""} — contame qué necesitás."`;
@@ -264,21 +391,49 @@ async function procesarMensaje(
     return;
   }
 
-  const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CAMBIAR_ESTADO_TAREA];
+  const sesion = await cargarSesion(supabase, from);
+
+  // ── Confirmación pendiente: se resuelve 100% por código, nunca por el
+  // modelo. Ni siquiera se llama a Anthropic para este turno. ──
+  if (sesion.estado === "esperando_confirmacion_tarea") {
+    const normalizado = texto.trim().toLowerCase();
+    const esAfirmativo = /^(s[ií]|dale|ok(ay)?|confirmo|correcto)\b/.test(normalizado);
+    const esNegativo = /^no\b/.test(normalizado);
+
+    if (!esAfirmativo && !esNegativo) {
+      await enviarWhatsApp(from, "No te entendí — respondé SÍ o NO para confirmar.", waPhoneId, waToken);
+      return; // se queda esperando_confirmacion_tarea, no se toca la sesión
+    }
+
+    const respuesta = esAfirmativo
+      ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, sesion.contexto)
+      : "Listo, no se hizo ningún cambio.";
+
+    await enviarWhatsApp(from, respuesta, waPhoneId, waToken);
+    await guardarSesion(
+      supabase, from, acceso.whatsappUserId,
+      [...sesion.mensajes, { role: "user", content: texto }, { role: "assistant", content: respuesta }],
+      "idle",
+      { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] },
+    );
+    return;
+  }
+
+  const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA];
   const toolsPermitidas = acceso.rol === "dueno" ? [...toolsBase, TOOL_RESUMEN_FINANCIERO] : toolsBase;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
-  const { mensajes: historialPrevio, esNueva: esSesionNueva } = await cargarSesion(supabase, from);
-
-  const messages: Anthropic.MessageParam[] = [...historialPrevio, { role: "user", content: texto }];
+  const messages: Anthropic.MessageParam[] = [...sesion.mensajes, { role: "user", content: texto }];
   let respuestaTexto = "";
+  let tareasMostradas: TareaMostrada[] = sesion.contexto.tareas_mostradas ?? [];
+  let propuestaPendiente: PropuestaTarea | null = null;
 
   try {
     for (let ronda = 0; ronda < MAX_TOOL_ROUNDS; ronda++) {
       const resp = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: systemPromptWhatsApp(hoy, acceso.nombreUsuario, acceso.rol, acceso.empresaNombre, esSesionNueva, toolsPermitidas),
+        system: systemPromptWhatsApp(hoy, acceso.nombreUsuario, acceso.rol, acceso.empresaNombre, sesion.esNueva, toolsPermitidas),
         tools: toolsPermitidas,
         messages,
       });
@@ -301,8 +456,29 @@ async function procesarMensaje(
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: "Tool no disponible para tu rol." });
           continue;
         }
+
+        // crear_tarea/cambiar_estado_tarea: nunca pasan por ejecutarTool —
+        // se resuelven acá como PROPUESTA, nunca como ejecución directa.
+        if (tu.name === "crear_tarea") {
+          const r = await prepararCrearTarea(supabase, acceso.empresaId, tu.input as Record<string, unknown>);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "cambiar_estado_tarea") {
+          const r = prepararCambiarEstadoTarea(tu.input as Record<string, unknown>, tareasMostradas);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+
         try {
           const result = await ejecutarTool(supabase, tu.name, tu.input as Record<string, unknown>, { empresaId: acceso.empresaId });
+          if (tu.name === "buscar_tareas") {
+            tareasMostradas = (result.rows ?? []).map((r: any) => ({
+              id: r.id, tarea: r.tarea, obraNombre: r.projects?.nombre ?? "sin obra asignada", status: r.status,
+            }));
+          }
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
         } catch (toolErr) {
           toolResults.push({
@@ -327,11 +503,13 @@ async function procesarMensaje(
 
   // Guardar el intercambio limpio (solo texto) en la sesión — nunca los
   // bloques tool_use/tool_result de la ronda, ver comentario arriba.
-  await guardarSesion(supabase, from, [
-    ...historialPrevio,
-    { role: "user", content: texto },
-    { role: "assistant", content: respuestaFinal },
-  ]);
+  const nuevoContexto: Contexto = { tareas_mostradas: tareasMostradas, ...(propuestaPendiente ?? {}) };
+  await guardarSesion(
+    supabase, from, acceso.whatsappUserId,
+    [...sesion.mensajes, { role: "user", content: texto }, { role: "assistant", content: respuestaFinal }],
+    propuestaPendiente ? "esperando_confirmacion_tarea" : "idle",
+    nuevoContexto,
+  );
 }
 
 Deno.serve(async (req: Request) => {

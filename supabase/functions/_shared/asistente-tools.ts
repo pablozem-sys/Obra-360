@@ -142,33 +142,53 @@ export const TOOL_RESUMEN_FINANCIERO: Anthropic.Tool = {
 
 // Tools de tareas (Control y Gestión) — igual alcance de permisos que las
 // de TOOLS_BUSQUEDA (cualquier rol autorizado, dueño o administrativo; la
-// página web tampoco restringe esto solo a dueño). cambiar_estado_tarea
-// es la ÚNICA tool mutante de todo el asistente (in-app y WhatsApp) — el
-// system prompt exige confirmación explícita del usuario antes de
-// invocarla, nunca se ejecuta directo a partir del pedido inicial.
+// página web tampoco restringe esto solo a dueño).
+//
+// crear_tarea y cambiar_estado_tarea son PROPUESTAS, no ejecuciones: al
+// llamarlas, whatsapp-agente NO inserta/actualiza nada en `tasks` — arma
+// un "propuesta" pendiente en whatsapp_sesiones y le devuelve al modelo
+// el texto de confirmación para que lo relaye tal cual. La ejecución real
+// solo ocurre cuando el código (no el modelo) detecta una respuesta
+// afirmativa al mensaje siguiente. Ver whatsapp-agente/index.ts — estas
+// dos tools NO tienen case en ejecutarTool a propósito, así que si algo
+// las invoca fuera de ese flujo, fallan con "Tool desconocida" en vez de
+// mutar datos sin confirmación.
 export const TOOL_BUSCAR_TAREAS: Anthropic.Tool = {
   name: "buscar_tareas",
-  description: "Busca tareas de Control y Gestión. Devuelve hasta 50 filas con tarea, obra, estado (pendiente/finalizado) y fecha de completado si aplica.",
+  description: "Busca tareas de Control y Gestión. Devuelve hasta 15 filas con id, tarea, obra, estado (pendiente/finalizado) y fecha de completado si aplica. Si totalCount es mayor a las filas devueltas, pedile al usuario que acote la búsqueda.",
   input_schema: {
     type: "object",
     properties: {
       obraId: { type: "string", description: OBRA_ID_DESC },
-      status: { type: "string", enum: ["pendiente", "finalizado"] },
-      textoLibre: { type: "string", description: "Busca coincidencia parcial en el texto de la tarea" },
+      estado: { type: "string", enum: ["pendiente", "finalizado"] },
+      texto: { type: "string", description: "Busca coincidencia parcial en el texto de la tarea" },
     },
+  },
+};
+
+export const TOOL_CREAR_TAREA: Anthropic.Tool = {
+  name: "crear_tarea",
+  description: "Propone crear una tarea nueva en una obra. Llamala apenas tengas el texto de la tarea y el nombre de la obra (no hace falta el UUID, se resuelve solo) — el sistema pide confirmación antes de crearla de verdad. Relayá el mensaje que te devuelve tal cual, no lo reformules.",
+  input_schema: {
+    type: "object",
+    properties: {
+      obraNombre: { type: "string", description: "Nombre (o parte del nombre) de la obra donde va la tarea." },
+      tarea: { type: "string", description: "Texto de la tarea a crear." },
+    },
+    required: ["obraNombre", "tarea"],
   },
 };
 
 export const TOOL_CAMBIAR_ESTADO_TAREA: Anthropic.Tool = {
   name: "cambiar_estado_tarea",
-  description: "Cambia el estado de UNA tarea puntual a 'pendiente' o 'finalizado'. Requiere el tareaId exacto (obtenido antes con buscar_tareas). SOLO se debe llamar después de que el usuario confirmó explícitamente el cambio propuesto — nunca a partir de un pedido inicial sin confirmar.",
+  description: "Propone cambiar el estado de UNA tarea puntual (con el id exacto que devolvió buscar_tareas) a 'pendiente' o 'finalizado'. Llamala apenas el usuario pida el cambio — el sistema pide confirmación antes de aplicarlo de verdad. Relayá el mensaje que te devuelve tal cual, no lo reformules.",
   input_schema: {
     type: "object",
     properties: {
-      tareaId: { type: "string", description: "UUID de la tarea (de buscar_tareas), no su nombre." },
-      status: { type: "string", enum: ["pendiente", "finalizado"] },
+      tareaId: { type: "string", description: "UUID exacto de la tarea, tal como lo devolvió buscar_tareas — nunca lo inventes." },
+      nuevoEstado: { type: "string", enum: ["pendiente", "finalizado"] },
     },
-    required: ["tareaId", "status"],
+    required: ["tareaId", "nuevoEstado"],
   },
 };
 
@@ -190,7 +210,9 @@ async function proyectoIdsDeEmpresa(supabase: any, empresaId: string): Promise<s
 // modelo necesite conocer el id de antemano.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function resolverObraId(supabase: any, empresaId: string | undefined, texto: string) {
+// Exportada para que whatsapp-agente la reuse en crear_tarea (resolución
+// de obra por nombre, misma lógica que el resto de las tools).
+export async function resolverObraId(supabase: any, empresaId: string | undefined, texto: string) {
   let q = supabase.from("projects").select("id, nombre").ilike("nombre", `%${texto}%`);
   if (empresaId) q = q.eq("empresa_id", empresaId);
   const { data, error } = await q;
@@ -316,38 +338,29 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
       return await obtenerResumenFinanciero(supabase, empresaId, input);
     }
     case "buscar_tareas": {
+      const MAX_TAREAS = 15;
       let q = supabase.from("tasks")
-        .select("id, tarea, status, completed_at, created_at, project_id, projects(nombre)")
+        .select("id, tarea, status, completed_at, created_at, obra_id, projects(nombre)")
         .order("created_at", { ascending: true })
-        .limit(MAX_ROWS);
+        .limit(MAX_TAREAS);
       if (empresaId) q = q.eq("empresa_id", empresaId);
-      if (input.obraId) q = q.eq("project_id", input.obraId);
-      if (input.status) q = q.eq("status", input.status);
-      if (input.textoLibre) q = q.ilike("tarea", `%${input.textoLibre}%`);
+      if (input.obraId) q = q.eq("obra_id", input.obraId);
+      if (input.estado) q = q.eq("status", input.estado);
+      if (input.texto) q = q.ilike("tarea", `%${input.texto}%`);
+      let countQ = supabase.from("tasks").select("id", { count: "exact", head: true });
+      if (empresaId) countQ = countQ.eq("empresa_id", empresaId);
+      if (input.obraId) countQ = countQ.eq("obra_id", input.obraId);
+      if (input.estado) countQ = countQ.eq("status", input.estado);
+      if (input.texto) countQ = countQ.ilike("tarea", `%${input.texto}%`);
+      const { count } = await countQ;
       const { data, error } = await q;
       if (error) throw error;
-      return { rows: data ?? [], totalCount: data?.length ?? 0 };
+      return { rows: data ?? [], totalCount: count ?? data?.length ?? 0 };
     }
-    case "cambiar_estado_tarea": {
-      // Única tool mutante — el system prompt exige confirmación explícita
-      // antes de que el modelo la invoque, pero acá también se valida el
-      // input y se fuerza empresa_id explícito (service_role sortea RLS).
-      const tareaId = typeof input.tareaId === "string" ? input.tareaId : "";
-      const status = typeof input.status === "string" ? input.status : "";
-      if (!tareaId || (status !== "pendiente" && status !== "finalizado")) {
-        return { error: "Falta tareaId o status inválido (debe ser 'pendiente' o 'finalizado')." };
-      }
-      const updates: Record<string, unknown> = {
-        status,
-        completed_at: status === "finalizado" ? new Date().toISOString() : null,
-      };
-      let q = supabase.from("tasks").update(updates).eq("id", tareaId);
-      if (empresaId) q = q.eq("empresa_id", empresaId);
-      const { data, error } = await q.select("id, tarea, status, completed_at, project_id, projects(nombre)").maybeSingle();
-      if (error) throw error;
-      if (!data) return { error: "Tarea no encontrada en esta empresa." };
-      return { tarea: data };
-    }
+    // No hay case para "crear_tarea" ni "cambiar_estado_tarea" a propósito
+    // — son solo propuestas, gestionadas por whatsapp-agente/index.ts con
+    // confirmación verificada por código. Si algo las invoca por acá,
+    // caen en el "Tool desconocida" de abajo en vez de mutar sin confirmar.
     default:
       throw new Error(`Tool desconocida: ${name}`);
   }
