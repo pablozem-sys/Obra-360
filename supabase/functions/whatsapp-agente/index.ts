@@ -34,6 +34,34 @@ function yaProcesado(messageId: string): boolean {
   return false;
 }
 
+// ── Memoria de sesión por número, en memoria (mismo trade-off que el
+// dedup de arriba: se pierde si la instancia se reinicia, aceptable para
+// un piloto de bajo volumen). Solo guarda texto limpio de cada turno
+// (nunca bloques tool_use/tool_result) para que recortar el historial
+// nunca deje un tool_use colgando sin su resultado. ────────────────
+type Sesion = { mensajes: Anthropic.MessageParam[]; fecha: string };
+const SESIONES = new Map<string, Sesion>();
+const MAX_SESIONES = 50;
+const MAX_MENSAJES_SESION = 12; // últimos 6 intercambios usuario/bot
+
+function fechaChile(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(d);
+}
+
+function construirMenu(rol: string): string {
+  const opciones = [
+    "1. Egresos",
+    "2. Documentos",
+    "3. Cuentas por pagar",
+    "4. Cuentas por cobrar",
+    "5. Ventas adicionales",
+  ];
+  if (rol === "dueno") {
+    opciones.push("6. Resumen financiero (Venta, CDO, MOD, GAV, Margen, Utilidad)");
+  }
+  return opciones.join("\n");
+}
+
 // ── Firma del webhook (X-Hub-Signature-256) ─────────────────────
 async function verificarFirmaMeta(rawBody: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
   if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
@@ -94,11 +122,14 @@ async function enviarWhatsApp(to: string, texto: string, phoneNumberId: string, 
   }
 }
 
-function systemPromptWhatsApp(hoy: string, rol: string) {
+function systemPromptWhatsApp(hoy: string, rol: string, esSesionNueva: boolean, menuTexto: string) {
   const tieneResumen = rol === "dueno";
   return `Sos el asistente interno de VAION por WhatsApp — piloto Fase 1. Respondés en español de Chile, corto y directo, en TEXTO PLANO (esto se lee en WhatsApp, nada de markdown ni asteriscos).
 
 Fecha de hoy: ${hoy}. Rol de quien te escribe: ${rol}.
+
+${esSesionNueva ? `Es la primera vez que te escribe hoy. Saludalo brevemente y mostrale este menú de opciones:\n${menuTexto}\nSi su mensaje ya es una pregunta clara, respondela primero y agregá el menú al final.\n\n` : ""}Si el usuario responde solo con un número, interpretalo como la opción de ese número del último menú que le mostraste en esta conversación (no hay una tabla fija: guiate por lo que vos mismo escribiste antes). Antes de buscar, preguntale el filtro que corresponda (obra, mes, proveedor) salvo que ya lo haya dado en el mismo mensaje. Si en cualquier momento escribe "menu" o "ayuda", volvé a mostrarle exactamente este menú:
+${menuTexto}
 
 Categorías de egreso válidas (clave → nombre): ${JSON.stringify(CATEGORIAS_GASTO)}. Mapeá sinónimos del usuario (ej. "sueldos", "pago de personal" → sueldos; "mano de obra", "jornales" → mano_obra) a la clave exacta antes de llamar una tool.
 
@@ -108,7 +139,7 @@ Reglas estrictas:
 - Para cualquier suma, total o conteo de egresos, SIEMPRE llamá a sumar_egresos — nunca sumes vos los montos a mano.${tieneResumen ? "\n- Para Venta Total, CDO, MOD, GAV, Margen o Utilidad, SIEMPRE llamá a obtener_resumen_financiero — nunca calcules esos números combinando otras tools vos mismo." : ""}
 - Si una búsqueda no da resultados, decilo explícito y sugerí ampliar el rango — no aproximes ni inventes.
 - Nunca reveles IDs internos (UUID) en la respuesta, ni menciones datos de otra empresa.
-- Respuesta final en 2-4 líneas como máximo, texto plano.`;
+- Respuesta final en 2-4 líneas como máximo, texto plano — salvo que estés mostrando el menú, que puede ocupar más líneas.`;
 }
 
 async function procesarMensaje(
@@ -138,7 +169,12 @@ async function procesarMensaje(
   const toolsPermitidas = acceso.rol === "dueno" ? [...TOOLS_BUSQUEDA, TOOL_RESUMEN_FINANCIERO] : TOOLS_BUSQUEDA;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: texto }];
+  let sesion = SESIONES.get(from);
+  const esSesionNueva = !sesion || sesion.fecha !== hoy;
+  if (esSesionNueva) sesion = { mensajes: [], fecha: hoy };
+  const menuTexto = construirMenu(acceso.rol);
+
+  const messages: Anthropic.MessageParam[] = [...sesion!.mensajes, { role: "user", content: texto }];
   let respuestaTexto = "";
 
   try {
@@ -146,7 +182,7 @@ async function procesarMensaje(
       const resp = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: systemPromptWhatsApp(hoy, acceso.rol),
+        system: systemPromptWhatsApp(hoy, acceso.rol, esSesionNueva, menuTexto),
         tools: toolsPermitidas,
         messages,
       });
@@ -190,7 +226,20 @@ async function procesarMensaje(
     respuestaTexto = "El asistente no pudo responder ahora mismo. Probá de nuevo en un momento.";
   }
 
-  await enviarWhatsApp(from, respuestaTexto || "No pude generar una respuesta. Probá de nuevo.", waPhoneId, waToken);
+  const respuestaFinal = respuestaTexto || "No pude generar una respuesta. Probá de nuevo.";
+  await enviarWhatsApp(from, respuestaFinal, waPhoneId, waToken);
+
+  // Guardar el intercambio limpio (solo texto) en la sesión — nunca los
+  // bloques tool_use/tool_result de la ronda, ver comentario en SESIONES.
+  sesion!.mensajes.push({ role: "user", content: texto }, { role: "assistant", content: respuestaFinal });
+  if (sesion!.mensajes.length > MAX_MENSAJES_SESION) {
+    sesion!.mensajes = sesion!.mensajes.slice(-MAX_MENSAJES_SESION);
+  }
+  SESIONES.set(from, sesion!);
+  if (SESIONES.size > MAX_SESIONES) {
+    const primero = SESIONES.keys().next().value;
+    if (primero) SESIONES.delete(primero);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -260,7 +309,7 @@ Deno.serve(async (req: Request) => {
   // ejecutarTool recibe empresaId explícito para acotar (ver _shared).
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const anthropic = new Anthropic({ apiKey: anthropicKey, timeout: 30000 });
-  const hoy = new Date().toISOString().split("T")[0];
+  const hoy = fechaChile();
 
   for (const m of mensajes) {
     if (yaProcesado(m.id)) {
