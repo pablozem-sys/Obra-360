@@ -34,17 +34,38 @@ function yaProcesado(messageId: string): boolean {
   return false;
 }
 
-// ── Memoria de sesión por número, en memoria (mismo trade-off que el
-// dedup de arriba: se pierde si la instancia se reinicia, aceptable para
-// un piloto de bajo volumen). Solo guarda texto limpio de cada turno
-// (nunca bloques tool_use/tool_result) para que recortar el historial
-// nunca deje un tool_use colgando sin su resultado. "Conversación nueva"
-// = más de 2 horas sin actividad de ese número (no por día calendario). ──
-type Sesion = { mensajes: Anthropic.MessageParam[]; ultimaActividad: number };
-const SESIONES = new Map<string, Sesion>();
-const MAX_SESIONES = 50;
+// ── Memoria de sesión por número, persistida en whatsapp_sesiones ──
+// Primer intento fue un Map en memoria del proceso: los logs de staging
+// mostraron que la Edge Function arranca fría en casi cada invocación
+// real (cada mensaje trae su propio evento "booted"), así que esa
+// memoria no sobrevivía de un mensaje al siguiente — el bot se volvía a
+// presentar en cada respuesta. Se pasó a una tabla (deny-all por RLS,
+// solo la Edge Function con service_role la toca). Solo se guarda texto
+// limpio de cada turno (nunca bloques tool_use/tool_result) para que
+// recortar el historial nunca deje un tool_use colgando sin su
+// resultado. "Conversación nueva" = más de 2 horas sin actividad. ──
 const MAX_MENSAJES_SESION = 12; // últimos 6 intercambios usuario/bot
 const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+async function cargarSesion(supabase: any, phoneE164: string): Promise<{ mensajes: Anthropic.MessageParam[]; esNueva: boolean }> {
+  const { data, error } = await supabase
+    .from("whatsapp_sesiones")
+    .select("mensajes, ultima_actividad")
+    .eq("phone_e164", phoneE164)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return { mensajes: [], esNueva: true };
+  const esNueva = Date.now() - new Date(data.ultima_actividad).getTime() > VENTANA_SESION_MS;
+  return { mensajes: esNueva ? [] : (data.mensajes as Anthropic.MessageParam[]), esNueva };
+}
+
+async function guardarSesion(supabase: any, phoneE164: string, mensajes: Anthropic.MessageParam[]) {
+  const recortados = mensajes.length > MAX_MENSAJES_SESION ? mensajes.slice(-MAX_MENSAJES_SESION) : mensajes;
+  const { error } = await supabase
+    .from("whatsapp_sesiones")
+    .upsert({ phone_e164: phoneE164, mensajes: recortados, ultima_actividad: new Date().toISOString() });
+  if (error) console.error("whatsapp-agente: error guardando sesión", error);
+}
 
 function fechaChile(d = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(d);
@@ -202,12 +223,9 @@ async function procesarMensaje(
   const toolsPermitidas = acceso.rol === "dueno" ? [...TOOLS_BUSQUEDA, TOOL_RESUMEN_FINANCIERO] : TOOLS_BUSQUEDA;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
-  const ahora = Date.now();
-  let sesion = SESIONES.get(from);
-  const esSesionNueva = !sesion || (ahora - sesion.ultimaActividad) > VENTANA_SESION_MS;
-  if (esSesionNueva) sesion = { mensajes: [], ultimaActividad: ahora };
+  const { mensajes: historialPrevio, esNueva: esSesionNueva } = await cargarSesion(supabase, from);
 
-  const messages: Anthropic.MessageParam[] = [...sesion!.mensajes, { role: "user", content: texto }];
+  const messages: Anthropic.MessageParam[] = [...historialPrevio, { role: "user", content: texto }];
   let respuestaTexto = "";
 
   try {
@@ -263,17 +281,12 @@ async function procesarMensaje(
   await enviarWhatsApp(from, respuestaFinal, waPhoneId, waToken);
 
   // Guardar el intercambio limpio (solo texto) en la sesión — nunca los
-  // bloques tool_use/tool_result de la ronda, ver comentario en SESIONES.
-  sesion!.mensajes.push({ role: "user", content: texto }, { role: "assistant", content: respuestaFinal });
-  if (sesion!.mensajes.length > MAX_MENSAJES_SESION) {
-    sesion!.mensajes = sesion!.mensajes.slice(-MAX_MENSAJES_SESION);
-  }
-  sesion!.ultimaActividad = Date.now();
-  SESIONES.set(from, sesion!);
-  if (SESIONES.size > MAX_SESIONES) {
-    const primero = SESIONES.keys().next().value;
-    if (primero) SESIONES.delete(primero);
-  }
+  // bloques tool_use/tool_result de la ronda, ver comentario arriba.
+  await guardarSesion(supabase, from, [
+    ...historialPrevio,
+    { role: "user", content: texto },
+    { role: "assistant", content: respuestaFinal },
+  ]);
 }
 
 Deno.serve(async (req: Request) => {
