@@ -43,8 +43,10 @@ export function aplicarFiltrosBase(query: any, f: Record<string, unknown>, cols:
 }
 
 // ── Definición de las tools ───────────────────────────────────
+const OBRA_ID_DESC = "UUID de la obra, o directamente su nombre (o parte del nombre) si no conocés el UUID — se resuelve por coincidencia parcial antes de buscar.";
+
 const FILTROS_EGRESOS_SCHEMA = {
-  obraId: { type: "string", description: "UUID de la obra/proyecto" },
+  obraId: { type: "string", description: OBRA_ID_DESC },
   categoria: { type: "string", description: `Una de: ${Object.keys(CATEGORIAS_GASTO).join(", ")}` },
   proveedor: { type: "string", description: "Nombre del proveedor (búsqueda parcial)" },
   fechaDesde: { type: "string", description: "Fecha ISO YYYY-MM-DD" },
@@ -74,7 +76,7 @@ export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        obraId: { type: "string" },
+        obraId: { type: "string", description: OBRA_ID_DESC },
         tipo: { type: "string", enum: ["factura", "boleta", "contrato", "cotizacion", "foto", "permiso", "comprobante"] },
         proveedor: { type: "string" },
         categoria: { type: "string" },
@@ -92,7 +94,7 @@ export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        obraId: { type: "string" },
+        obraId: { type: "string", description: OBRA_ID_DESC },
         proveedor: { type: "string" },
         estado: { type: "string", enum: ["pendiente", "pagado", "vencido"] },
         fechaVencimientoDesde: { type: "string" },
@@ -106,7 +108,7 @@ export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        obraId: { type: "string" },
+        obraId: { type: "string", description: OBRA_ID_DESC },
         clientId: { type: "string" },
         estado: { type: "string" },
       },
@@ -118,7 +120,7 @@ export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
     input_schema: {
       type: "object",
       properties: {
-        obraId: { type: "string" },
+        obraId: { type: "string", description: OBRA_ID_DESC },
         tipo: { type: "string" },
       },
     },
@@ -133,7 +135,7 @@ export const TOOL_RESUMEN_FINANCIERO: Anthropic.Tool = {
   input_schema: {
     type: "object",
     properties: {
-      obraId: { type: "string", description: "UUID de la obra. Si se omite, devuelve el resumen de toda la empresa." },
+      obraId: { type: "string", description: `${OBRA_ID_DESC} Si se omite, devuelve el resumen de toda la empresa.` },
     },
   },
 };
@@ -148,12 +150,50 @@ async function proyectoIdsDeEmpresa(supabase: any, empresaId: string): Promise<s
   return (data ?? []).map((r: any) => r.id);
 }
 
+// ── Resolución de obra por nombre parcial ──────────────────────
+// Todas las tools reciben `obraId` tipado como string libre (el modelo no
+// siempre tiene el UUID a mano, solo el nombre que escribió el usuario).
+// Si lo que llega no es un UUID, se busca por ILIKE en projects.nombre
+// antes de filtrar — así "quillayes" resuelve a "QUILLAYES 20" sin que el
+// modelo necesite conocer el id de antemano.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolverObraId(supabase: any, empresaId: string | undefined, texto: string) {
+  let q = supabase.from("projects").select("id, nombre").ilike("nombre", `%${texto}%`);
+  if (empresaId) q = q.eq("empresa_id", empresaId);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = data ?? [];
+  if (rows.length > 0) return { ids: rows.map((r: any) => r.id), nombres: rows.map((r: any) => r.nombre) };
+
+  // Sin coincidencias — devolver las obras existentes como sugerencia,
+  // para que el modelo pueda orientar al usuario en vez de decir "no existe".
+  let qTodas = supabase.from("projects").select("nombre");
+  if (empresaId) qTodas = qTodas.eq("empresa_id", empresaId);
+  const { data: todas } = await qTodas;
+  return { ids: [] as string[], nombres: [] as string[], sugerencias: (todas ?? []).map((r: any) => r.nombre) };
+}
+
 // ── Ejecutor de cada tool contra Supabase ──
 // Sin `opts.empresaId`: RLS filtra (cliente con JWT de usuario).
 // Con `opts.empresaId`: además, cada query fuerza el filtro de empresa
 // (cliente service_role, RLS no aplica).
 export async function ejecutarTool(supabase: any, name: string, input: Record<string, unknown>, opts: EmpresaScope = {}) {
   const { empresaId } = opts;
+
+  // Pre-procesamiento común: todas las tools que reciben obraId lo usan
+  // como filtro exacto de project_id — si no es un UUID, resolverlo antes
+  // de llegar al switch de abajo.
+  if (typeof input.obraId === "string" && input.obraId && !UUID_RE.test(input.obraId)) {
+    const resuelto = await resolverObraId(supabase, empresaId, input.obraId);
+    if (resuelto.ids.length === 1) {
+      input = { ...input, obraId: resuelto.ids[0] };
+    } else if (resuelto.ids.length > 1) {
+      return { obraAmbigua: true, coincidencias: resuelto.nombres };
+    } else {
+      return { obraNoEncontrada: true, sugerencias: resuelto.sugerencias };
+    }
+  }
 
   switch (name) {
     case "buscar_egresos": {

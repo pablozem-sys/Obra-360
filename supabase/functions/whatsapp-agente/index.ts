@@ -38,28 +38,20 @@ function yaProcesado(messageId: string): boolean {
 // dedup de arriba: se pierde si la instancia se reinicia, aceptable para
 // un piloto de bajo volumen). Solo guarda texto limpio de cada turno
 // (nunca bloques tool_use/tool_result) para que recortar el historial
-// nunca deje un tool_use colgando sin su resultado. ────────────────
-type Sesion = { mensajes: Anthropic.MessageParam[]; fecha: string };
+// nunca deje un tool_use colgando sin su resultado. "Conversación nueva"
+// = más de 2 horas sin actividad de ese número (no por día calendario). ──
+type Sesion = { mensajes: Anthropic.MessageParam[]; ultimaActividad: number };
 const SESIONES = new Map<string, Sesion>();
 const MAX_SESIONES = 50;
 const MAX_MENSAJES_SESION = 12; // últimos 6 intercambios usuario/bot
+const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
 
 function fechaChile(d = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(d);
 }
 
-function construirMenu(rol: string): string {
-  const opciones = [
-    "1. Egresos",
-    "2. Documentos",
-    "3. Cuentas por pagar",
-    "4. Cuentas por cobrar",
-    "5. Ventas adicionales",
-  ];
-  if (rol === "dueno") {
-    opciones.push("6. Resumen financiero (Venta, CDO, MOD, GAV, Margen, Utilidad)");
-  }
-  return opciones.join("\n");
+function listarHerramientas(tools: Anthropic.Tool[]): string {
+  return tools.map((t) => `- ${t.name}: ${t.description}`).join("\n");
 }
 
 // ── Firma del webhook (X-Hub-Signature-256) ─────────────────────
@@ -96,14 +88,20 @@ async function resolverAcceso(supabase: any, phoneE164: string) {
 
   const { data: uc, error: ucErr } = await supabase
     .from("user_companies")
-    .select("rol")
+    .select("rol, users(nombre), companies(nombre)")
     .eq("user_id", wu.user_id)
     .eq("empresa_id", wu.empresa_id)
     .maybeSingle();
   if (ucErr) throw ucErr;
   if (!uc || uc.rol === "trabajador") return null;
 
-  return { userId: wu.user_id as string, empresaId: wu.empresa_id as string, rol: uc.rol as string };
+  return {
+    userId: wu.user_id as string,
+    empresaId: wu.empresa_id as string,
+    rol: uc.rol as string,
+    nombreUsuario: (uc.users?.nombre as string) || "usuario",
+    empresaNombre: (uc.companies?.nombre as string) || "tu empresa",
+  };
 }
 
 // ── Envío de respuesta vía Graph API de Meta ────────────────────
@@ -122,24 +120,59 @@ async function enviarWhatsApp(to: string, texto: string, phoneNumberId: string, 
   }
 }
 
-function systemPromptWhatsApp(hoy: string, rol: string, esSesionNueva: boolean, menuTexto: string) {
+function systemPromptWhatsApp(
+  hoy: string,
+  nombreUsuario: string,
+  rol: string,
+  empresaNombre: string,
+  esSesionNueva: boolean,
+  toolsActivas: Anthropic.Tool[],
+) {
   const tieneResumen = rol === "dueno";
-  return `Sos el asistente interno de VAION por WhatsApp — piloto Fase 1. Respondés en español de Chile, corto y directo, en TEXTO PLANO (esto se lee en WhatsApp, nada de markdown ni asteriscos).
+  return `# Identidad
+Sos el asistente de WhatsApp de VAION para ${empresaNombre}. Hablás con ${nombreUsuario}, rol ${rol}. Tu trabajo es responder consultas sobre obras, egresos, documentos y cuentas${tieneResumen ? ", y resumen financiero" : ""} — todo con datos reales de la plataforma, nunca inventados.
 
-Fecha de hoy: ${hoy}. Rol de quien te escribe: ${rol}.
+Fecha de hoy: ${hoy}.
 
-${esSesionNueva ? `Es la primera vez que te escribe hoy. Saludalo brevemente y mostrale este menú de opciones:\n${menuTexto}\nSi su mensaje ya es una pregunta clara, respondela primero y agregá el menú al final.\n\n` : ""}Si el usuario responde solo con un número, interpretalo como la opción de ese número del último menú que le mostraste en esta conversación (no hay una tabla fija: guiate por lo que vos mismo escribiste antes). Antes de buscar, preguntale el filtro que corresponda (obra, mes, proveedor) salvo que ya lo haya dado en el mismo mensaje. Si en cualquier momento escribe "menu" o "ayuda", volvé a mostrarle exactamente este menú:
-${menuTexto}
+# Cómo hablar (WhatsApp, celular, en terreno)
+- Respuestas cortas: 3-4 líneas salvo que el dato pedido sea una lista.
+- Sin saludo ni presentación en cada mensaje — ${esSesionNueva ? "ESTE es el primer mensaje de una conversación nueva (más de 2 horas sin hablar), así que sí correspondería presentarte" : "esta conversación ya viene de antes, NO te presentes de nuevo"} — salvo que el usuario salude explícitamente ("hola", "buenas"), ahí respondé el saludo.
+- Nunca repitas la lista de lo que podés hacer a menos que el usuario esté perdido (mensaje que no matchea ninguna intención reconocible) o la pida explícitamente ("qué podés hacer", "ayuda").
+- Sin relleno corporativo ("¡Claro que sí!", "¡Con gusto te ayudo!"). Directo al dato.
+- Texto plano, nada de markdown ni asteriscos.
+
+${esSesionNueva ? `# Primer mensaje de esta conversación
+Presentate en una frase y seguí directo, sin pedir que elija un número:
+"Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas por cobrar/pagar, ventas adicionales${tieneResumen ? " o resumen financiero" : ""}. ¿Qué necesitás?"
+Si su mensaje ya es una pregunta clara, respondela y no hace falta repetir la presentación completa.
+
+` : ""}# Herramientas disponibles
+Usá las tools para responder, nunca inventes cifras.
+${listarHerramientas(toolsActivas)}
+
+Para buscar por obra podés pasar el nombre (o parte del nombre) tal como lo escribió el usuario — la tool lo resuelve por coincidencia parcial. Si encuentra una sola obra parecida, usala directo sin pedir confirmación (ej. "quillayes" → "QUILLAYES 20"). Si el resultado trae "obraAmbigua", preguntale al usuario cuál de las coincidencias quiere decir. Si trae "obraNoEncontrada", decíselo y mostrale las obras sugeridas.
 
 Categorías de egreso válidas (clave → nombre): ${JSON.stringify(CATEGORIAS_GASTO)}. Mapeá sinónimos del usuario (ej. "sueldos", "pago de personal" → sueldos; "mano de obra", "jornales" → mano_obra) a la clave exacta antes de llamar una tool.
 
-Reglas estrictas:
-- Tenés tools de búsqueda: egresos, documentos, cuentas por pagar, cuentas por cobrar, ventas adicionales.${tieneResumen ? " Además tenés obtener_resumen_financiero (Venta Total, CDO, MOD, GAV, Margen/Utilidad de una obra o de toda la empresa)." : ""}
-- Si la pregunta pide algo fuera de estas fuentes (ej. asistencia, sueldos por hora, cotizaciones), decilo explícito: "Eso no está disponible en este asistente todavía." No inventes.
+# Qué no hacer
+- No muestres menús numerados para que el usuario elija — dejá que escriba en lenguaje natural.
+- No saludes ni te reintroduzcas en cada respuesta.
+- No inventes datos si una tool no devuelve resultados — decilo explícito y sugerí ampliar el rango.
+- Si la pregunta pide algo fuera de estas fuentes (ej. asistencia, sueldos por hora, cotizaciones), decilo explícito: "Eso no está disponible en este asistente todavía."
 - Para cualquier suma, total o conteo de egresos, SIEMPRE llamá a sumar_egresos — nunca sumes vos los montos a mano.${tieneResumen ? "\n- Para Venta Total, CDO, MOD, GAV, Margen o Utilidad, SIEMPRE llamá a obtener_resumen_financiero — nunca calcules esos números combinando otras tools vos mismo." : ""}
-- Si una búsqueda no da resultados, decilo explícito y sugerí ampliar el rango — no aproximes ni inventes.
 - Nunca reveles IDs internos (UUID) en la respuesta, ni menciones datos de otra empresa.
-- Respuesta final en 2-4 líneas como máximo, texto plano — salvo que estés mostrando el menú, que puede ocupar más líneas.`;
+
+# Ejemplos
+
+Usuario (primer mensaje de una conversación nueva): "Hola"
+Vos: "Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas${tieneResumen ? ", resumen financiero" : ""}. ¿Qué necesitás?"
+
+Usuario: "quiero ver los egresos de quillayes en agosto"
+[llamás a buscar_egresos con obraId="quillayes" y fechas de agosto — la tool resuelve el nombre parcial a la obra real]
+Vos: "En QUILLAYES 20, agosto 2026: $X en Y egresos. ¿Querés el detalle?"
+
+Usuario: "asdasd" (no matchea ninguna intención)
+Vos: "No te entendí bien. Puedo ayudarte con egresos, documentos, cuentas${tieneResumen ? ", resumen financiero" : ""} — contame qué necesitás."`;
 }
 
 async function procesarMensaje(
@@ -169,10 +202,10 @@ async function procesarMensaje(
   const toolsPermitidas = acceso.rol === "dueno" ? [...TOOLS_BUSQUEDA, TOOL_RESUMEN_FINANCIERO] : TOOLS_BUSQUEDA;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
+  const ahora = Date.now();
   let sesion = SESIONES.get(from);
-  const esSesionNueva = !sesion || sesion.fecha !== hoy;
-  if (esSesionNueva) sesion = { mensajes: [], fecha: hoy };
-  const menuTexto = construirMenu(acceso.rol);
+  const esSesionNueva = !sesion || (ahora - sesion.ultimaActividad) > VENTANA_SESION_MS;
+  if (esSesionNueva) sesion = { mensajes: [], ultimaActividad: ahora };
 
   const messages: Anthropic.MessageParam[] = [...sesion!.mensajes, { role: "user", content: texto }];
   let respuestaTexto = "";
@@ -182,7 +215,7 @@ async function procesarMensaje(
       const resp = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: systemPromptWhatsApp(hoy, acceso.rol, esSesionNueva, menuTexto),
+        system: systemPromptWhatsApp(hoy, acceso.nombreUsuario, acceso.rol, acceso.empresaNombre, esSesionNueva, toolsPermitidas),
         tools: toolsPermitidas,
         messages,
       });
@@ -235,6 +268,7 @@ async function procesarMensaje(
   if (sesion!.mensajes.length > MAX_MENSAJES_SESION) {
     sesion!.mensajes = sesion!.mensajes.slice(-MAX_MENSAJES_SESION);
   }
+  sesion!.ultimaActividad = Date.now();
   SESIONES.set(from, sesion!);
   if (SESIONES.size > MAX_SESIONES) {
     const primero = SESIONES.keys().next().value;
