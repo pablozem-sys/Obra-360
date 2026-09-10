@@ -140,6 +140,38 @@ export const TOOL_RESUMEN_FINANCIERO: Anthropic.Tool = {
   },
 };
 
+// Tools de tareas (Control y Gestión) — igual alcance de permisos que las
+// de TOOLS_BUSQUEDA (cualquier rol autorizado, dueño o administrativo; la
+// página web tampoco restringe esto solo a dueño). cambiar_estado_tarea
+// es la ÚNICA tool mutante de todo el asistente (in-app y WhatsApp) — el
+// system prompt exige confirmación explícita del usuario antes de
+// invocarla, nunca se ejecuta directo a partir del pedido inicial.
+export const TOOL_BUSCAR_TAREAS: Anthropic.Tool = {
+  name: "buscar_tareas",
+  description: "Busca tareas de Control y Gestión. Devuelve hasta 50 filas con tarea, obra, estado (pendiente/finalizado) y fecha de completado si aplica.",
+  input_schema: {
+    type: "object",
+    properties: {
+      obraId: { type: "string", description: OBRA_ID_DESC },
+      status: { type: "string", enum: ["pendiente", "finalizado"] },
+      textoLibre: { type: "string", description: "Busca coincidencia parcial en el texto de la tarea" },
+    },
+  },
+};
+
+export const TOOL_CAMBIAR_ESTADO_TAREA: Anthropic.Tool = {
+  name: "cambiar_estado_tarea",
+  description: "Cambia el estado de UNA tarea puntual a 'pendiente' o 'finalizado'. Requiere el tareaId exacto (obtenido antes con buscar_tareas). SOLO se debe llamar después de que el usuario confirmó explícitamente el cambio propuesto — nunca a partir de un pedido inicial sin confirmar.",
+  input_schema: {
+    type: "object",
+    properties: {
+      tareaId: { type: "string", description: "UUID de la tarea (de buscar_tareas), no su nombre." },
+      status: { type: "string", enum: ["pendiente", "finalizado"] },
+    },
+    required: ["tareaId", "status"],
+  },
+};
+
 type EmpresaScope = { empresaId?: string };
 
 // Ids de obras de la empresa — único caso (additional_sales) sin columna
@@ -282,6 +314,39 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
     case "obtener_resumen_financiero": {
       if (!empresaId) throw new Error("obtener_resumen_financiero requiere empresaId resuelto server-side");
       return await obtenerResumenFinanciero(supabase, empresaId, input);
+    }
+    case "buscar_tareas": {
+      let q = supabase.from("tasks")
+        .select("id, tarea, status, completed_at, created_at, project_id, projects(nombre)")
+        .order("created_at", { ascending: true })
+        .limit(MAX_ROWS);
+      if (empresaId) q = q.eq("empresa_id", empresaId);
+      if (input.obraId) q = q.eq("project_id", input.obraId);
+      if (input.status) q = q.eq("status", input.status);
+      if (input.textoLibre) q = q.ilike("tarea", `%${input.textoLibre}%`);
+      const { data, error } = await q;
+      if (error) throw error;
+      return { rows: data ?? [], totalCount: data?.length ?? 0 };
+    }
+    case "cambiar_estado_tarea": {
+      // Única tool mutante — el system prompt exige confirmación explícita
+      // antes de que el modelo la invoque, pero acá también se valida el
+      // input y se fuerza empresa_id explícito (service_role sortea RLS).
+      const tareaId = typeof input.tareaId === "string" ? input.tareaId : "";
+      const status = typeof input.status === "string" ? input.status : "";
+      if (!tareaId || (status !== "pendiente" && status !== "finalizado")) {
+        return { error: "Falta tareaId o status inválido (debe ser 'pendiente' o 'finalizado')." };
+      }
+      const updates: Record<string, unknown> = {
+        status,
+        completed_at: status === "finalizado" ? new Date().toISOString() : null,
+      };
+      let q = supabase.from("tasks").update(updates).eq("id", tareaId);
+      if (empresaId) q = q.eq("empresa_id", empresaId);
+      const { data, error } = await q.select("id, tarea, status, completed_at, project_id, projects(nombre)").maybeSingle();
+      if (error) throw error;
+      if (!data) return { error: "Tarea no encontrada en esta empresa." };
+      return { tarea: data };
     }
     default:
       throw new Error(`Tool desconocida: ${name}`);
