@@ -144,15 +144,15 @@ export const TOOL_RESUMEN_FINANCIERO: Anthropic.Tool = {
 // de TOOLS_BUSQUEDA (cualquier rol autorizado, dueño o administrativo; la
 // página web tampoco restringe esto solo a dueño).
 //
-// crear_tarea y cambiar_estado_tarea son PROPUESTAS, no ejecuciones: al
-// llamarlas, whatsapp-agente NO inserta/actualiza nada en `tasks` — arma
-// un "propuesta" pendiente en whatsapp_sesiones y le devuelve al modelo
-// el texto de confirmación para que lo relaye tal cual. La ejecución real
-// solo ocurre cuando el código (no el modelo) detecta una respuesta
-// afirmativa al mensaje siguiente. Ver whatsapp-agente/index.ts — estas
-// dos tools NO tienen case en ejecutarTool a propósito, así que si algo
-// las invoca fuera de ese flujo, fallan con "Tool desconocida" en vez de
-// mutar datos sin confirmación.
+// crear_tarea, cambiar_estado_tarea y eliminar_tarea son PROPUESTAS, no
+// ejecuciones: al llamarlas, whatsapp-agente NO inserta/actualiza/borra
+// nada en `tasks` — arma una "propuesta" pendiente en whatsapp_sesiones y
+// le devuelve al modelo el texto de confirmación para que lo relaye tal
+// cual. La ejecución real solo ocurre cuando el código (no el modelo)
+// detecta una respuesta afirmativa al mensaje siguiente. Ver
+// whatsapp-agente/index.ts — estas 3 tools NO tienen case en ejecutarTool
+// a propósito, así que si algo las invoca fuera de ese flujo, fallan con
+// "Tool desconocida" en vez de mutar datos sin confirmación.
 export const TOOL_BUSCAR_TAREAS: Anthropic.Tool = {
   name: "buscar_tareas",
   description: "Busca tareas de Control y Gestión. Devuelve hasta 15 filas con id, tarea, obra, estado (pendiente/finalizado) y fecha de completado si aplica. Si totalCount es mayor a las filas devueltas, pedile al usuario que acote la búsqueda.",
@@ -189,6 +189,18 @@ export const TOOL_CAMBIAR_ESTADO_TAREA: Anthropic.Tool = {
       nuevoEstado: { type: "string", enum: ["pendiente", "finalizado"] },
     },
     required: ["tareaId", "nuevoEstado"],
+  },
+};
+
+export const TOOL_ELIMINAR_TAREA: Anthropic.Tool = {
+  name: "eliminar_tarea",
+  description: "Propone eliminar UNA tarea puntual (con el id exacto que devolvió buscar_tareas) — borrado definitivo, no se puede deshacer. Llamala apenas el usuario lo pida — el sistema pide confirmación antes de borrar de verdad. Relayá el mensaje que te devuelve tal cual, no lo reformules.",
+  input_schema: {
+    type: "object",
+    properties: {
+      tareaId: { type: "string", description: "UUID exacto de la tarea, tal como lo devolvió buscar_tareas — nunca lo inventes." },
+    },
+    required: ["tareaId"],
   },
 };
 

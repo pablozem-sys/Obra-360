@@ -23,6 +23,7 @@ import {
   TOOL_BUSCAR_TAREAS,
   TOOL_CREAR_TAREA,
   TOOL_CAMBIAR_ESTADO_TAREA,
+  TOOL_ELIMINAR_TAREA,
   ejecutarTool,
   resolverObraId,
 } from "../_shared/asistente-tools.ts";
@@ -65,7 +66,8 @@ const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
 
 type PropuestaTarea =
   | { accion: "crear_tarea"; obra_id: string; obra_nombre: string; tarea_texto: string }
-  | { accion: "cambiar_estado_tarea"; tarea_id: string; tarea_texto: string; obra: string; nuevo_estado: string };
+  | { accion: "cambiar_estado_tarea"; tarea_id: string; tarea_texto: string; obra: string; nuevo_estado: string }
+  | { accion: "eliminar_tarea"; tarea_id: string; tarea_texto: string; obra: string };
 
 type TareaMostrada = { id: string; tarea: string; obraNombre: string; status: string };
 
@@ -164,6 +166,17 @@ function prepararCambiarEstadoTarea(input: Record<string, unknown>, tareasMostra
   return { mensaje: `¿Confirmás marcar "${tarea.tarea}" (obra: ${tarea.obraNombre}) como ${verbo}? Respondé SÍ o NO.`, propuesta };
 }
 
+function prepararEliminarTarea(input: Record<string, unknown>, tareasMostradas: TareaMostrada[]) {
+  const tareaId = typeof input.tareaId === "string" ? input.tareaId : "";
+  if (!tareaId) return { mensaje: "Falta el id de la tarea a eliminar." };
+  const tarea = tareasMostradas.find((t) => t.id === tareaId);
+  if (!tarea) {
+    return { mensaje: "Esa tarea no está entre los últimos resultados de esta conversación — buscala de nuevo con buscar_tareas primero." };
+  }
+  const propuesta: PropuestaTarea = { accion: "eliminar_tarea", tarea_id: tareaId, tarea_texto: tarea.tarea, obra: tarea.obraNombre };
+  return { mensaje: `¿Confirmás ELIMINAR la tarea "${tarea.tarea}" (obra: ${tarea.obraNombre})? Esto no se puede deshacer. Respondé SÍ o NO.`, propuesta };
+}
+
 // ── Ejecución real — SOLO se llama desde el chequeo de confirmación por
 // código en procesarMensaje, nunca desde el loop de tool-use del modelo. ──
 async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, contexto: Contexto): Promise<string> {
@@ -195,6 +208,21 @@ async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, con
     }
     if (!data) return "No encontré esa tarea en tu empresa — probá buscarla de nuevo.";
     return `Listo, tarea marcada como ${nuevoEstado === "finalizado" ? "finalizada" : "pendiente"}.`;
+  }
+  if (contexto.accion === "eliminar_tarea") {
+    const { error, data } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", (contexto as any).tarea_id)
+      .eq("empresa_id", empresaId) // nunca confiar solo en el id — service_role sortea RLS
+      .select("id")
+      .maybeSingle();
+    if (error) {
+      console.error("whatsapp-agente: error eliminando tarea", error);
+      return "Hubo un error eliminando la tarea. Probá de nuevo.";
+    }
+    if (!data) return "No encontré esa tarea en tu empresa — probá buscarla de nuevo.";
+    return "Listo, tarea eliminada.";
   }
   return "No tengo ningún cambio pendiente para confirmar.";
 }
@@ -322,10 +350,10 @@ Para VARIOS registros (2 o más): numerá cada uno en una sola línea compacta p
 
 Omití un campo solo si de verdad no aplica al tipo de registro (una tarea no tiene "forma de pago", por ejemplo) — no omitas campos que sí existen aunque estén vacíos, decilos explícito ("sin obra asignada"), pero en su propia línea, no encadenados con "y".
 
-# Acciones que cambian datos (crear_tarea, cambiar_estado_tarea)
+# Acciones que cambian datos (crear_tarea, cambiar_estado_tarea, eliminar_tarea)
 Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas apenas tengas los datos necesarios (no hace falta que vos le preguntes "confirmás" antes de llamarlas): el sistema arma la propuesta y te devuelve un mensaje de confirmación en el resultado de la tool. Tu única tarea ahí es **relayar ese mensaje tal cual al usuario, sin reformularlo**. La ejecución real (crear la tarea, cambiar el estado) la hace el sistema en el siguiente mensaje, cuando el usuario confirma — vos no volvés a llamar la tool para eso, solo seguís la conversación con naturalidad si el usuario pregunta algo más.
 
-Para cambiar_estado_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId).
+Para cambiar_estado_tarea y eliminar_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId). eliminar_tarea es un borrado definitivo — no aclares de más ni agregues advertencias propias, la tool ya te devuelve un mensaje de confirmación que avisa que no se puede deshacer.
 
 Si el usuario responde a una pregunta de confirmación con algo que no es un simple "sí"/"no" (ej. "no, mejor en la obra X" o "cambiale el texto a Y"), la propuesta anterior ya se canceló sola — entendé que te está corrigiendo, volvé a llamar la tool correspondiente con los datos ajustados y pedí confirmación de nuevo. No asumas que ya confirmó nada.
 
@@ -364,6 +392,10 @@ Vos: "¿Confirmás marcar "Pedir fierro" (obra: QUILLAYES 20) como finalizada? R
 Usuario: "quiero crear una tarea en quillayes: pedir cemento"
 [llamás a crear_tarea con obraNombre "quillayes" y tarea "pedir cemento" — la tool resuelve la obra y te devuelve el mensaje de confirmación]
 Vos: "¿Confirmás crear la tarea "pedir cemento" en QUILLAYES 20? Respondé SÍ o NO."
+
+Usuario: "borrame la tarea de pedir fierro"
+[llamás a buscar_tareas con texto "pedir fierro", encontrás 1 resultado. Llamás a eliminar_tarea con ese tareaId]
+Vos: "¿Confirmás ELIMINAR la tarea "Pedir fierro" (obra: QUILLAYES 20)? Esto no se puede deshacer. Respondé SÍ o NO."
 
 Usuario: "asdasd" (no matchea ninguna intención)
 Vos: "No te entendí bien. Puedo ayudarte con egresos, documentos, cuentas, tareas${tieneResumen ? ", resumen financiero" : ""} — contame qué necesitás."`;
@@ -430,7 +462,7 @@ async function procesarMensaje(
     sesion.contexto = { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] };
   }
 
-  const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA];
+  const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA, TOOL_ELIMINAR_TAREA];
   const toolsPermitidas = acceso.rol === "dueno" ? [...toolsBase, TOOL_RESUMEN_FINANCIERO] : toolsBase;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
@@ -478,6 +510,12 @@ async function procesarMensaje(
         }
         if (tu.name === "cambiar_estado_tarea") {
           const r = prepararCambiarEstadoTarea(tu.input as Record<string, unknown>, tareasMostradas);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "eliminar_tarea") {
+          const r = prepararEliminarTarea(tu.input as Record<string, unknown>, tareasMostradas);
           if (r.propuesta) propuestaPendiente = r.propuesta;
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
           continue;
