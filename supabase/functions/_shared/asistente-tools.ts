@@ -21,7 +21,8 @@ export const CATEGORIAS_GASTO = {
   flete: "Flete", otros_operacion: "Otros (operación)", sueldos: "Sueldos",
   publicidad: "Publicidad", marketing: "Marketing", bencina: "Bencina",
   herramientas: "Herramientas", arriendo: "Arriendo", cuentas: "Cuentas",
-  retiros: "Retiros", otros: "Otros", mano_obra: "Mano de obra",
+  retiros: "Retiros", imposiciones: "Imposiciones", iva: "IVA", autopistas: "Autopistas",
+  otros: "Otros", mano_obra: "Mano de obra",
   transporte: "Transporte (legacy)",
 };
 

@@ -115,6 +115,7 @@ as $$
           'materiales', 'subcontratos', 'equipos', 'aridos', 'retiro_escombros',
           'banio_quimico', 'flete', 'otros_operacion', 'mano_obra', 'transporte'
         )
+        -- CDO: sin cambios, las categorías nuevas (imposiciones/iva/autopistas) son GAV
         and (p_month is null or to_char(e.fecha::date, 'YYYY-MM') = p_month)
     ), 0) as gastos_cdo,
     coalesce((
@@ -123,7 +124,7 @@ as $$
       where e.empresa_id = p_empresa_id
         and e.categoria in (
           'sueldos', 'publicidad', 'marketing', 'bencina', 'herramientas',
-          'arriendo', 'cuentas', 'retiros', 'otros'
+          'arriendo', 'cuentas', 'retiros', 'imposiciones', 'iva', 'autopistas', 'otros'
         )
         and (p_month is null or to_char(e.fecha::date, 'YYYY-MM') = p_month)
     ), 0) as gastos_gav,

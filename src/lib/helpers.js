@@ -136,6 +136,9 @@ export const CATEGORIAS_GASTO = {
   arriendo:         { label: 'Arriendo',         grupo: 'Gastos Generales',         color: '#60A5FA' },
   cuentas:          { label: 'Cuentas',          grupo: 'Gastos Generales',         color: '#94A3B8' },
   retiros:          { label: 'Retiros',          grupo: 'Gastos Generales',         color: '#2DD4BF' },
+  imposiciones:     { label: 'Imposiciones',     grupo: 'Gastos Generales',         color: '#0D9488' },
+  iva:              { label: 'IVA',              grupo: 'Gastos Generales',         color: '#DB2777' },
+  autopistas:       { label: 'Autopistas',       grupo: 'Gastos Generales',         color: '#65A30D' },
   otros:            { label: 'Otros',            grupo: 'Gastos Generales',         color: '#64748B' },
   mano_obra:        { label: 'Mano de obra',     grupo: 'Costo Directo de la Obra', color: '#8B5CF6' },
   // Legacy — solo para mostrar datos históricos
