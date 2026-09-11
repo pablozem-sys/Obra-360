@@ -1,5 +1,26 @@
 # VAION — Cambios recientes
 
+## Asistente de WhatsApp: tareas y mejoras de conversación (2026-09-10/11)
+
+Mejoras sobre el piloto de WhatsApp del día anterior, probadas con mensajes reales:
+
+- El bot ya no repite el saludo ni la lista de lo que puede hacer en cada
+  respuesta — solo se presenta al empezar una conversación nueva (más de
+  2 horas sin hablar) o si lo saludás directo.
+- Buscar por obra escribiendo solo el nombre (o parte del nombre, ej.
+  "quillayes") ya funciona — antes fallaba en silencio.
+- Los resultados (un egreso, un documento) ahora se muestran en varias
+  líneas prolijas en vez de todo junto separado por guiones.
+- **Nuevo: gestión de tareas de Control y Gestión desde WhatsApp** — se
+  puede preguntar qué tareas hay pendientes, crear una tarea nueva en una
+  obra, y marcar una tarea como lista (o volver a pendiente). Antes de
+  aplicar cualquier cambio real, el bot siempre pide confirmación
+  explícita ("¿Confirmás...? Respondé SÍ o NO") — si en vez de confirmar
+  se pide corregir algo (ej. "no, mejor en otra obra"), el bot entiende el
+  ajuste y vuelve a proponer, sin aplicar nada hasta la confirmación final.
+- Sigue siendo un piloto interno solo en staging, con acceso número por
+  número.
+
 ## Piloto interno: asistente de VAION por WhatsApp (2026-09-10)
 
 Nuevo canal para consultar la información de VAION directo desde WhatsApp,
