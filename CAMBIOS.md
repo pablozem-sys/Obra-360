@@ -1,5 +1,13 @@
 # VAION — Cambios recientes
 
+## Nuevas categorías de Gastos Generales: Imposiciones, IVA, Autopistas (2026-09-13)
+
+A pedido del cliente, se agregaron 3 categorías nuevas al selector de
+"Subir Egreso" (Gastos Generales): **Imposiciones**, **IVA** y
+**Autopistas**. Ya están disponibles en producción (VAION y VRION) y se
+cuentan correctamente dentro del desglose de Gastos Generales (GAV) en el
+Dashboard y el Estado de Resultados.
+
 ## Asistente de WhatsApp: tareas y mejoras de conversación (2026-09-10/11)
 
 Mejoras sobre el piloto de WhatsApp del día anterior, probadas con mensajes reales:
