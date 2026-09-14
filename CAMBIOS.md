@@ -1,5 +1,15 @@
 # VAION — Cambios recientes
 
+## Bug corregido: la Venta no cambiaba al filtrar el Dashboard por mes (2026-09-13)
+
+Reportado: al filtrar el Dashboard por un mes específico, la Venta seguía
+mostrando el total de todas las obras (no solo las de ese mes), aunque el
+subtítulo ya decía "del mes" — daba una utilidad y un % de utilidad
+irreales para ese mes. Corregido: cada obra ahora se cuenta en el mes en
+que arrancó, y el selector de mes también muestra los meses donde se
+cerró una venta aunque no haya habido otros movimientos ese mes. Probado
+en staging antes de subir a producción.
+
 ## Nuevas categorías de Gastos Generales: Imposiciones, IVA, Autopistas (2026-09-13)
 
 A pedido del cliente, se agregaron 3 categorías nuevas al selector de
