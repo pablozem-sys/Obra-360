@@ -75,8 +75,29 @@ export default function Dashboard() {
   }, [mesFiltro])
 
   // Métricas
-  const ventaObras      = obras.reduce((s, o) => s + (o.presupuesto ?? 0), 0)
+  // Imputa la venta de una obra al mes de fecha_inicio (fecha pura, slice
+  // directo es seguro); si no tiene, cae a created_at (timestamptz — se
+  // convierte a hora de Chile para evitar el mismo desfase UTC ya
+  // corregido antes en otras partes de la app, ej. Control de Asistencia).
+  const isoToYYYYMM = (fecha) => {
+    if (!fecha) return null
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return fecha.slice(0, 7)
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit' }).format(new Date(fecha))
+  }
+  const mesObra = (o) => isoToYYYYMM(o.fecha_inicio) ?? isoToYYYYMM(o.created_at)
+  const obrasFiltradas  = mesFiltro ? obras.filter(o => mesObra(o) === mesFiltro) : obras
+  const ventaObras      = obrasFiltradas.reduce((s, o) => s + (o.presupuesto ?? 0), 0)
+  // ventaAdicional ya viene filtrada por mes desde el backend (RPC get_dashboard_kpis,
+  // filtra additional_sales por created_at ahí mismo). additional_sales no tiene
+  // columna `fecha` propia (verificado contra el esquema real) — nada que cambiar acá.
+  // TODO: additional_sales no tiene fecha del hecho, se imputa por fecha de carga.
   const totalIngresos   = ventaObras + kpis.ventaAdicional
+
+  // Selector de mes: suma los meses de cierre de obra a los que ya trae el backend
+  // (expenses/income/attendance/additional_sales), para que un mes con cierre de
+  // venta pero sin movimientos igual aparezca como opción.
+  const mesesConCierre  = [...new Set([...mesesDisponibles, ...obras.map(mesObra).filter(Boolean)])]
+    .sort((a, b) => b.localeCompare(a))
   const totalManoObra   = kpis.totalManoObra
   const totalAbonos     = kpis.totalAbonos
 
@@ -209,7 +230,7 @@ export default function Dashboard() {
 
       {/* ── Selector de mes ──────────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
-        {[null, ...mesesDisponibles].map(m => (
+        {[null, ...mesesConCierre].map(m => (
           <button
             key={m ?? 'todo'}
             onClick={() => setMesFiltro(m)}
