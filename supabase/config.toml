@@ -410,6 +410,12 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.whatsapp-agente]
 verify_jwt = false
 
+# enviar_recordatorios la invoca pg_cron (vía pg_net), nunca un cliente con
+# JWT de Supabase -- se protege con un secreto compartido en el header
+# X-Cron-Secret (ver index.ts), no con verify_jwt.
+[functions.enviar_recordatorios]
+verify_jwt = false
+
 # pg-delta is the schema diff engine for db diff / db pull / db remote commit.
 # Set enabled = false to fall back to the legacy migra engine.
 [experimental.pgdelta]

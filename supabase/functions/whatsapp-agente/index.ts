@@ -28,6 +28,7 @@ import {
   resolverObraId,
   logUsoAsistente,
 } from "../_shared/asistente-tools.ts";
+import { calcularNextRunAt } from "../_shared/recordatorios.ts";
 
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-opus-5";
 const MAX_TOOL_ROUNDS = 4;
@@ -84,7 +85,13 @@ const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
 type PropuestaTarea =
   | { accion: "crear_tarea"; obra_id: string; obra_nombre: string; tarea_texto: string }
   | { accion: "cambiar_estado_tarea"; tarea_id: string; tarea_texto: string; obra: string; nuevo_estado: string }
-  | { accion: "eliminar_tarea"; tarea_id: string; tarea_texto: string; obra: string };
+  | { accion: "eliminar_tarea"; tarea_id: string; tarea_texto: string; obra: string }
+  // crear_recordatorio sirve tanto para activar como para cambiar la hora
+  // de uno ya existente -- la ejecución confirmada hace upsert por
+  // (whatsapp_user_id, tipo), nunca duplica.
+  | { accion: "crear_recordatorio"; hora_local: string; dias: number[] }
+  | { accion: "pausar_recordatorio" }
+  | { accion: "reactivar_recordatorio" };
 
 type TareaMostrada = { id: string; tarea: string; obraNombre: string; status: string };
 
@@ -194,9 +201,133 @@ function prepararEliminarTarea(input: Record<string, unknown>, tareasMostradas: 
   return { mensaje: `¿Confirmás ELIMINAR la tarea "${tarea.tarea}" (obra: ${tarea.obraNombre})? Esto no se puede deshacer. Respondé SÍ o NO.`, propuesta };
 }
 
+// ── Tools de recordatorios — solo WhatsApp, no se comparten con
+// asistente-busqueda (el chat in-app no tiene noción de "recordame por
+// WhatsApp todos los días"). Por eso viven acá y no en _shared/. ──
+const TOOL_CREAR_RECORDATORIO: Anthropic.Tool = {
+  name: "crear_recordatorio",
+  description: "Propone activar (o, si ya existe uno, cambiar la hora de) el resumen diario de tareas pendientes por WhatsApp. Es el único tipo de recordatorio que existe hoy — si el usuario pide cualquier otra automatización, no llames esta tool, decile que por ahora solo podés recordarle sus tareas diarias. El sistema pide confirmación antes de activarlo de verdad.",
+  input_schema: {
+    type: "object",
+    properties: {
+      horaLocal: { type: "string", description: "Hora del día en formato HH:MM, 24hs, hora de Chile (ej. '09:00')." },
+      dias: { type: "array", items: { type: "integer", minimum: 1, maximum: 7 }, description: "Días ISO en los que enviar (1=lunes .. 7=domingo). Si el usuario no especifica, se omite y el sistema usa de lunes a viernes por defecto." },
+    },
+    required: ["horaLocal"],
+  },
+};
+
+const TOOL_LISTAR_RECORDATORIOS: Anthropic.Tool = {
+  name: "listar_recordatorios",
+  description: "Devuelve el estado del recordatorio del usuario (hora, días, activo/pausado, próximo envío). Usala cuando pregunte 'tengo algún recordatorio' o similar.",
+  input_schema: { type: "object", properties: {} },
+};
+
+const TOOL_PAUSAR_RECORDATORIO: Anthropic.Tool = {
+  name: "pausar_recordatorio",
+  description: "Propone pausar el resumen diario de tareas (deja de enviarse hasta que se reactive). El sistema pide confirmación antes de pausarlo de verdad.",
+  input_schema: { type: "object", properties: {} },
+};
+
+const TOOL_REACTIVAR_RECORDATORIO: Anthropic.Tool = {
+  name: "reactivar_recordatorio",
+  description: "Propone reactivar un resumen diario de tareas que estaba pausado (vuelve a enviarse con la misma hora/días configurados). El sistema pide confirmación antes de reactivarlo de verdad.",
+  input_schema: { type: "object", properties: {} },
+};
+
+// ── Recordatorios por WhatsApp (tipo "resumen_tareas") ──────────
+// Mismo patrón de propuesta+confirmación que crear_tarea/eliminar_tarea.
+// Solo existe este único tipo (catálogo fijo, ver check de la migración)
+// -- cualquier otra automatización pedida la rechaza el prompt, no el
+// código (no hace falta validarlo acá).
+const NOMBRES_DIAS: Record<number, string> = { 1: "lunes", 2: "martes", 3: "miércoles", 4: "jueves", 5: "viernes", 6: "sábado", 7: "domingo" };
+function formatearDias(dias: number[]): string {
+  const ordenados = [...dias].sort((a, b) => a - b);
+  if (ordenados.length === 5 && ordenados.every((d, i) => d === i + 1)) return "de lunes a viernes";
+  if (ordenados.length === 6 && ordenados.every((d, i) => d === i + 1)) return "de lunes a sábado";
+  if (ordenados.length === 7) return "todos los días";
+  const nombres = ordenados.map((d) => NOMBRES_DIAS[d] ?? "?");
+  if (nombres.length === 1) return nombres[0];
+  return `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
+}
+
+async function prepararCrearRecordatorio(supabase: any, whatsappUserId: string, input: Record<string, unknown>) {
+  const horaLocal = typeof input.horaLocal === "string" ? input.horaLocal.trim() : "";
+  const matchHora = horaLocal.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!matchHora) {
+    return { mensaje: "Decime la hora en formato HH:MM (ej. 09:00)." };
+  }
+
+  let dias: number[] = [1, 2, 3, 4, 5];
+  if (Array.isArray(input.dias) && input.dias.length > 0) {
+    const limpios = [...new Set((input.dias as unknown[]).map((d) => Number(d)))].filter((d) => Number.isInteger(d) && d >= 1 && d <= 7);
+    if (limpios.length === 0) return { mensaje: "Los días tienen que ser números del 1 (lunes) al 7 (domingo)." };
+    dias = limpios.sort((a, b) => a - b);
+  }
+
+  const { data: existente, error } = await supabase
+    .from("whatsapp_reminders")
+    .select("id")
+    .eq("whatsapp_user_id", whatsappUserId)
+    .eq("tipo", "resumen_tareas")
+    .maybeSingle();
+  if (error) {
+    console.error("whatsapp-agente: error consultando recordatorio existente", error);
+    return { mensaje: "Hubo un error consultando tus recordatorios. Probá de nuevo." };
+  }
+
+  const propuesta: PropuestaTarea = { accion: "crear_recordatorio", hora_local: `${horaLocal}:00`, dias };
+  const diasTexto = formatearDias(dias);
+  const mensaje = existente
+    ? `Ya tenés el resumen de tareas activado. ¿Confirmás cambiarlo a ${diasTexto} a las ${horaLocal}? Respondé SÍ o NO.`
+    : `Te activo el resumen de tareas ${diasTexto} a las ${horaLocal}. ¿Confirmo? Respondé SÍ o NO.`;
+  return { mensaje, propuesta };
+}
+
+async function prepararPausarRecordatorio(supabase: any, whatsappUserId: string) {
+  const { data, error } = await supabase
+    .from("whatsapp_reminders")
+    .select("activo")
+    .eq("whatsapp_user_id", whatsappUserId)
+    .eq("tipo", "resumen_tareas")
+    .maybeSingle();
+  if (error) {
+    console.error("whatsapp-agente: error consultando recordatorio para pausar", error);
+    return { mensaje: "Hubo un error. Probá de nuevo." };
+  }
+  if (!data) return { mensaje: "No tenés ningún resumen de tareas activado todavía." };
+  if (!data.activo) return { mensaje: "Ese recordatorio ya está pausado." };
+  return { mensaje: "¿Confirmás pausar el resumen de tareas diario? Respondé SÍ o NO.", propuesta: { accion: "pausar_recordatorio" } as PropuestaTarea };
+}
+
+async function prepararReactivarRecordatorio(supabase: any, whatsappUserId: string) {
+  const { data, error } = await supabase
+    .from("whatsapp_reminders")
+    .select("activo")
+    .eq("whatsapp_user_id", whatsappUserId)
+    .eq("tipo", "resumen_tareas")
+    .maybeSingle();
+  if (error) {
+    console.error("whatsapp-agente: error consultando recordatorio para reactivar", error);
+    return { mensaje: "Hubo un error. Probá de nuevo." };
+  }
+  if (!data) return { mensaje: "No tenés ningún recordatorio configurado — pedime que active el resumen de tareas primero." };
+  if (data.activo) return { mensaje: "Ese recordatorio ya está activo." };
+  return { mensaje: "¿Confirmás reactivar el resumen de tareas diario? Respondé SÍ o NO.", propuesta: { accion: "reactivar_recordatorio" } as PropuestaTarea };
+}
+
+async function listarRecordatorios(supabase: any, whatsappUserId: string) {
+  const { data, error } = await supabase
+    .from("whatsapp_reminders")
+    .select("tipo, hora_local, dias, activo, next_run_at")
+    .eq("whatsapp_user_id", whatsappUserId);
+  if (error) throw error;
+  return { rows: data ?? [] };
+}
+
 // ── Ejecución real — SOLO se llama desde el chequeo de confirmación por
 // código en procesarMensaje, nunca desde el loop de tool-use del modelo. ──
-async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, userId: string, contexto: Contexto): Promise<string> {
+async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, userId: string, whatsappUserId: string, contexto: Contexto): Promise<string> {
   if (contexto.accion === "crear_tarea") {
     const { error } = await supabase.from("tasks").insert({
       empresa_id: empresaId, obra_id: (contexto as any).obra_id, tarea: (contexto as any).tarea_texto, status: "pendiente",
@@ -245,6 +376,71 @@ async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, use
     }
     if (!data) return "No encontré esa tarea en tu empresa — probá buscarla de nuevo.";
     return "Listo, tarea eliminada.";
+  }
+  if (contexto.accion === "crear_recordatorio") {
+    const horaLocal = (contexto as any).hora_local as string;
+    const dias = (contexto as any).dias as number[];
+    const zona = "America/Santiago";
+    const nextRunAt = calcularNextRunAt(horaLocal, dias, zona, new Date());
+    const { error } = await supabase
+      .from("whatsapp_reminders")
+      .upsert(
+        {
+          empresa_id: empresaId,
+          whatsapp_user_id: whatsappUserId,
+          tipo: "resumen_tareas",
+          hora_local: horaLocal,
+          dias,
+          zona_horaria: zona,
+          activo: true,
+          next_run_at: nextRunAt.toISOString(),
+          last_error_at: null,
+        },
+        { onConflict: "whatsapp_user_id,tipo" },
+      );
+    if (error) {
+      console.error("whatsapp-agente: error creando/actualizando recordatorio", error);
+      return "Hubo un error activando el recordatorio. Probá de nuevo.";
+    }
+    return `Listo, resumen de tareas activado ${formatearDias(dias)} a las ${horaLocal.slice(0, 5)}.`;
+  }
+  if (contexto.accion === "pausar_recordatorio") {
+    const { error, data } = await supabase
+      .from("whatsapp_reminders")
+      .update({ activo: false })
+      .eq("whatsapp_user_id", whatsappUserId)
+      .eq("tipo", "resumen_tareas")
+      .select("id")
+      .maybeSingle();
+    if (error) {
+      console.error("whatsapp-agente: error pausando recordatorio", error);
+      return "Hubo un error pausando el recordatorio. Probá de nuevo.";
+    }
+    if (!data) return "No encontré tu recordatorio.";
+    return "Listo, resumen de tareas pausado.";
+  }
+  if (contexto.accion === "reactivar_recordatorio") {
+    const { data: actual, error: errSel } = await supabase
+      .from("whatsapp_reminders")
+      .select("hora_local, dias, zona_horaria")
+      .eq("whatsapp_user_id", whatsappUserId)
+      .eq("tipo", "resumen_tareas")
+      .maybeSingle();
+    if (errSel || !actual) {
+      console.error("whatsapp-agente: error reactivando recordatorio", errSel);
+      return "No encontré tu recordatorio.";
+    }
+    const nextRunAt = calcularNextRunAt(actual.hora_local, actual.dias, actual.zona_horaria, new Date());
+    const { error } = await supabase
+      .from("whatsapp_reminders")
+      .update({ activo: true, next_run_at: nextRunAt.toISOString(), last_error_at: null })
+      .eq("whatsapp_user_id", whatsappUserId)
+      .eq("tipo", "resumen_tareas");
+    if (error) {
+      console.error("whatsapp-agente: error reactivando recordatorio", error);
+      return "Hubo un error reactivando el recordatorio. Probá de nuevo.";
+    }
+    return "Listo, resumen de tareas reactivado.";
   }
   return "No tengo ningún cambio pendiente para confirmar.";
 }
@@ -334,7 +530,7 @@ function systemPromptWhatsApp(
 ) {
   const tieneResumen = rol === "dueno";
   return `# Identidad
-Sos el asistente de WhatsApp de VAION para ${empresaNombre}. Hablás con ${nombreUsuario}, rol ${rol}. Tu trabajo es responder consultas sobre obras, egresos, documentos, cuentas, asistencia (quién está en obra ahora) y tareas${tieneResumen ? ", y resumen financiero" : ""} — todo con datos reales de la plataforma, nunca inventados.
+Sos el asistente de WhatsApp de VAION para ${empresaNombre}. Hablás con ${nombreUsuario}, rol ${rol}. Tu trabajo es responder consultas sobre obras, egresos, documentos, cuentas, asistencia (quién está en obra ahora) y tareas${tieneResumen ? ", y resumen financiero" : ""} — todo con datos reales de la plataforma, nunca inventados. También podés activar un recordatorio diario del resumen de tareas pendientes.
 
 Fecha de hoy: ${hoy}.
 
@@ -378,6 +574,10 @@ Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas ape
 Para cambiar_estado_tarea y eliminar_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId). eliminar_tarea es un borrado definitivo — no aclares de más ni agregues advertencias propias, la tool ya te devuelve un mensaje de confirmación que avisa que no se puede deshacer.
 
 Si el usuario responde a una pregunta de confirmación con algo que no es un simple "sí"/"no" (ej. "no, mejor en la obra X" o "cambiale el texto a Y"), la propuesta anterior ya se canceló sola — entendé que te está corrigiendo, volvé a llamar la tool correspondiente con los datos ajustados y pedí confirmación de nuevo. No asumas que ya confirmó nada.
+
+# Recordatorios por WhatsApp
+Hoy existe UN SOLO tipo de recordatorio: el resumen diario de tareas pendientes (crear_recordatorio, listar_recordatorios, pausar_recordatorio, reactivar_recordatorio). Si el usuario pide "recordame mis tareas a las X" o "avisame todos los días", usá crear_recordatorio. Si pide cambiar la hora de uno que ya tiene, también es crear_recordatorio (la tool detecta que ya existe y propone el cambio). Si pide pausar/desactivar, pausar_recordatorio; si pide reactivar/volver a activar uno pausado, reactivar_recordatorio. crear_recordatorio/pausar_recordatorio/reactivar_recordatorio son propuestas igual que crear_tarea — relayá el mensaje de confirmación tal cual, nunca lo apliques vos.
+Si pide **cualquier otra automatización** que no sea el resumen diario de tareas (ej. que le avise cuando llega un egreso, un recordatorio de otro tipo, una alerta de obra), respondé explícito: "Por ahora solo puedo recordarte tus tareas diarias." No inventes que podés hacer algo más.
 
 # Qué no hacer
 - No muestres menús numerados para que el usuario elija — dejá que escriba en lenguaje natural.
@@ -474,7 +674,7 @@ async function procesarMensaje(
 
     if (esAfirmativo || esNegativoPuro) {
       const respuesta = esAfirmativo
-        ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, acceso.userId, sesion.contexto)
+        ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, acceso.userId, acceso.whatsappUserId, sesion.contexto)
         : "Listo, no se hizo ningún cambio.";
 
       await enviarWhatsApp(from, respuesta, waPhoneId, waToken);
@@ -494,7 +694,10 @@ async function procesarMensaje(
     sesion.contexto = { tareas_mostradas: sesion.contexto.tareas_mostradas ?? [] };
   }
 
-  const toolsBase = [...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA, TOOL_ELIMINAR_TAREA];
+  const toolsBase = [
+    ...TOOLS_BUSQUEDA, TOOL_BUSCAR_TAREAS, TOOL_CREAR_TAREA, TOOL_CAMBIAR_ESTADO_TAREA, TOOL_ELIMINAR_TAREA,
+    TOOL_CREAR_RECORDATORIO, TOOL_LISTAR_RECORDATORIOS, TOOL_PAUSAR_RECORDATORIO, TOOL_REACTIVAR_RECORDATORIO,
+  ];
   const toolsPermitidas = acceso.rol === "dueno" ? [...toolsBase, TOOL_RESUMEN_FINANCIERO] : toolsBase;
   const nombresPermitidos = new Set(toolsPermitidas.map((t) => t.name));
 
@@ -554,6 +757,33 @@ async function procesarMensaje(
           const r = prepararEliminarTarea(tu.input as Record<string, unknown>, tareasMostradas);
           if (r.propuesta) propuestaPendiente = r.propuesta;
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "crear_recordatorio") {
+          const r = await prepararCrearRecordatorio(supabase, acceso.whatsappUserId, tu.input as Record<string, unknown>);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "pausar_recordatorio") {
+          const r = await prepararPausarRecordatorio(supabase, acceso.whatsappUserId);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "reactivar_recordatorio") {
+          const r = await prepararReactivarRecordatorio(supabase, acceso.whatsappUserId);
+          if (r.propuesta) propuestaPendiente = r.propuesta;
+          toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
+          continue;
+        }
+        if (tu.name === "listar_recordatorios") {
+          try {
+            const result = await listarRecordatorios(supabase, acceso.whatsappUserId);
+            toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(result) });
+          } catch (toolErr) {
+            toolResults.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: `Error consultando recordatorios: ${String(toolErr)}` });
+          }
           continue;
         }
 
