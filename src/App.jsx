@@ -71,11 +71,11 @@ function SinAcceso() {
   )
 }
 
-// Protege rutas admin — redirige al landing si no hay sesión, muestra "sin acceso" si el usuario no pertenece a la empresa de este despliegue
+// Protege rutas admin — redirige a /login si no hay sesión, muestra "sin acceso" si el usuario no pertenece a la empresa de este despliegue
 function ProtectedRoute({ children, roles }) {
   const { isAuth, rol, loading, empresa } = useAuth()
   if (loading) return <Spinner />
-  if (!isAuth) return <Navigate to="/" replace />
+  if (!isAuth) return <Navigate to="/login" replace />
   if (!empresa) return <SinAcceso />
   if (roles && !roles.includes(rol)) return <Navigate to="/dashboard" replace />
   return children

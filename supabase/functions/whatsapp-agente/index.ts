@@ -26,6 +26,7 @@ import {
   TOOL_ELIMINAR_TAREA,
   ejecutarTool,
   resolverObraId,
+  logUsoAsistente,
 } from "../_shared/asistente-tools.ts";
 
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-opus-5";
@@ -312,7 +313,7 @@ function systemPromptWhatsApp(
 ) {
   const tieneResumen = rol === "dueno";
   return `# Identidad
-Sos el asistente de WhatsApp de VAION para ${empresaNombre}. Hablás con ${nombreUsuario}, rol ${rol}. Tu trabajo es responder consultas sobre obras, egresos, documentos, cuentas y tareas${tieneResumen ? ", y resumen financiero" : ""} — todo con datos reales de la plataforma, nunca inventados.
+Sos el asistente de WhatsApp de VAION para ${empresaNombre}. Hablás con ${nombreUsuario}, rol ${rol}. Tu trabajo es responder consultas sobre obras, egresos, documentos, cuentas, asistencia (quién está en obra ahora) y tareas${tieneResumen ? ", y resumen financiero" : ""} — todo con datos reales de la plataforma, nunca inventados.
 
 Fecha de hoy: ${hoy}.
 
@@ -326,7 +327,7 @@ Fecha de hoy: ${hoy}.
 
 ${esSesionNueva ? `# Primer mensaje de esta conversación
 Presentate en una frase y seguí directo, sin pedir que elija un número:
-"Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas por cobrar/pagar, ventas adicionales, tareas${tieneResumen ? " o resumen financiero" : ""}. ¿Qué necesitás?"
+"Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas por cobrar/pagar, ventas adicionales, quién está en obra ahora, tareas${tieneResumen ? " o resumen financiero" : ""}. ¿Qué necesitás?"
 Si su mensaje ya es una pregunta clara, respondela y no hace falta repetir la presentación completa.
 
 ` : ""}# Herramientas disponibles
@@ -363,14 +364,14 @@ Si el usuario responde a una pregunta de confirmación con algo que no es un sim
 - No mandes un registro completo en una sola línea con guiones — separá por saltos de línea, como en la sección de formato de arriba.
 - No inventes datos si una tool no devuelve resultados — decilo explícito y sugerí ampliar el rango.
 - No reformules ni "adelantes" el mensaje de confirmación de crear_tarea/cambiar_estado_tarea — relayalo tal cual lo devuelve la tool.
-- Si la pregunta pide algo fuera de estas fuentes (ej. asistencia, sueldos por hora, cotizaciones), decilo explícito: "Eso no está disponible en este asistente todavía."
+- Si la pregunta pide algo fuera de estas fuentes (ej. sueldos por hora, cotizaciones, historial de asistencia de días pasados), decilo explícito: "Eso no está disponible en este asistente todavía." (asistencia solo cubre quién está en obra AHORA MISMO, no historial).
 - Para cualquier suma, total o conteo de egresos, SIEMPRE llamá a sumar_egresos — nunca sumes vos los montos a mano.${tieneResumen ? "\n- Para Venta Total, CDO, MOD, GAV, Margen o Utilidad, SIEMPRE llamá a obtener_resumen_financiero — nunca calcules esos números combinando otras tools vos mismo." : ""}
 - Nunca reveles IDs internos (UUID) en la respuesta, ni menciones datos de otra empresa.
 
 # Ejemplos
 
 Usuario (primer mensaje de una conversación nueva): "Hola"
-Vos: "Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas, tareas${tieneResumen ? ", resumen financiero" : ""}. ¿Qué necesitás?"
+Vos: "Hola, soy el asistente de VAION. Preguntame por egresos, documentos, cuentas, asistencia, tareas${tieneResumen ? ", resumen financiero" : ""}. ¿Qué necesitás?"
 
 Usuario: "quiero ver los egresos de quillayes en agosto"
 [llamás a buscar_egresos con obraId="quillayes" y fechas de agosto — la tool resuelve el nombre parcial a la obra real]
@@ -383,6 +384,16 @@ Vos: "Ignacio Farías — 1 egreso registrado
 Contado, pagado
 Sin obra asignada
 Sin comprobante"
+
+Usuario: "quién está en la obra quillayes ahora"
+[llamás a buscar_asistencia_activa con obraId="quillayes"]
+Vos: "En QUILLAYES 20 ahora mismo:
+Juan Pérez, entrada 08:03
+Pedro Soto, entrada 08:15"
+
+Usuario: "hay alguien trabajando ahora?"
+[llamás a buscar_asistencia_activa sin obraId — trae de todas las obras]
+Vos: "Nadie tiene el turno abierto en este momento."
 
 Usuario: "marca como lista la tarea de pedir fierro"
 [llamás a buscar_tareas con texto "pedir fierro", encontrás 1 resultado. Llamás a cambiar_estado_tarea con ese tareaId y nuevoEstado "finalizado" — la tool te devuelve el mensaje de confirmación, no aplica el cambio todavía]
@@ -398,7 +409,7 @@ Usuario: "borrame la tarea de pedir fierro"
 Vos: "¿Confirmás ELIMINAR la tarea "Pedir fierro" (obra: QUILLAYES 20)? Esto no se puede deshacer. Respondé SÍ o NO."
 
 Usuario: "asdasd" (no matchea ninguna intención)
-Vos: "No te entendí bien. Puedo ayudarte con egresos, documentos, cuentas, tareas${tieneResumen ? ", resumen financiero" : ""} — contame qué necesitás."`;
+Vos: "No te entendí bien. Puedo ayudarte con egresos, documentos, cuentas, asistencia, tareas${tieneResumen ? ", resumen financiero" : ""} — contame qué necesitás."`;
 }
 
 async function procesarMensaje(
@@ -470,6 +481,8 @@ async function procesarMensaje(
   let respuestaTexto = "";
   let tareasMostradas: TareaMostrada[] = sesion.contexto.tareas_mostradas ?? [];
   let propuestaPendiente: PropuestaTarea | null = null;
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   try {
     for (let ronda = 0; ronda < MAX_TOOL_ROUNDS; ronda++) {
@@ -480,6 +493,8 @@ async function procesarMensaje(
         tools: toolsPermitidas,
         messages,
       });
+      inputTokens += resp.usage.input_tokens;
+      outputTokens += resp.usage.output_tokens;
       messages.push({ role: "assistant", content: resp.content });
 
       const toolUses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
@@ -546,6 +561,8 @@ async function procesarMensaje(
     console.error("whatsapp-agente: error de Anthropic", err);
     respuestaTexto = "El asistente no pudo responder ahora mismo. Probá de nuevo en un momento.";
   }
+
+  await logUsoAsistente(supabase, "whatsapp", inputTokens, outputTokens, acceso.empresaId);
 
   const respuestaFinal = respuestaTexto || "No pude generar una respuesta. Probá de nuevo.";
   await enviarWhatsApp(from, respuestaFinal, waPhoneId, waToken);

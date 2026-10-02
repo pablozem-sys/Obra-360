@@ -3,7 +3,7 @@ import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import AsistenteChat from '../AsistenteChat'
 import { Building2 } from 'lucide-react'
-import { BRAND_NAME, IS_VAION } from '../../lib/helpers'
+import { BRAND_NAME, ASISTENTE_HABILITADO } from '../../lib/helpers'
 
 export default function AppLayout() {
   return (
@@ -41,7 +41,7 @@ export default function AppLayout() {
       </main>
 
       <BottomNav />
-      {IS_VAION && <AsistenteChat />}
+      {ASISTENTE_HABILITADO && <AsistenteChat />}
     </div>
   )
 }

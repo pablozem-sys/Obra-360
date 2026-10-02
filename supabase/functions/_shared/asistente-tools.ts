@@ -15,6 +15,16 @@ import type Anthropic from "npm:@anthropic-ai/sdk@0.68";
 export const MAX_ROWS = 50;
 export const MAX_SUM_ROWS = 5000; // tope de seguridad para sumar_egresos, no de negocio
 
+// `attendance.entrada` es timestamptz (UTC en la base) — nunca devolverlo
+// crudo a un modelo, el modelo no convierte huso horario de forma
+// confiable. Se formatea acá, server-side, a HH:MM hora de Chile, mismo
+// criterio que usa el kiosco (Asistencia.jsx, toLocaleTimeString('es-CL')).
+function horaChile(iso: string): string {
+  return new Intl.DateTimeFormat("es-CL", {
+    timeZone: "America/Santiago", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(iso));
+}
+
 export const CATEGORIAS_GASTO = {
   materiales: "Materiales", subcontratos: "Subcontratos", equipos: "Equipos",
   aridos: "Áridos", retiro_escombros: "Retiro escombros", banio_quimico: "Baño químico",
@@ -58,7 +68,7 @@ const FILTROS_EGRESOS_SCHEMA = {
   estado: { type: "string", enum: ["pendiente", "pagado", "vencido"] },
 };
 
-// Las 6 tools del asistente in-app. Disponibles para cualquier rol
+// Las 7 tools del asistente in-app. Disponibles para cualquier rol
 // autorizado (dueño o administrativo) en ambos canales.
 export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
   {
@@ -123,6 +133,16 @@ export const TOOLS_BUSQUEDA: Anthropic.Tool[] = [
       properties: {
         obraId: { type: "string", description: OBRA_ID_DESC },
         tipo: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "buscar_asistencia_activa",
+    description: "Devuelve los trabajadores que tienen el turno abierto ahora mismo (marcaron 'Llegué' en el kiosco y todavía no 'Me voy'), con la obra y la hora de entrada. El campo 'entrada' ya viene formateado como HH:MM en hora de Chile — relayalo tal cual, NUNCA lo recalcules ni asumas que está en UTC. Usar para preguntas tipo '¿quién está en obra ahora?' o '¿cuánta gente hay en la obra X ahora mismo?'. No sirve para historial de días pasados.",
+    input_schema: {
+      type: "object",
+      properties: {
+        obraId: { type: "string", description: OBRA_ID_DESC },
       },
     },
   },
@@ -204,6 +224,30 @@ export const TOOL_ELIMINAR_TAREA: Anthropic.Tool = {
     required: ["tareaId"],
   },
 };
+
+// Logging de uso de tokens (costo del asistente) — compartido entre los
+// dos canales para no duplicar la llamada a la RPC. Nunca lanza: un fallo
+// acá no debe romper la respuesta real al usuario (mismo criterio que
+// log_app_error, que también se traga sus propios errores).
+export async function logUsoAsistente(
+  supabase: any,
+  canal: "in-app" | "whatsapp",
+  inputTokens: number,
+  outputTokens: number,
+  empresaId?: string,
+) {
+  try {
+    await supabase.rpc("log_asistente_uso", {
+      p_canal: canal,
+      p_model: Deno.env.get("ANTHROPIC_MODEL") || "claude-opus-5",
+      p_input_tokens: inputTokens,
+      p_output_tokens: outputTokens,
+      p_empresa_id: empresaId ?? null,
+    });
+  } catch (err) {
+    console.error("logUsoAsistente: no se pudo registrar el uso", err);
+  }
+}
 
 type EmpresaScope = { empresaId?: string };
 
@@ -345,6 +389,26 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
       const { data, error } = await q;
       if (error) throw error;
       return { rows: data ?? [], totalCount: data?.length ?? 0 };
+    }
+    case "buscar_asistencia_activa": {
+      // attendance no tiene empresa_id propio — hereda multi-tenancy vía
+      // project_id, mismo patrón que additional_sales.
+      let q = supabase.from("attendance")
+        .select("id, entrada, worker_id, workers(nombre), project_id, projects(nombre)")
+        .is("salida", null)
+        .order("entrada", { ascending: true })
+        .limit(MAX_ROWS);
+      if (empresaId) {
+        const ids = await proyectoIdsDeEmpresa(supabase, empresaId);
+        q = q.in("project_id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+      }
+      if (input.obraId) q = q.eq("project_id", input.obraId);
+      const { data, error } = await q;
+      if (error) throw error;
+      // entrada cruda (UTC) se reemplaza por la hora ya formateada en
+      // Chile — el modelo la relaya tal cual, nunca la calcula él mismo.
+      const rows = (data ?? []).map((r: any) => ({ ...r, entrada: horaChile(r.entrada) }));
+      return { rows, totalCount: rows.length };
     }
     case "obtener_resumen_financiero": {
       if (!empresaId) throw new Error("obtener_resumen_financiero requiere empresaId resuelto server-side");

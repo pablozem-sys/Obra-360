@@ -8,19 +8,25 @@ export const BRAND_NAME = import.meta.env.VITE_BRAND_NAME || 'VAION'
 export const ADMIN_EMAILS = ['pablozem@gmail.com']
 export const COMPANY_SLUG = import.meta.env.VITE_COMPANY_SLUG || 'va-constructora'
 
-// El asistente de búsqueda (Edge Function) y el monitoreo de errores
-// (app_errors) solo tienen su parte de base de datos instalada en el
-// staging de VAION — nunca en producción de VAION ni en VRION. Con esto se
-// ocultan sus piezas de UI salvo en staging, sin tocar ninguna base de
-// datos. Si se decide instalarlas en producción, borrar el `!IS_PRODUCTION`
-// (o hacer que dependa de otra cosa).
+// El monitoreo de errores (app_errors) solo tiene su parte de base de
+// datos instalada en el staging de VAION — nunca en producción de VAION
+// ni en VRION. Con esto se oculta su UI salvo en staging, sin tocar
+// ninguna base de datos. Si se decide instalarlo en producción, borrar el
+// `!IS_PRODUCTION` de acá (o hacer que dependa de otra cosa).
 // OJO: se compara contra BRAND_NAME, no COMPANY_SLUG — staging usa
 // COMPANY_SLUG='rukan-demo' (no 'va-constructora') pero SÍ tiene este
 // backend instalado, así que COMPANY_SLUG no sirve para distinguir esto.
 // No se importa IS_PRODUCTION de supabase.js para evitar un import circular
 // (supabase.js ya importa de este archivo) — se lee la env var directo.
 const IS_PRODUCTION = (import.meta.env.VITE_ENV || 'local') === 'production'
-export const IS_VAION = BRAND_NAME === 'VAION' && !IS_PRODUCTION
+const IS_VAION_BRAND = BRAND_NAME === 'VAION'
+export const IS_VAION = IS_VAION_BRAND && !IS_PRODUCTION
+
+// El asistente de búsqueda (Edge Function) SÍ tiene su backend instalado
+// en producción de VAION desde 2026-09-22 (API key propia en Workspace de
+// Anthropic, modelo Sonnet) — a diferencia de monitoreo, no depende de
+// `!IS_PRODUCTION`. Sigue sin instalarse en VRION.
+export const ASISTENTE_HABILITADO = IS_VAION_BRAND
 
 // Jornada base por día: sábado (08:30-15:00) = 6.5h, resto de la semana = 8h.
 // Acepta 'YYYY-MM-DD' o cualquier string/Date parseable (ej. timestamp ISO de entrada).

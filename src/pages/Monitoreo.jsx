@@ -1,8 +1,88 @@
 import { useState, useEffect } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Users, Building2 } from 'lucide-react'
-import { getResumenErrores, getOcurrenciasError, getConteoErrores, MONITOREO_LAST_SEEN_KEY } from '../lib/supabase'
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Users, Building2, Sparkles } from 'lucide-react'
+import { getResumenErrores, getOcurrenciasError, getConteoErrores, getUsoAsistenteResumen, MONITOREO_LAST_SEEN_KEY } from '../lib/supabase'
 
 const ORIGENES = ['todos', 'ui', 'data', 'auth', 'storage', 'unhandled', 'promise']
+
+// Precios de Anthropic por millón de tokens (USD) — Sonnet. Aproximados,
+// verificar en anthropic.com/pricing antes de cotizarle un número exacto
+// al cliente; esto es solo para tener una estimación rápida en pantalla.
+const PRECIO_INPUT_USD_POR_MILLON = 3
+const PRECIO_OUTPUT_USD_POR_MILLON = 15
+
+function formatUSD(n) {
+  return `US$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function UsoAsistente() {
+  const [filas, setFilas] = useState(null)
+
+  useEffect(() => {
+    getUsoAsistenteResumen().then(setFilas).catch(() => setFilas([]))
+  }, [])
+
+  if (filas === null) {
+    return (
+      <div className="rounded-2xl p-4 flex items-center justify-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', minHeight: 88 }}>
+        <Loader2 size={18} className="animate-spin" style={{ color: 'var(--muted)' }} />
+      </div>
+    )
+  }
+
+  const inicioMes = new Date()
+  inicioMes.setDate(1)
+  inicioMes.setHours(0, 0, 0, 0)
+  const filasMes = filas.filter(f => new Date(f.mes) >= inicioMes)
+
+  const consultas = filasMes.reduce((s, f) => s + Number(f.consultas || 0), 0)
+  const inputTokens = filasMes.reduce((s, f) => s + Number(f.input_tokens || 0), 0)
+  const outputTokens = filasMes.reduce((s, f) => s + Number(f.output_tokens || 0), 0)
+  const costoUSD = (inputTokens / 1_000_000) * PRECIO_INPUT_USD_POR_MILLON
+    + (outputTokens / 1_000_000) * PRECIO_OUTPUT_USD_POR_MILLON
+  const costoPorConsulta = consultas > 0 ? costoUSD / consultas : 0
+
+  const porCanal = ['in-app', 'whatsapp'].map(canal => {
+    const f = filasMes.find(x => x.canal === canal)
+    return { canal, consultas: Number(f?.consultas || 0) }
+  })
+
+  return (
+    <div className="rounded-2xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles size={15} style={{ color: 'var(--amber)' }} />
+        <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Uso del asistente IA — este mes</p>
+      </div>
+      {consultas === 0 ? (
+        <p className="text-xs" style={{ color: 'var(--subtle)' }}>Todavía no hay consultas registradas este mes.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div>
+              <p className="num font-bold text-xl" style={{ color: 'var(--text)' }}>{consultas}</p>
+              <p className="text-[11px]" style={{ color: 'var(--muted)' }}>Consultas</p>
+            </div>
+            <div>
+              <p className="num font-bold text-xl" style={{ color: 'var(--text)' }}>{formatUSD(costoUSD)}</p>
+              <p className="text-[11px]" style={{ color: 'var(--muted)' }}>Costo estimado</p>
+            </div>
+            <div>
+              <p className="num font-bold text-xl" style={{ color: 'var(--text)' }}>{formatUSD(costoPorConsulta)}</p>
+              <p className="text-[11px]" style={{ color: 'var(--muted)' }}>Promedio / consulta</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] mb-2" style={{ color: 'var(--subtle)' }}>
+            {porCanal.map(c => (
+              <span key={c.canal}>{c.canal}: <span className="num">{c.consultas}</span></span>
+            ))}
+          </div>
+          <p className="text-[10.5px]" style={{ color: 'var(--subtle)' }}>
+            Estimado con precios de Sonnet (US${PRECIO_INPUT_USD_POR_MILLON}/US${PRECIO_OUTPUT_USD_POR_MILLON} por millón de tokens de entrada/salida) — verificar en anthropic.com/pricing antes de cotizar un número final.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
 
 function formatFecha(iso) {
   if (!iso) return '—'
@@ -112,6 +192,8 @@ export default function Monitoreo() {
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>Últimos 7 días</p>
         </div>
       </div>
+
+      <UsoAsistente />
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">

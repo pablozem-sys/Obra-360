@@ -983,6 +983,18 @@ export async function getConteoErrores(desde) {
   return count ?? 0
 }
 
+// ── Uso del asistente IA (tokens/costo) — mismo criterio de acceso que
+// app_errors: RLS ya filtra a solo admins, devuelve [] para cualquier otro.
+export async function getUsoAsistenteResumen() {
+  const { data, error } = await supabase
+    .from('asistente_uso_resumen')
+    .select('*')
+    .order('mes', { ascending: false })
+    .limit(12) // últimos 12 meses-canal combinados, de sobra para el mes actual
+  if (error) throw error
+  return data ?? []
+}
+
 // ── Instrumentación de errores (capa de datos) ──────────────────
 // Reasigna cada función exportada de arriba a una versión que loguea
 // cualquier excepción (origen 'data', operacion = nombre de la función) y

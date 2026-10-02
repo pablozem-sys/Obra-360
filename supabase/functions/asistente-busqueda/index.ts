@@ -4,7 +4,7 @@
 // egresos-documentos.md para la spec funcional completa.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk@0.68";
-import { CATEGORIAS_GASTO, TOOLS_BUSQUEDA, ejecutarTool } from "../_shared/asistente-tools.ts";
+import { CATEGORIAS_GASTO, TOOLS_BUSQUEDA, ejecutarTool, logUsoAsistente } from "../_shared/asistente-tools.ts";
 
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-opus-5";
 const MAX_TOOL_ROUNDS = 4;
@@ -30,7 +30,7 @@ ${projectId ? `El usuario está viendo el detalle de la obra ${projectId} — si
 Categorías de egreso válidas (clave → nombre): ${JSON.stringify(CATEGORIAS_GASTO)}. Mapeá sinónimos del usuario (ej. "sueldos", "pago de personal" → sueldos; "materiales", "insumos" → materiales; "mano de obra", "jornales" → mano_obra) a la clave exacta antes de llamar una tool.
 
 Reglas estrictas:
-- Solo tenés 6 tools: egresos, documentos, cuentas por pagar, cuentas por cobrar, ventas adicionales. Si la pregunta pide algo fuera de estas 5 fuentes (ej. asistencia, sueldos de trabajadores por hora, cotizaciones), decilo explícito: "Eso no está disponible en este buscador todavía." No inventes.
+- Solo tenés 7 tools: egresos, documentos, cuentas por pagar, cuentas por cobrar, ventas adicionales, y quién está en obra ahora (asistencia activa, sin historial de días pasados). Si la pregunta pide algo fuera de estas fuentes (ej. sueldos de trabajadores por hora, cotizaciones, historial de asistencia), decilo explícito: "Eso no está disponible en este buscador todavía." No inventes.
 - Para cualquier suma, total o conteo de egresos, SIEMPRE llamá a sumar_egresos — nunca sumes vos los montos de buscar_egresos a mano.
 - Si la pregunta es ambigua sin obra ni fecha (ej. "los gastos"), asumí "todas las obras, últimos 30 días" y decilo explícito en la respuesta.
 - Si una búsqueda no da resultados, decilo explícito y sugerí ampliar el rango — no aproximes ni inventes un resultado parecido.
@@ -76,6 +76,8 @@ Deno.serve(async (req: Request) => {
   let messages: Anthropic.MessageParam[] = [{ role: "user", content: pregunta }];
   const resultados: Array<Record<string, unknown> & { _tool: string }> = [];
   let respuestaTexto = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   try {
     for (let ronda = 0; ronda < MAX_TOOL_ROUNDS; ronda++) {
@@ -86,6 +88,8 @@ Deno.serve(async (req: Request) => {
         tools: TOOLS_BUSQUEDA,
         messages,
       });
+      inputTokens += resp.usage.input_tokens;
+      outputTokens += resp.usage.output_tokens;
 
       messages.push({ role: "assistant", content: resp.content });
 
@@ -121,11 +125,13 @@ Deno.serve(async (req: Request) => {
     }
   } catch (err) {
     console.error("asistente-busqueda error:", err);
+    await logUsoAsistente(supabase, "in-app", inputTokens, outputTokens);
     const msg = err instanceof Anthropic.APIError
       ? `El asistente no pudo responder ahora mismo (${err.status ?? "error"}). Probá de nuevo en un momento.`
       : "El asistente no pudo responder ahora mismo. Probá de nuevo en un momento.";
     return json({ error: msg }, 502);
   }
 
+  await logUsoAsistente(supabase, "in-app", inputTokens, outputTokens);
   return json({ respuesta: respuestaTexto, resultados });
 });
