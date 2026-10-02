@@ -668,6 +668,7 @@ export async function getTareas() {
     .from('tasks')
     .select('*, projects(id, nombre)')
     .eq('empresa_id', currentEmpresaId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: true })
   if (error) throw error
   return data ?? []

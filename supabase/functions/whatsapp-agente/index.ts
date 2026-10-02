@@ -34,22 +34,38 @@ const MAX_TOOL_ROUNDS = 4;
 const GRAPH_API_VERSION = "v21.0";
 
 // ── Dedup de reintentos de Meta por message_id ──────────────────
-// En memoria, sin tabla nueva (fuera del alcance de esta Fase 1 — ver
-// RESTRICCIONES). Limitación conocida: se resetea si la instancia de la
-// Edge Function se reinicia (cold start) entre el mensaje original y el
-// reintento — aceptable para un piloto interno de bajo volumen, no es una
-// garantía dura. Si en el futuro hace falta dedup persistente de verdad,
-// evaluar una tabla dedicada (decisión aparte, no tomada acá).
+// Dos capas: en memoria (evita un round-trip a la base para reintentos
+// que llegan mientras la misma instancia sigue tibia) + tabla
+// whatsapp_processed_messages (fuente de verdad real, sobrevive cold
+// starts -- ver migración 20261002170100). El upsert con
+// ignoreDuplicates es un INSERT ... ON CONFLICT (message_id) DO NOTHING
+// RETURNING atómico: dos invocaciones concurrentes del mismo message_id
+// nunca procesan las dos (PostgREST/Postgres resuelven la carrera, no
+// hace falta un lock explícito acá).
 const MENSAJES_PROCESADOS = new Set<string>();
 const MAX_DEDUP = 500;
-function yaProcesado(messageId: string): boolean {
-  if (MENSAJES_PROCESADOS.has(messageId)) return true;
+function marcarEnMemoria(messageId: string) {
   MENSAJES_PROCESADOS.add(messageId);
   if (MENSAJES_PROCESADOS.size > MAX_DEDUP) {
     const primero = MENSAJES_PROCESADOS.values().next().value;
     if (primero) MENSAJES_PROCESADOS.delete(primero);
   }
-  return false;
+}
+async function yaProcesado(supabase: any, messageId: string): Promise<boolean> {
+  if (MENSAJES_PROCESADOS.has(messageId)) return true;
+  const { data, error } = await supabase
+    .from("whatsapp_processed_messages")
+    .upsert({ message_id: messageId }, { onConflict: "message_id", ignoreDuplicates: true })
+    .select("message_id");
+  if (error) {
+    // No bloquear el mensaje por un error de infraestructura -- la capa
+    // en memoria + el reintento natural de Meta son la red de respaldo.
+    console.error("whatsapp-agente: error en dedup persistente, se sigue solo con la capa en memoria", error);
+    marcarEnMemoria(messageId);
+    return false;
+  }
+  marcarEnMemoria(messageId);
+  return !data || data.length === 0;
 }
 
 // ── Memoria de sesión por número, persistida en whatsapp_sesiones ──
@@ -180,7 +196,7 @@ function prepararEliminarTarea(input: Record<string, unknown>, tareasMostradas: 
 
 // ── Ejecución real — SOLO se llama desde el chequeo de confirmación por
 // código en procesarMensaje, nunca desde el loop de tool-use del modelo. ──
-async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, contexto: Contexto): Promise<string> {
+async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, userId: string, contexto: Contexto): Promise<string> {
   if (contexto.accion === "crear_tarea") {
     const { error } = await supabase.from("tasks").insert({
       empresa_id: empresaId, obra_id: (contexto as any).obra_id, tarea: (contexto as any).tarea_texto, status: "pendiente",
@@ -211,11 +227,16 @@ async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, con
     return `Listo, tarea marcada como ${nuevoEstado === "finalizado" ? "finalizada" : "pendiente"}.`;
   }
   if (contexto.accion === "eliminar_tarea") {
+    // Borrado lógico, no DELETE real -- ver migración
+    // 20261002170200_tasks_soft_delete.sql. buscar_tareas ya filtra
+    // deleted_at is null, así que una tarea "eliminada" deja de aparecer
+    // en cualquier búsqueda futura del agente sin perder el registro.
     const { error, data } = await supabase
       .from("tasks")
-      .delete()
+      .update({ deleted_at: new Date().toISOString(), deleted_by: userId })
       .eq("id", (contexto as any).tarea_id)
       .eq("empresa_id", empresaId) // nunca confiar solo en el id — service_role sortea RLS
+      .is("deleted_at", null) // idempotente: no pisar un borrado ya hecho
       .select("id")
       .maybeSingle();
     if (error) {
@@ -453,7 +474,7 @@ async function procesarMensaje(
 
     if (esAfirmativo || esNegativoPuro) {
       const respuesta = esAfirmativo
-        ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, sesion.contexto)
+        ? await ejecutarPropuestaConfirmada(supabase, acceso.empresaId, acceso.userId, sesion.contexto)
         : "Listo, no se hizo ningún cambio.";
 
       await enviarWhatsApp(from, respuesta, waPhoneId, waToken);
@@ -648,7 +669,7 @@ Deno.serve(async (req: Request) => {
   const hoy = fechaChile();
 
   for (const m of mensajes) {
-    if (yaProcesado(m.id)) {
+    if (await yaProcesado(supabase, m.id)) {
       console.log(`whatsapp-agente: mensaje ${m.id} ya procesado, ignorando reintento`);
       continue;
     }

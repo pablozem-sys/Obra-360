@@ -418,13 +418,14 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
       const MAX_TAREAS = 15;
       let q = supabase.from("tasks")
         .select("id, tarea, status, completed_at, created_at, obra_id, projects(nombre)")
+        .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .limit(MAX_TAREAS);
       if (empresaId) q = q.eq("empresa_id", empresaId);
       if (input.obraId) q = q.eq("obra_id", input.obraId);
       if (input.estado) q = q.eq("status", input.estado);
       if (input.texto) q = q.ilike("tarea", `%${input.texto}%`);
-      let countQ = supabase.from("tasks").select("id", { count: "exact", head: true });
+      let countQ = supabase.from("tasks").select("id", { count: "exact", head: true }).is("deleted_at", null);
       if (empresaId) countQ = countQ.eq("empresa_id", empresaId);
       if (input.obraId) countQ = countQ.eq("obra_id", input.obraId);
       if (input.estado) countQ = countQ.eq("status", input.estado);
