@@ -484,3 +484,17 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 ## Resumen por ítem en la primera hoja del PDF — en espera (2026-08-13)
 - Se armó una versión donde la primera hoja del PDF de cotización muestra un resumen (cada ítem con su costo total) y recién desde la segunda hoja viene el detalle línea por línea
 - Ya está lista y probada, pero **todavía no se activó** — queda guardada para aplicarla más adelante si se decide usarla con el cliente
+
+## Workflow de QA automático `/qa` (2026-10-05)
+- Nuevo comando `/qa` (solo local, en `.claude/skills/qa/`) que revisa los cambios pendientes antes de deployar: tests, build, chequeo de RLS en migraciones, y revisión con IA de seguridad, lógica y regresiones
+- Deja el resultado en `qa-report.md` y guarda su avance para poder retomarlo si se corta
+
+## Tareas asignadas a una persona — en progreso, sin publicar (2026-10-05)
+- Problema: si alguien le pide al bot de WhatsApp que le recuerde algo, esa tarea les aparece a todos (Pedro, Felipe, Andrés) en su resumen diario, porque las tareas no tenían dueño
+- Se agregó "Asignada a" en Control y Gestión (con botón "Mis tareas"), y el bot y el recordatorio diario ahora muestran a cada uno solo sus tareas más las generales
+- Falta: aplicar el cambio en la base, publicarlo, y que cada número de WhatsApp quede vinculado a su propio usuario
+
+## La app ya no tarda en cargar al abrirla (2026-10-06) — EN PRODUCCIÓN (VAION)
+- Reclamo: "está lento". Causa: cada vez que se abría la app, se recargaba la página o se abría una pestaña nueva con la sesión iniciada, quedaba ~13 segundos esperando antes de mostrar el Dashboard
+- Era un bloqueo interno al recuperar la sesión (no la red ni la base de datos): se corrigió y ahora carga en menos de medio segundo
+- Publicado en vaion.app. **Falta VRION** (no se puede publicar ahí sin su archivo de configuración)
