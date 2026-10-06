@@ -126,8 +126,7 @@ export function AuthProvider({ children }) {
 
     supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       if (s) {
-        const profile = await fetchUserProfile(s.user.id, s.user)
-        const entry = await loadEmpresa(s.user.id)
+        const [profile, entry] = await Promise.all([fetchUserProfile(s.user.id, s.user), loadEmpresa(s.user.id)])
         setSession({ user: profile })
         if (entry) applyEmpresa(entry)
       }
@@ -140,17 +139,27 @@ export function AuthProvider({ children }) {
     // falla en ese momento por algo transitorio (red, timeout), NUNCA se debe pisar
     // una empresa ya cargada con null — eso expulsaba al usuario a "Sin acceso"
     // en medio de una sesión válida sin que hubiera cambiado nada real.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, s) => {
+    //
+    // IMPORTANTE: este callback NO puede ser async ni esperar consultas a
+    // Supabase. supabase-js lo ejecuta mientras tiene tomado su candado
+    // interno de sesión, y cualquier query hecha acá adentro necesita ese
+    // mismo candado → se bloquea hasta que vencen los timeouts de
+    // fetchUserProfile (5s) y loadEmpresa (8s). Eso hacía que CADA carga de
+    // página con sesión iniciada tardara ~13,5s. Patrón recomendado por
+    // Supabase: diferir el trabajo con setTimeout para que corra después de
+    // que se libere el candado.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'SIGNED_OUT') {
         setSession(null)
         setEmpresaState(null)
         setEmpresaId(null)
         setCotizadorEmpresaId(null)
       } else if (s && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN')) {
-        const profile = await fetchUserProfile(s.user.id, s.user)
-        const entry = await loadEmpresa(s.user.id)
-        setSession(prev => prev ? { user: profile } : prev)
-        if (entry) applyEmpresa(entry)
+        setTimeout(async () => {
+          const [profile, entry] = await Promise.all([fetchUserProfile(s.user.id, s.user), loadEmpresa(s.user.id)])
+          setSession(prev => prev ? { user: profile } : prev)
+          if (entry) applyEmpresa(entry)
+        }, 0)
       }
     })
 
@@ -160,8 +169,7 @@ export function AuthProvider({ children }) {
   const loginAdmin = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    const profile = await fetchUserProfile(data.user.id, data.user)
-    const entry = await loadEmpresa(data.user.id)
+    const [profile, entry] = await Promise.all([fetchUserProfile(data.user.id, data.user), loadEmpresa(data.user.id)])
     setSession({ user: profile })
     applyEmpresa(entry)
   }
