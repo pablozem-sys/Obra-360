@@ -176,11 +176,12 @@ export const TOOL_RESUMEN_FINANCIERO: Anthropic.Tool = {
 // "Tool desconocida" en vez de mutar datos sin confirmación.
 export const TOOL_BUSCAR_TAREAS: Anthropic.Tool = {
   name: "buscar_tareas",
-  description: "Busca tareas de Control y Gestión. Devuelve hasta 15 filas con id, tarea, obra, estado (pendiente/finalizado) y fecha de completado si aplica. Si totalCount es mayor a las filas devueltas, pedile al usuario que acote la búsqueda.",
+  description: "Busca tareas de Control y Gestión. Devuelve hasta 15 filas con id, tarea, obra, estado (pendiente/finalizado), fecha de completado si aplica y a quién está asignada (asignado null = tarea general de la empresa, de todos). Si totalCount es mayor a las filas devueltas, pedile al usuario que acote la búsqueda.",
   input_schema: {
     type: "object",
     properties: {
       obraId: { type: "string", description: OBRA_ID_DESC },
+      soloMias: { type: "boolean", description: "true cuando el usuario pide SUS tareas (\"mis tareas\", \"qué tengo pendiente\"): devuelve las asignadas a él más las generales sin asignar." },
       estado: { type: "string", enum: ["pendiente", "finalizado"] },
       texto: { type: "string", description: "Busca coincidencia parcial en el texto de la tarea" },
     },
@@ -195,6 +196,7 @@ export const TOOL_CREAR_TAREA: Anthropic.Tool = {
     properties: {
       obraNombre: { type: "string", description: "Nombre (o parte del nombre) de la obra donde va la tarea." },
       tarea: { type: "string", description: "Texto de la tarea a crear." },
+      asignadoA: { type: "string", description: "Opcional. Nombre (o parte del nombre) de la persona a la que se asigna, o \"yo\" si el usuario se la asigna a sí mismo. Omitilo si no menciona a nadie — queda como tarea general de la empresa." },
     },
     required: ["obraNombre", "tarea"],
   },
@@ -249,7 +251,8 @@ export async function logUsoAsistente(
   }
 }
 
-type EmpresaScope = { empresaId?: string };
+// userId (users.id de quien pregunta) solo lo usa buscar_tareas con soloMias.
+type EmpresaScope = { empresaId?: string; userId?: string };
 
 // Ids de obras de la empresa — único caso (additional_sales) sin columna
 // empresa_id propia, necesita resolverse vía project_id.
@@ -290,7 +293,7 @@ export async function resolverObraId(supabase: any, empresaId: string | undefine
 // Con `opts.empresaId`: además, cada query fuerza el filtro de empresa
 // (cliente service_role, RLS no aplica).
 export async function ejecutarTool(supabase: any, name: string, input: Record<string, unknown>, opts: EmpresaScope = {}) {
-  const { empresaId } = opts;
+  const { empresaId, userId } = opts;
 
   // Pre-procesamiento común: todas las tools que reciben obraId lo usan
   // como filtro exacto de project_id — si no es un UUID, resolverlo antes
@@ -417,7 +420,7 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
     case "buscar_tareas": {
       const MAX_TAREAS = 15;
       let q = supabase.from("tasks")
-        .select("id, tarea, status, completed_at, created_at, obra_id, projects(nombre)")
+        .select("id, tarea, status, completed_at, created_at, obra_id, projects(nombre), asignado:users!tasks_asignado_a_fkey(nombre)")
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .limit(MAX_TAREAS);
@@ -430,6 +433,14 @@ export async function ejecutarTool(supabase: any, name: string, input: Record<st
       if (input.obraId) countQ = countQ.eq("obra_id", input.obraId);
       if (input.estado) countQ = countQ.eq("status", input.estado);
       if (input.texto) countQ = countQ.ilike("tarea", `%${input.texto}%`);
+      // "Mis tareas" = asignadas a mí + generales (asignado_a NULL), mismo
+      // criterio que el recordatorio diario (enviar_recordatorios).
+      if (input.soloMias === true) {
+        if (!userId || !UUID_RE.test(userId)) throw new Error("buscar_tareas(soloMias) requiere userId resuelto server-side");
+        const mias = `asignado_a.is.null,asignado_a.eq.${userId}`;
+        q = q.or(mias);
+        countQ = countQ.or(mias);
+      }
       const { count } = await countQ;
       const { data, error } = await q;
       if (error) throw error;

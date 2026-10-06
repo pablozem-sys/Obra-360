@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ClipboardList, Plus, Check, Loader2, X, RotateCcw, Pencil, Trash2 } from 'lucide-react'
-import { getTareas, createTarea, updateTarea, deleteTarea, getObras } from '../lib/supabase'
+import { getTareas, createTarea, updateTarea, deleteTarea, getObras, getUsuarios } from '../lib/supabase'
+import { useAuth } from '../context/AuthContext'
 
 const FILTROS = ['todos', 'pendiente', 'finalizado']
 const FILTRO_LABELS = { todos: 'Todos', pendiente: 'Pendiente', finalizado: 'Finalizado' }
@@ -11,15 +12,35 @@ const STATUS_META = {
   finalizado: { label: 'Finalizado', color: 'var(--green)', bg: 'var(--green-dim)', border: 'rgba(0,196,140,0.3)' },
 }
 
+function AsignadoSelect({ usuarios, value, onChange }) {
+  return (
+    <div>
+      <label className="label">
+        Asignada a
+        <span className="ml-1 text-[10px] font-normal normal-case" style={{ color: 'var(--subtle)', fontFamily: 'Instrument Sans' }}>
+          (opcional)
+        </span>
+      </label>
+      <select className="select" value={value} onChange={e => onChange(e.target.value)}>
+        <option value="">Todos (tarea general)</option>
+        {usuarios.map(u => (
+          <option key={u.id} value={u.id}>{u.nombre}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function formatFecha(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function NuevaTareaModal({ obras, onSave, onClose }) {
+function NuevaTareaModal({ obras, usuarios, onSave, onClose }) {
   const [tarea, setTarea] = useState('')
   const [obraId, setObraId] = useState('')
+  const [asignadoA, setAsignadoA] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -28,7 +49,7 @@ function NuevaTareaModal({ obras, onSave, onClose }) {
     setSaving(true)
     setError('')
     try {
-      const nueva = await createTarea({ tarea: tarea.trim(), obra_id: obraId || null, status: 'pendiente' })
+      const nueva = await createTarea({ tarea: tarea.trim(), obra_id: obraId || null, asignado_a: asignadoA || null, status: 'pendiente' })
       onSave(nueva)
     } catch (e) {
       setError(e?.message || 'Error al crear tarea')
@@ -93,6 +114,8 @@ function NuevaTareaModal({ obras, onSave, onClose }) {
             </select>
           </div>
 
+          <AsignadoSelect usuarios={usuarios} value={asignadoA} onChange={setAsignadoA} />
+
           {error && <p className="text-xs" style={{ color: 'var(--red)' }}>{error}</p>}
 
           <div className="flex gap-2 pt-1">
@@ -108,9 +131,10 @@ function NuevaTareaModal({ obras, onSave, onClose }) {
   )
 }
 
-function EditarTareaModal({ tarea, obras, onSave, onClose }) {
+function EditarTareaModal({ tarea, obras, usuarios, onSave, onClose }) {
   const [texto, setTexto] = useState(tarea.tarea)
   const [obraId, setObraId] = useState(tarea.obra_id ?? '')
+  const [asignadoA, setAsignadoA] = useState(tarea.asignado_a ?? '')
   const [status, setStatus] = useState(tarea.status)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -122,14 +146,15 @@ function EditarTareaModal({ tarea, obras, onSave, onClose }) {
     const updates = {
       tarea: texto.trim(),
       obra_id: obraId || null,
+      asignado_a: asignadoA || null,
       status,
       completed_at: status === 'finalizado'
         ? (tarea.status === 'finalizado' ? tarea.completed_at : new Date().toISOString())
         : null,
     }
     try {
-      await updateTarea(tarea.id, updates)
-      onSave({ ...tarea, ...updates })
+      const guardada = await updateTarea(tarea.id, updates)
+      onSave(guardada)
     } catch (e) {
       setError(e?.message || 'Error al guardar')
     } finally {
@@ -193,6 +218,8 @@ function EditarTareaModal({ tarea, obras, onSave, onClose }) {
             </select>
           </div>
 
+          <AsignadoSelect usuarios={usuarios} value={asignadoA} onChange={setAsignadoA} />
+
           <div>
             <label className="label">Estado</label>
             <div className="flex gap-2">
@@ -231,9 +258,12 @@ function EditarTareaModal({ tarea, obras, onSave, onClose }) {
 }
 
 export default function Gestion() {
+  const { user } = useAuth()
   const [tareas, setTareas] = useState([])
   const [obras, setObras] = useState([])
+  const [usuarios, setUsuarios] = useState([])
   const [filtro, setFiltro] = useState('todos')
+  const [soloMias, setSoloMias] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarea, setEditTarea] = useState(null)
@@ -242,8 +272,8 @@ export default function Gestion() {
   const [actualizando, setActualizando] = useState(null)
 
   useEffect(() => {
-    Promise.all([getTareas(), getObras()])
-      .then(([t, o]) => { setTareas(t); setObras(o) })
+    Promise.all([getTareas(), getObras(), getUsuarios().catch(() => [])])
+      .then(([t, o, u]) => { setTareas(t); setObras(o); setUsuarios(u) })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -256,13 +286,16 @@ export default function Gestion() {
     return [...pendientes, ...finalizados]
   }
 
+  // "Mis tareas" = asignadas a mí + generales, igual que el bot de WhatsApp
+  const visibles = soloMias ? tareas.filter(t => !t.asignado_a || t.asignado_a === user?.id) : tareas
+
   const filtered = sortTareas(
-    filtro === 'todos' ? tareas : tareas.filter(t => t.status === filtro)
+    filtro === 'todos' ? visibles : visibles.filter(t => t.status === filtro)
   )
 
   const counts = {
-    pendiente:  tareas.filter(t => t.status === 'pendiente').length,
-    finalizado: tareas.filter(t => t.status === 'finalizado').length,
+    pendiente:  visibles.filter(t => t.status === 'pendiente').length,
+    finalizado: visibles.filter(t => t.status === 'finalizado').length,
   }
 
   const handleNueva = (nueva) => {
@@ -373,6 +406,18 @@ export default function Gestion() {
             )}
           </button>
         ))}
+        <button
+          onClick={() => setSoloMias(v => !v)}
+          className="px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-150 sm:ml-auto"
+          style={{
+            background: soloMias ? 'var(--amber-dim)' : 'var(--bg-card)',
+            color: soloMias ? 'var(--amber)' : 'var(--muted)',
+            border: `1px solid ${soloMias ? 'rgba(255,149,0,0.3)' : 'var(--border)'}`,
+            fontFamily: 'Unbounded',
+          }}
+        >
+          Mis tareas
+        </button>
       </div>
 
       {/* Tabla */}
@@ -381,7 +426,7 @@ export default function Gestion() {
           <table className="w-full min-w-[720px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                {['Creada', 'Obra', 'Tarea', 'Estado', 'Finalizada', ''].map(h => (
+                {['Creada', 'Obra', 'Tarea', 'Asignada', 'Estado', 'Finalizada', ''].map(h => (
                   <th
                     key={h}
                     className="text-left px-5 py-3"
@@ -426,6 +471,11 @@ export default function Gestion() {
                       >
                         {t.tarea}
                       </p>
+                    </td>
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <span className="text-[12px]" style={{ color: t.asignado?.nombre ? 'var(--text)' : 'var(--subtle)' }}>
+                        {t.asignado?.nombre ?? 'Todos'}
+                      </span>
                     </td>
                     <td className="px-5 py-3.5 whitespace-nowrap">
                       <button
@@ -480,7 +530,7 @@ export default function Gestion() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-center py-10 text-sm" style={{ color: 'var(--subtle)' }}>
+                  <td colSpan={7} className="text-center py-10 text-sm" style={{ color: 'var(--subtle)' }}>
                     {filtro === 'todos'
                       ? 'Sin tareas — crea la primera con el botón de arriba'
                       : `Sin tareas ${FILTRO_LABELS[filtro].toLowerCase()}`}
@@ -495,6 +545,7 @@ export default function Gestion() {
       {modalOpen && (
         <NuevaTareaModal
           obras={obras}
+          usuarios={usuarios}
           onSave={handleNueva}
           onClose={() => setModalOpen(false)}
         />
@@ -504,6 +555,7 @@ export default function Gestion() {
         <EditarTareaModal
           tarea={editTarea}
           obras={obras}
+          usuarios={usuarios}
           onSave={handleEditar}
           onClose={() => setEditTarea(null)}
         />
