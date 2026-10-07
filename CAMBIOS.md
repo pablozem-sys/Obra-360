@@ -502,3 +502,7 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 ## Staging y VRION reactivados + guía del proyecto actualizada (2026-10-06)
 - Las bases de datos de staging y VRION estaban pausadas por inactividad; se reactivaron sin pagar extra (cada una queda contando en la cuenta hotmail)
 - Se reescribió la guía interna para Claude (`CLAUDE.md`): URL correcta (vaion.app), los 3 entornos con su base de datos, y el comando de publicación que funciona hoy. No cambia nada de la app
+
+## VRION ya no tarda en cargar al abrirla (2026-10-06) — EN PRODUCCIÓN (VRION)
+- Se publicó en vrion.vercel.app el mismo arreglo que VAION ya tenía: la app carga en menos de medio segundo en vez de ~13 segundos
+- También incluye el arreglo de septiembre: si la sesión se vence, lleva al inicio de sesión en vez de a la página pública
