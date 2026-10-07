@@ -40,7 +40,9 @@ function formatFecha(iso) {
 function NuevaTareaModal({ obras, usuarios, onSave, onClose }) {
   const [tarea, setTarea] = useState('')
   const [obraId, setObraId] = useState('')
-  const [asignadoA, setAsignadoA] = useState('')
+  // Por defecto, asignada a quien la crea (mismo criterio que el bot de WhatsApp)
+  const { user } = useAuth()
+  const [asignadoA, setAsignadoA] = useState(() => usuarios.some(u => u.id === user?.id) ? user.id : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
