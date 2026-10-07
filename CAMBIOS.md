@@ -506,3 +506,11 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 ## VRION ya no tarda en cargar al abrirla (2026-10-06) — EN PRODUCCIÓN (VRION)
 - Se publicó en vrion.vercel.app el mismo arreglo que VAION ya tenía: la app carga en menos de medio segundo en vez de ~13 segundos
 - También incluye el arreglo de septiembre: si la sesión se vence, lleva al inicio de sesión en vez de a la página pública
+
+## Tareas asignadas a una persona (2026-10-07) — EN PRODUCCIÓN (VAION)
+- Ahora cada tarea puede tener dueño. En el resumen diario por WhatsApp a cada uno le llegan solo sus tareas más las generales ("Todos"); ya no les llega todo a Pedro, Felipe y Andrés
+- Por WhatsApp: "recuérdame X" queda asignada a quien escribe; "tarea para Felipe: …" se la asigna a Felipe; "tarea general: …" queda para todos. Siempre pide confirmación SÍ/NO
+- En Control y Gestión: columna y selector "Asignada a" (viene con el nombre de quien crea la tarea), y botón "Mis tareas"
+- Las tareas antiguas quedaron como generales (le llegan a todos, como antes)
+- Simulador sin costo para probar el bot: https://claude.ai/artifact/NVbZouXfLuJQZAcCmgCXNb
+- **Falta VRION**: aplicar el cambio en su base antes de su próximo deploy, si no Control y Gestión se rompe ahí
