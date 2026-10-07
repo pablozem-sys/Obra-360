@@ -666,7 +666,7 @@ export async function deletePagoBano(id) {
 export async function getTareas() {
   const { data, error } = await supabase
     .from('tasks')
-    .select('*, projects(id, nombre)')
+    .select('*, projects(id, nombre), asignado:users!tasks_asignado_a_fkey(id, nombre)')
     .eq('empresa_id', currentEmpresaId)
     .is('deleted_at', null)
     .order('created_at', { ascending: true })
@@ -678,7 +678,7 @@ export async function createTarea(tarea) {
   const { data, error } = await supabase
     .from('tasks')
     .insert([{ ...tarea, empresa_id: currentEmpresaId }])
-    .select('*, projects(id, nombre)')
+    .select('*, projects(id, nombre), asignado:users!tasks_asignado_a_fkey(id, nombre)')
     .single()
   if (error) throw error
   return data
@@ -689,7 +689,7 @@ export async function updateTarea(id, updates) {
     .from('tasks')
     .update(updates)
     .eq('id', id)
-    .select('*, projects(id, nombre)')
+    .select('*, projects(id, nombre), asignado:users!tasks_asignado_a_fkey(id, nombre)')
     .single()
   if (error) throw error
   return data

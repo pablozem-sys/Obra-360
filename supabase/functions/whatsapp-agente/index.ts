@@ -83,7 +83,7 @@ const MAX_MENSAJES_SESION = 12; // últimos 6 intercambios usuario/bot
 const VENTANA_SESION_MS = 2 * 60 * 60 * 1000; // 2 horas
 
 type PropuestaTarea =
-  | { accion: "crear_tarea"; obra_id: string; obra_nombre: string; tarea_texto: string }
+  | { accion: "crear_tarea"; obra_id: string; obra_nombre: string; tarea_texto: string; asignado_a?: string | null; asignado_nombre?: string | null }
   | { accion: "cambiar_estado_tarea"; tarea_id: string; tarea_texto: string; obra: string; nuevo_estado: string }
   | { accion: "eliminar_tarea"; tarea_id: string; tarea_texto: string; obra: string }
   // crear_recordatorio sirve tanto para activar como para cambiar la hora
@@ -148,9 +148,28 @@ async function guardarSesion(
 // Llamadas desde el loop de tool-use cuando el modelo invoca crear_tarea o
 // cambiar_estado_tarea. Devuelven el texto a relayar + (si corresponde)
 // la "propuesta" que se guarda en la sesión, pendiente de confirmación.
-async function prepararCrearTarea(supabase: any, empresaId: string, input: Record<string, unknown>) {
+// Persona a la que se asigna una tarea: solo usuarios de la misma empresa
+// (vía user_companies), por coincidencia parcial de nombre. "yo" = quien escribe.
+async function resolverAsignado(supabase: any, empresaId: string, userId: string, texto: string) {
+  const { data, error } = await supabase
+    .from("user_companies")
+    .select("users(id, nombre)")
+    .eq("empresa_id", empresaId);
+  if (error) throw error;
+  const personas = (data ?? []).map((r: any) => r.users).filter((u: any) => u?.id);
+  if (/^(yo|a mi|a mí|mi|m[ií]a|m[ií]o)$/i.test(texto)) {
+    const yo = personas.find((u: any) => u.id === userId);
+    return yo ? [yo] : [];
+  }
+  const t = texto.toLowerCase();
+  const matches = personas.filter((u: any) => (u.nombre ?? "").toLowerCase().includes(t));
+  return matches.length > 0 ? matches : { sugerencias: personas.map((u: any) => u.nombre) };
+}
+
+async function prepararCrearTarea(supabase: any, empresaId: string, userId: string, input: Record<string, unknown>) {
   const tareaTexto = typeof input.tarea === "string" ? input.tarea.trim() : "";
   const obraNombre = typeof input.obraNombre === "string" ? input.obraNombre.trim() : "";
+  const asignadoTexto = typeof input.asignadoA === "string" ? input.asignadoA.trim() : "";
   if (!tareaTexto || !obraNombre) {
     return { mensaje: "Me falta el texto de la tarea o el nombre de la obra." };
   }
@@ -164,10 +183,30 @@ async function prepararCrearTarea(supabase: any, empresaId: string, input: Recor
     return { mensaje: `Encontré varias obras parecidas a "${obraNombre}": ${resuelto.nombres.join(", ")}. ¿Cuál es?` };
   }
 
+  // Sin asignadoA = tarea de quien escribe ("recuérdame X" no le llega a
+  // todos). Para que sea de toda la empresa hay que pedirlo explícito.
+  const esGeneral = /^(general|todos|nadie|la empresa|empresa|sin asignar)$/i.test(asignadoTexto);
+  let asignado: { id: string; nombre: string } | null = null;
+  if (!esGeneral) {
+    const r = await resolverAsignado(supabase, empresaId, userId, asignadoTexto || "yo");
+    if (!Array.isArray(r)) {
+      return { mensaje: `No encontré a nadie llamado "${asignadoTexto}" en la empresa. Las personas son: ${r.sugerencias.join(", ") || "ninguna"}.` };
+    }
+    if (r.length === 0) return { mensaje: "No encontré tu usuario en la empresa para asignarte la tarea." };
+    if (r.length > 1) {
+      return { mensaje: `Hay varias personas parecidas a "${asignadoTexto}": ${r.map((u: any) => u.nombre).join(", ")}. ¿A quién se la asigno?` };
+    }
+    asignado = r[0];
+  }
+
   const obraId = resuelto.ids[0];
   const obraNombreReal = resuelto.nombres[0];
-  const propuesta: PropuestaTarea = { accion: "crear_tarea", obra_id: obraId, obra_nombre: obraNombreReal, tarea_texto: tareaTexto };
-  return { mensaje: `¿Confirmás crear la tarea "${tareaTexto}" en ${obraNombreReal}? Respondé SÍ o NO.`, propuesta };
+  const propuesta: PropuestaTarea = {
+    accion: "crear_tarea", obra_id: obraId, obra_nombre: obraNombreReal, tarea_texto: tareaTexto,
+    asignado_a: asignado?.id ?? null, asignado_nombre: asignado?.nombre ?? null,
+  };
+  const paraQuien = asignado ? `, asignada a ${asignado.id === userId ? "vos" : asignado.nombre}` : ", como tarea general (para todos)";
+  return { mensaje: `¿Confirmás crear la tarea "${tareaTexto}" en ${obraNombreReal}${paraQuien}? Respondé SÍ o NO.`, propuesta };
 }
 
 function prepararCambiarEstadoTarea(input: Record<string, unknown>, tareasMostradas: TareaMostrada[]) {
@@ -331,6 +370,7 @@ async function ejecutarPropuestaConfirmada(supabase: any, empresaId: string, use
   if (contexto.accion === "crear_tarea") {
     const { error } = await supabase.from("tasks").insert({
       empresa_id: empresaId, obra_id: (contexto as any).obra_id, tarea: (contexto as any).tarea_texto, status: "pendiente",
+      asignado_a: (contexto as any).asignado_a ?? null,
     });
     if (error) {
       console.error("whatsapp-agente: error creando tarea", error);
@@ -571,6 +611,8 @@ Omití un campo solo si de verdad no aplica al tipo de registro (una tarea no ti
 # Acciones que cambian datos (crear_tarea, cambiar_estado_tarea, eliminar_tarea)
 Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas apenas tengas los datos necesarios (no hace falta que vos le preguntes "confirmás" antes de llamarlas): el sistema arma la propuesta y te devuelve un mensaje de confirmación en el resultado de la tool. Tu única tarea ahí es **relayar ese mensaje tal cual al usuario, sin reformularlo**. La ejecución real (crear la tarea, cambiar el estado) la hace el sistema en el siguiente mensaje, cuando el usuario confirma — vos no volvés a llamar la tool para eso, solo seguís la conversación con naturalidad si el usuario pregunta algo más.
 
+Tareas asignadas: si el usuario pregunta por SUS tareas ("mis tareas", "qué tengo pendiente"), llamá buscar_tareas con soloMias=true (trae las suyas + las generales sin asignar). Si al crear una tarea dice para quién es ("para Felipe", "asignámela a mí"), pasá asignadoA con ese nombre o "yo". Si no menciona a nadie (ej. "recuérdame pedir cemento"), no lo pases: queda asignada a quien escribe. Solo si pide que sea para todos ("tarea general", "para todos") pasá asignadoA="general".
+
 Para cambiar_estado_tarea y eliminar_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId). eliminar_tarea es un borrado definitivo — no aclares de más ni agregues advertencias propias, la tool ya te devuelve un mensaje de confirmación que avisa que no se puede deshacer.
 
 Si el usuario responde a una pregunta de confirmación con algo que no es un simple "sí"/"no" (ej. "no, mejor en la obra X" o "cambiale el texto a Y"), la propuesta anterior ya se canceló sola — entendé que te está corrigiendo, volvé a llamar la tool correspondiente con los datos ajustados y pedí confirmación de nuevo. No asumas que ya confirmó nada.
@@ -742,7 +784,7 @@ async function procesarMensaje(
         // crear_tarea/cambiar_estado_tarea: nunca pasan por ejecutarTool —
         // se resuelven acá como PROPUESTA, nunca como ejecución directa.
         if (tu.name === "crear_tarea") {
-          const r = await prepararCrearTarea(supabase, acceso.empresaId, tu.input as Record<string, unknown>);
+          const r = await prepararCrearTarea(supabase, acceso.empresaId, acceso.userId, tu.input as Record<string, unknown>);
           if (r.propuesta) propuestaPendiente = r.propuesta;
           toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify({ mensaje: r.mensaje }) });
           continue;
@@ -788,7 +830,7 @@ async function procesarMensaje(
         }
 
         try {
-          const result = await ejecutarTool(supabase, tu.name, tu.input as Record<string, unknown>, { empresaId: acceso.empresaId });
+          const result = await ejecutarTool(supabase, tu.name, tu.input as Record<string, unknown>, { empresaId: acceso.empresaId, userId: acceso.userId });
           if (tu.name === "buscar_tareas") {
             tareasMostradas = (result.rows ?? []).map((r: any) => ({
               id: r.id, tarea: r.tarea, obraNombre: r.projects?.nombre ?? "sin obra asignada", status: r.status,

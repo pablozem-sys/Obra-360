@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
 
       const { data: wu, error: errWu } = await supabase
         .from("whatsapp_users")
-        .select("phone_e164, users(nombre)")
+        .select("phone_e164, user_id, users(nombre)")
         .eq("id", r.whatsapp_user_id)
         .maybeSingle();
       if (errWu || !wu) {
@@ -133,6 +133,9 @@ Deno.serve(async (req) => {
         .eq("empresa_id", r.empresa_id)
         .is("deleted_at", null)
         .neq("status", "finalizado")
+        // Las asignadas a esta persona + las generales (asignado_a NULL).
+        // Las asignadas a otro no le llegan.
+        .or(`asignado_a.is.null,asignado_a.eq.${wu.user_id}`)
         .order("created_at", { ascending: true });
       if (errTareas) {
         console.error("enviar_recordatorios: error consultando tareas pendientes", r.id, errTareas);
