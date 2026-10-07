@@ -498,3 +498,7 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Reclamo: "está lento". Causa: cada vez que se abría la app, se recargaba la página o se abría una pestaña nueva con la sesión iniciada, quedaba ~13 segundos esperando antes de mostrar el Dashboard
 - Era un bloqueo interno al recuperar la sesión (no la red ni la base de datos): se corrigió y ahora carga en menos de medio segundo
 - Publicado en vaion.app. **Falta VRION** (no se puede publicar ahí sin su archivo de configuración)
+
+## Staging y VRION reactivados + guía del proyecto actualizada (2026-10-06)
+- Las bases de datos de staging y VRION estaban pausadas por inactividad; se reactivaron sin pagar extra (cada una queda contando en la cuenta hotmail)
+- Se reescribió la guía interna para Claude (`CLAUDE.md`): URL correcta (vaion.app), los 3 entornos con su base de datos, y el comando de publicación que funciona hoy. No cambia nada de la app
