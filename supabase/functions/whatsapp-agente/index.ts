@@ -183,9 +183,12 @@ async function prepararCrearTarea(supabase: any, empresaId: string, userId: stri
     return { mensaje: `Encontré varias obras parecidas a "${obraNombre}": ${resuelto.nombres.join(", ")}. ¿Cuál es?` };
   }
 
+  // Sin asignadoA = tarea de quien escribe ("recuérdame X" no le llega a
+  // todos). Para que sea de toda la empresa hay que pedirlo explícito.
+  const esGeneral = /^(general|todos|nadie|la empresa|empresa|sin asignar)$/i.test(asignadoTexto);
   let asignado: { id: string; nombre: string } | null = null;
-  if (asignadoTexto) {
-    const r = await resolverAsignado(supabase, empresaId, userId, asignadoTexto);
+  if (!esGeneral) {
+    const r = await resolverAsignado(supabase, empresaId, userId, asignadoTexto || "yo");
     if (!Array.isArray(r)) {
       return { mensaje: `No encontré a nadie llamado "${asignadoTexto}" en la empresa. Las personas son: ${r.sugerencias.join(", ") || "ninguna"}.` };
     }
@@ -202,7 +205,7 @@ async function prepararCrearTarea(supabase: any, empresaId: string, userId: stri
     accion: "crear_tarea", obra_id: obraId, obra_nombre: obraNombreReal, tarea_texto: tareaTexto,
     asignado_a: asignado?.id ?? null, asignado_nombre: asignado?.nombre ?? null,
   };
-  const paraQuien = asignado ? `, asignada a ${asignado.id === userId ? "vos" : asignado.nombre}` : "";
+  const paraQuien = asignado ? `, asignada a ${asignado.id === userId ? "vos" : asignado.nombre}` : ", como tarea general (para todos)";
   return { mensaje: `¿Confirmás crear la tarea "${tareaTexto}" en ${obraNombreReal}${paraQuien}? Respondé SÍ o NO.`, propuesta };
 }
 
@@ -608,7 +611,7 @@ Omití un campo solo si de verdad no aplica al tipo de registro (una tarea no ti
 # Acciones que cambian datos (crear_tarea, cambiar_estado_tarea, eliminar_tarea)
 Estas dos tools NUNCA aplican el cambio directo — son propuestas. Llamalas apenas tengas los datos necesarios (no hace falta que vos le preguntes "confirmás" antes de llamarlas): el sistema arma la propuesta y te devuelve un mensaje de confirmación en el resultado de la tool. Tu única tarea ahí es **relayar ese mensaje tal cual al usuario, sin reformularlo**. La ejecución real (crear la tarea, cambiar el estado) la hace el sistema en el siguiente mensaje, cuando el usuario confirma — vos no volvés a llamar la tool para eso, solo seguís la conversación con naturalidad si el usuario pregunta algo más.
 
-Tareas asignadas: si el usuario pregunta por SUS tareas ("mis tareas", "qué tengo pendiente"), llamá buscar_tareas con soloMias=true (trae las suyas + las generales sin asignar). Si al crear una tarea dice para quién es ("para Felipe", "asignámela a mí"), pasá asignadoA con ese nombre o "yo"; si no menciona a nadie, no lo pases.
+Tareas asignadas: si el usuario pregunta por SUS tareas ("mis tareas", "qué tengo pendiente"), llamá buscar_tareas con soloMias=true (trae las suyas + las generales sin asignar). Si al crear una tarea dice para quién es ("para Felipe", "asignámela a mí"), pasá asignadoA con ese nombre o "yo". Si no menciona a nadie (ej. "recuérdame pedir cemento"), no lo pases: queda asignada a quien escribe. Solo si pide que sea para todos ("tarea general", "para todos") pasá asignadoA="general".
 
 Para cambiar_estado_tarea y eliminar_tarea específicamente: primero llamá a buscar_tareas si todavía no sabés el id exacto de la tarea (nunca inventes un tareaId). eliminar_tarea es un borrado definitivo — no aclares de más ni agregues advertencias propias, la tool ya te devuelve un mensaje de confirmación que avisa que no se puede deshacer.
 

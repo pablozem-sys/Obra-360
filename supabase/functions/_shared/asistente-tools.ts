@@ -196,7 +196,7 @@ export const TOOL_CREAR_TAREA: Anthropic.Tool = {
     properties: {
       obraNombre: { type: "string", description: "Nombre (o parte del nombre) de la obra donde va la tarea." },
       tarea: { type: "string", description: "Texto de la tarea a crear." },
-      asignadoA: { type: "string", description: "Opcional. Nombre (o parte del nombre) de la persona a la que se asigna, o \"yo\" si el usuario se la asigna a sí mismo. Omitilo si no menciona a nadie — queda como tarea general de la empresa." },
+      asignadoA: { type: "string", description: "Opcional. Nombre (o parte del nombre) de la persona a la que se asigna, o \"yo\" si el usuario se la asigna a sí mismo, o \"general\" si pide que sea para todos. Omitilo si no menciona a nadie — queda asignada a quien escribe." },
     },
     required: ["obraNombre", "tarea"],
   },
