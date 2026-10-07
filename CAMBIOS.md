@@ -514,3 +514,8 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Las tareas antiguas quedaron como generales (le llegan a todos, como antes)
 - Simulador sin costo para probar el bot: https://claude.ai/artifact/NVbZouXfLuJQZAcCmgCXNb
 - **Falta VRION**: aplicar el cambio en su base antes de su próximo deploy, si no Control y Gestión se rompe ahí
+
+## Copia del código entregada al cliente (2026-10-07) — temporal, hasta 2026-11-04
+- Se creó un repositorio privado aparte en GitHub (`vaion-entrega`) con una copia limpia del código de VAION: un solo commit, sin historial, sin notas internas y sin ninguna referencia a VRION
+- El cliente tendrá acceso por 4 semanas; el **2026-11-04** se borra el repositorio (recordatorio creado en Google Calendar con aviso el día antes)
+- No cambia nada de la app
