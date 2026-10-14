@@ -519,3 +519,10 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Se creó un repositorio privado aparte en GitHub (`vaion-entrega`) con una copia limpia del código de VAION: un solo commit, sin historial, sin notas internas y sin ninguna referencia a VRION
 - El cliente tendrá acceso por 4 semanas; el **2026-11-04** se borra el repositorio (recordatorio creado en Google Calendar con aviso el día antes)
 - No cambia nada de la app
+
+## Alerta de seguridad de Supabase corregida (2026-10-13) — EN PRODUCCIÓN (VAION)
+- Supabase avisó de vulnerabilidades; se corrigieron las 2 reales:
+  - Kiosco: los códigos de sesión de los trabajadores se podían leer desde fuera de la app (alguien podía marcar entrada/salida haciéndose pasar por un trabajador). Ahora solo los maneja el propio kiosco
+  - Panel /monitoreo: los resúmenes de errores y de uso del asistente se podían leer sin iniciar sesión. Ahora solo los ve el admin
+- El resto del aviso son advertencias menores o esperadas (las funciones de borrar obra/usuario/trabajador ya validan que seas dueño)
+- Pendiente: activar "Prevent use of leaked passwords" en Supabase (rechaza contraseñas nuevas que aparecen en filtraciones conocidas) y aplicar el mismo arreglo en VRION
