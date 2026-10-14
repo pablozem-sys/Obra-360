@@ -22,9 +22,13 @@ export default defineConfig(({ mode }) => {
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          recharts: ['recharts'],
-          supabase: ['@supabase/supabase-js'],
+        // React va en su propio chunk: con el formato objeto, Rollup metía
+        // react/react-dom dentro de "recharts" y el login bajaba los gráficos.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react'
+          if (id.includes('@supabase')) return 'supabase'
+          if (/[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/.test(id)) return 'recharts'
         },
       },
     },
