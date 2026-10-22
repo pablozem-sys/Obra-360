@@ -526,3 +526,9 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
   - Panel /monitoreo: los resúmenes de errores y de uso del asistente se podían leer sin iniciar sesión. Ahora solo los ve el admin
 - El resto del aviso son advertencias menores o esperadas (las funciones de borrar obra/usuario/trabajador ya validan que seas dueño)
 - Pendiente: activar "Prevent use of leaked passwords" en Supabase (rechaza contraseñas nuevas que aparecen en filtraciones conocidas) y aplicar el mismo arreglo en VRION
+
+## 2026-10-22 — Revisión de calidad y arreglo de seguridad
+- Revisión completa de la plataforma en producción (escritorio y móvil, las 12 obras): sin errores
+- Seguridad: las cifras financieras (Dashboard, EERR, Flujo de Caja, métricas por obra) se podían consultar desde fuera de la app sin iniciar sesión. Ahora solo las ve quien tiene acceso a la empresa, y el Flujo de Caja solo el dueño
+- Cuentas a Pagar: la tarjeta "Próximos" sumaba también los pagos ya vencidos. Ahora muestra solo los que vienen
+- Pendiente: llevar el arreglo a VRION; revisar Flujo de Caja (no incluye mano de obra) y detalles visuales de CxP en móvil
