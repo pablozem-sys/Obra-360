@@ -267,7 +267,8 @@ export default function CuentasPagar() {
   const noPagados = creditosConEstado.filter(c => c.estadoDerived !== 'pagado')
   const totalPendiente = noPagados.reduce((s, c) => s + (c.monto ?? 0), 0)
 
-  const proximos4 = sortByVenc(noPagados.filter(c => c.fechaVencimiento)).slice(0, 4)
+  // Los vencidos ya tienen su propia tarjeta; acá solo lo que viene.
+  const proximos4 = sortByVenc(noPagados.filter(c => c.fechaVencimiento && c.estadoDerived !== 'vencido')).slice(0, 4)
   const totalProximos4 = proximos4.reduce((s, c) => s + (c.monto ?? 0), 0)
 
   const totales = {
