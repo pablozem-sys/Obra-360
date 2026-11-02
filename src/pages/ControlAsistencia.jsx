@@ -13,7 +13,6 @@ import {
   getWorkerProjectIds,
   toggleWorkerProject,
   getAttendance,
-  getAttendanceRange,
   registrarAsistenciaManual,
   actualizarTurno,
   deleteAttendance,
@@ -125,7 +124,7 @@ function initials(nombre = '') {
 function TurnoRow({
   r, isEditing, editEntrada, editSalida, editBono, editObra, obrasReasignables, editSaving, editError,
   onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onChangeObra, onGuardar,
-  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra,
+  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra, onClickWorker,
 }) {
   const abierto = !r.salida
   const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < horasBaseJornada(r.entrada)
@@ -144,7 +143,19 @@ function TurnoRow({
             >
               {r.workers?.avatar}
             </div>
-            <span className="text-sm font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>{r.workers?.nombre}</span>
+            {onClickWorker ? (
+              <button
+                type="button"
+                onClick={() => onClickWorker(r)}
+                title="Ver ficha del trabajador"
+                className="text-sm font-medium text-left underline decoration-dotted underline-offset-4"
+                style={{ color: alerta ? 'var(--red)' : 'var(--text)', minHeight: 44 }}
+              >
+                {r.workers?.nombre}
+              </button>
+            ) : (
+              <span className="text-sm font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>{r.workers?.nombre}</span>
+            )}
           </div>
         </td>
         <td className="px-4 py-3.5">
@@ -302,7 +313,7 @@ const HOY = localDateString()
 
 export default function ControlAsistencia() {
   const { rol } = useAuth()
-  const [tab, setTab]               = useState('registros') // registros | por_fecha | trabajadores
+  const [tab, setTab]               = useState('registros') // registros | trabajadores
   const [registros, setRegistros]   = useState([])
   const [workers, setWorkers]       = useState([])
   const [projects, setProjects]     = useState([])
@@ -374,23 +385,7 @@ export default function ControlAsistencia() {
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState(null)
   const [deletingRecord, setDeletingRecord] = useState(false)
 
-  // Vista compartida: Por Obra / Hora Entrada / Hora Salida (un solo día)
-  const [vistaFecha, setVistaFecha]         = useState(HOY)
-  const [registrosVista, setRegistrosVista] = useState([])
-  const [loadingVista, setLoadingVista]     = useState(true)
-
-  // Por Fecha
-  const now = new Date()
-  const pad2 = n => String(n).padStart(2, '0')
-  const [rangoMode, setRangoMode]       = useState('mes')
-  const [rangoMes, setRangoMes]         = useState(now.getMonth())
-  const [rangoAnio, setRangoAnio]       = useState(now.getFullYear())
-  const [rangoDesde, setRangoDesde]     = useState(`${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`)
-  const [rangoHasta, setRangoHasta]     = useState(HOY)
-  const [rangoObra, setRangoObra]       = useState('all')
-  const [registrosFecha, setRegistrosFecha] = useState([])
-  const [loadingFecha, setLoadingFecha]     = useState(false)
-  // Ficha de trabajador (se abre tocando su nombre en Por Fecha)
+  // Ficha de trabajador (se abre tocando su nombre en Registros)
   const [fichaWorker, setFichaWorker]       = useState(null)
 
 
@@ -434,37 +429,13 @@ export default function ControlAsistencia() {
     if (!loading) loadRegistros()
   }, [filtroFecha, filtroObra])
 
-  useEffect(() => {
-    setLoadingVista(true)
-    getAttendance({ fecha: vistaFecha })
-      .then(setRegistrosVista)
-      .catch(() => setRegistrosVista([]))
-      .finally(() => setLoadingVista(false))
-  }, [vistaFecha])
-
-  // Rango activo de Por Fecha (mes completo o desde–hasta)
-  const rangoActivo = () => {
-    if (rangoMode === 'mes') {
-      const lastDay = new Date(rangoAnio, rangoMes + 1, 0).getDate()
-      return { desde: `${rangoAnio}-${pad2(rangoMes + 1)}-01`, hasta: `${rangoAnio}-${pad2(rangoMes + 1)}-${pad2(lastDay)}`, modo: 'mes' }
-    }
-    return { desde: rangoDesde, hasta: rangoHasta, modo: 'rango' }
+  // La ficha abre con el mes de la fecha filtrada en Registros (o el mes actual)
+  const rangoFicha = () => {
+    const [y, m] = (filtroFecha || HOY).split('-').map(Number)
+    const pad = n => String(n).padStart(2, '0')
+    const last = new Date(y, m, 0).getDate()
+    return { desde: `${y}-${pad(m)}-01`, hasta: `${y}-${pad(m)}-${pad(last)}`, modo: 'mes' }
   }
-
-  useEffect(() => {
-    if (tab !== 'por_fecha') return
-    const { desde, hasta } = rangoActivo()
-    if (!desde || !hasta) return
-    setLoadingFecha(true)
-    getAttendanceRange({
-      desde,
-      hasta,
-      projectId: rangoObra !== 'all' ? rangoObra : undefined,
-    })
-      .then(setRegistrosFecha)
-      .catch(() => setRegistrosFecha([]))
-      .finally(() => setLoadingFecha(false))
-  }, [tab, rangoMode, rangoMes, rangoAnio, rangoDesde, rangoHasta, rangoObra])
 
   // Summary stats
   const enObra     = registros.filter(r => !r.salida).length
@@ -597,6 +568,7 @@ export default function ControlAsistencia() {
     <TurnoRow
       key={r.id}
       onClickObra={onClickObra}
+      onClickWorker={rec => setFichaWorker({ id: rec.worker_id, nombre: rec.workers?.nombre ?? '—', avatar: rec.workers?.avatar })}
       r={r}
       isEditing={editingRecord === r.id}
       editEntrada={editEntrada}
@@ -821,8 +793,6 @@ export default function ControlAsistencia() {
       <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         {[
           { key: 'registros',     label: 'Registros' },
-          { key: 'por_fecha',     label: 'Por Fecha' },
-          { key: 'por_obra',      label: 'Por Obra' },
           { key: 'trabajadores',  label: 'Trabajadores' },
         ].map(t => (
           <button
@@ -840,15 +810,16 @@ export default function ControlAsistencia() {
         ))}
       </div>
 
-      {/* Selector de fecha compartido — Por Obra */}
-      {tab === 'por_obra' && (
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>DÍA</span>
-          <input type="date" className="input" value={vistaFecha} onChange={e => setVistaFecha(e.target.value)} />
-        </div>
+      {/* ── TAB: REGISTROS ─────────────────────────────────────── */}
+      {fichaWorker && (
+        <FichaTrabajador
+          key={fichaWorker.id}
+          worker={fichaWorker}
+          rangoInicial={rangoFicha()}
+          onClose={() => setFichaWorker(null)}
+        />
       )}
 
-      {/* ── TAB: REGISTROS ─────────────────────────────────────── */}
       {tab === 'registros' && (
         <>
           {/* Filters + botón manual */}
@@ -1069,419 +1040,6 @@ export default function ControlAsistencia() {
       )}
 
       {/* ── TAB: POR FECHA ─────────────────────────────────────── */}
-      {tab === 'por_fecha' && (() => {
-        const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-        const aniosDisp = Array.from({ length: 3 }, (_, i) => now.getFullYear() - i)
-
-        // Agrupar por fecha → obra
-        const porFechaGrupos = {}
-        registrosFecha.forEach(r => {
-          const f   = r.fecha
-          const pid = r.project_id
-          if (!porFechaGrupos[f]) porFechaGrupos[f] = { obras: {} }
-          if (!porFechaGrupos[f].obras[pid]) {
-            porFechaGrupos[f].obras[pid] = { nombre: r.projects?.nombre ?? '—', registros: [] }
-          }
-          porFechaGrupos[f].obras[pid].registros.push(r)
-        })
-        const fechasOrdenadas = Object.keys(porFechaGrupos).sort((a, b) => b.localeCompare(a))
-
-        // Resumen por trabajador
-        const resumenMap = {}
-        registrosFecha.forEach(r => {
-          const wid = r.worker_id
-          if (!resumenMap[wid]) resumenMap[wid] = {
-            id: wid,
-            nombre: r.workers?.nombre ?? '—',
-            avatar: r.workers?.avatar ?? '?',
-            dias: 0, horas: 0, costo: 0,
-          }
-          resumenMap[wid].dias  += 1
-          resumenMap[wid].horas += r.horas_trabajadas ?? 0
-          resumenMap[wid].costo += r.costo_total ?? 0
-        })
-        const resumenList = Object.values(resumenMap).sort((a, b) => b.costo - a.costo)
-        const totalCostoGeneral = resumenList.reduce((s, w) => s + w.costo, 0)
-
-        // Resumen por obra (mano de obra acumulada del período, no solo del día)
-        const resumenObraMap = {}
-        registrosFecha.forEach(r => {
-          const pid = r.project_id
-          if (!resumenObraMap[pid]) resumenObraMap[pid] = {
-            nombre: r.projects?.nombre ?? '—',
-            trabajadores: new Set(),
-            horas: 0, costo: 0,
-          }
-          resumenObraMap[pid].trabajadores.add(r.worker_id)
-          resumenObraMap[pid].horas += r.horas_trabajadas ?? 0
-          resumenObraMap[pid].costo += r.costo_total ?? 0
-        })
-        const resumenObraList = Object.values(resumenObraMap)
-          .map(o => ({ ...o, nTrabajadores: o.trabajadores.size }))
-          .sort((a, b) => b.costo - a.costo)
-
-        return (
-          <div className="space-y-4">
-            {fichaWorker && (
-              <FichaTrabajador
-                key={fichaWorker.id}
-                worker={fichaWorker}
-                rangoInicial={rangoActivo()}
-                onClose={() => setFichaWorker(null)}
-              />
-            )}
-            {/* Selectores */}
-            <div className="flex gap-3 flex-wrap items-center">
-              <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                {[{ key: 'mes', label: 'Por mes' }, { key: 'rango', label: 'Rango' }].map(m => (
-                  <button
-                    key={m.key}
-                    onClick={() => setRangoMode(m.key)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                    style={{
-                      background: rangoMode === m.key ? 'var(--amber)' : 'transparent',
-                      color:      rangoMode === m.key ? '#000' : 'var(--muted)',
-                      fontFamily: 'Instrument Sans',
-                    }}
-                  >{m.label}</button>
-                ))}
-              </div>
-
-              {rangoMode === 'mes' ? (
-                <>
-                  <select className="select" value={rangoMes} onChange={e => setRangoMes(parseInt(e.target.value))}>
-                    {MESES.map((m, i) => <option key={i} value={i}>{m}</option>)}
-                  </select>
-                  <select className="select" value={rangoAnio} onChange={e => setRangoAnio(parseInt(e.target.value))}>
-                    {aniosDisp.map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>DESDE</span>
-                    <input type="date" className="input" value={rangoDesde} onChange={e => setRangoDesde(e.target.value)} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold" style={{ color: 'var(--muted)', fontFamily: 'Unbounded', letterSpacing: '0.05em' }}>HASTA</span>
-                    <input type="date" className="input" value={rangoHasta} onChange={e => setRangoHasta(e.target.value)} />
-                  </div>
-                </>
-              )}
-
-              <select className="select" value={rangoObra} onChange={e => setRangoObra(e.target.value)}>
-                <option value="all">Todas las obras</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-              </select>
-            </div>
-
-            {loadingFecha ? (
-              <div className="flex justify-center py-10">
-                <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
-              </div>
-            ) : fechasOrdenadas.length === 0 ? (
-              <div className="card p-10 text-center">
-                <p className="text-sm" style={{ color: 'var(--muted)' }}>Sin registros para este período</p>
-              </div>
-            ) : (
-              <>
-                {/* Agrupado por fecha */}
-                {fechasOrdenadas.map(fecha => {
-                  const grupo = porFechaGrupos[fecha]
-                  const obras = Object.entries(grupo.obras)
-                  const totalRegistros = obras.reduce((s, [, o]) => s + o.registros.length, 0)
-                  const totalHorasFecha = obras.reduce((s, [, o]) => s + o.registros.reduce((ss, r) => ss + (r.horas_trabajadas ?? 0), 0), 0)
-                  const totalCostoFecha = obras.reduce((s, [, o]) => s + o.registros.reduce((ss, r) => ss + (r.costo_total ?? 0), 0), 0)
-
-                  return (
-                    <div key={fecha} className="space-y-2">
-                      {/* Fecha header */}
-                      <div
-                        className="flex items-center justify-between px-4 py-3 rounded-xl"
-                        style={{ background: 'var(--amber-dim)', border: '1px solid rgba(255,149,0,0.25)' }}
-                      >
-                        <div>
-                          <p style={{ fontFamily: 'Unbounded', fontSize: 11, fontWeight: 700, color: 'var(--amber)', textTransform: 'capitalize', letterSpacing: '0.04em' }}>
-                            {formatFechaDate(fecha)}
-                          </p>
-                          <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
-                            {totalRegistros} trabajadores · {totalHorasFecha.toFixed(1)} hrs
-                          </p>
-                        </div>
-                        <p className="num font-bold text-sm" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoFecha)}</p>
-                      </div>
-
-                      {/* Obras */}
-                      {obras.map(([obraId, obra]) => (
-                        <div key={obraId} className="card overflow-hidden" style={{ marginLeft: 12 }}>
-                          <div className="px-4 py-2.5" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                            <p style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                              {obra.nombre}
-                            </p>
-                          </div>
-                          <div className="overflow-x-auto">
-                            <table className="w-full min-w-[520px]">
-                              <thead>
-                                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                                  {['Trabajador', 'Entrada', 'Salida', 'Horas', 'Valor Día', 'Costo'].map(h => (
-                                    <th key={h} className="px-4 py-2 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                      {h}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {obra.registros.map(r => {
-                                  const alerta = r.horas_trabajadas != null && r.salida && r.horas_trabajadas < horasBaseJornada(r.entrada)
-                                  return (
-                                    <tr
-                                      key={r.id}
-                                      className="table-row"
-                                      style={alerta ? { background: 'var(--red-dim)' } : {}}
-                                    >
-                                      <td className="px-4 py-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => setFichaWorker({ id: r.worker_id, nombre: r.workers?.nombre ?? '—', avatar: r.workers?.avatar })}
-                                          className="flex items-center gap-2 text-left"
-                                          style={{ minHeight: 44 }}
-                                          title="Ver ficha del trabajador"
-                                        >
-                                          <div
-                                            className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                                            style={{ background: alerta ? 'rgba(255,69,96,0.2)' : 'var(--amber)', color: alerta ? 'var(--red)' : '#000' }}
-                                          >
-                                            {r.workers?.avatar}
-                                          </div>
-                                          <span className="text-sm font-medium underline decoration-dotted underline-offset-4" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>
-                                            {r.workers?.nombre}
-                                          </span>
-                                        </button>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <span className="num text-[12px]" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        {r.salida
-                                          ? <span className="num text-[12px]" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>{formatHora(r.salida)}</span>
-                                          : <span style={{ fontSize: 11, fontFamily: 'Unbounded', fontWeight: 700, color: 'var(--amber)' }}>EN OBRA</span>
-                                        }
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <span className="num text-[13px] font-semibold" style={{ color: alerta ? 'var(--red)' : 'var(--amber)' }}>
-                                          {r.horas_trabajadas != null ? `${Number(r.horas_trabajadas).toFixed(1)}h` : '—'}
-                                        </span>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>
-                                          {r.valor_hora != null ? formatCLP(r.valor_hora) : '—'}
-                                        </span>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <span className="num text-[13px] font-semibold" style={{ color: alerta ? 'var(--red)' : 'var(--green)' }}>
-                                          {r.costo_total != null ? formatCLP(r.costo_total) : '—'}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-
-                {/* Resumen por obra — mano de obra acumulada del período */}
-                {resumenObraList.length > 0 && (
-                  <div className="card overflow-hidden">
-                    <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                      <h2 className="section-title">Resumen por Obra</h2>
-                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
-                        Mano de obra acumulada del período · {resumenObraList.length} {resumenObraList.length === 1 ? 'obra' : 'obras'}
-                      </p>
-                    </div>
-                    <table className="w-full">
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                          {['Obra', 'Trabajadores', 'Horas', 'Mano de Obra'].map(h => (
-                            <th key={h} className="px-5 py-2.5 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {resumenObraList.map(o => (
-                          <tr key={o.nombre} className="table-row">
-                            <td className="px-5 py-3">
-                              <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{o.nombre}</span>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{o.nTrabajadores}</span>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{o.horas.toFixed(1)}</span>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px] font-bold" style={{ color: 'var(--amber)' }}>{formatCLP(o.costo)}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div
-                      className="flex items-center justify-between px-5 py-4"
-                      style={{ borderTop: '1px solid var(--border)', background: 'var(--amber-dim)' }}
-                    >
-                      <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase' }}>
-                        Total Mano de Obra
-                      </p>
-                      <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoGeneral)}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Resumen general del período */}
-                {resumenList.length > 0 && (
-                  <div className="card overflow-hidden">
-                    <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                      <h2 className="section-title">Resumen del período</h2>
-                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
-                        {resumenList.length} trabajadores
-                      </p>
-                    </div>
-                    <table className="w-full">
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                          {['Trabajador', 'Días', 'Horas', 'Total a Pagar'].map(h => (
-                            <th key={h} className="px-5 py-2.5 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {resumenList.map(w => (
-                          <tr key={w.id} className="table-row">
-                            <td className="px-5 py-1">
-                              <button
-                                type="button"
-                                onClick={() => setFichaWorker({ id: w.id, nombre: w.nombre, avatar: w.avatar })}
-                                className="flex items-center gap-2.5 text-left"
-                                style={{ minHeight: 44 }}
-                                title="Ver ficha del trabajador"
-                              >
-                                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0" style={{ background: 'var(--amber)', color: '#000' }}>
-                                  {w.avatar}
-                                </div>
-                                <span className="text-sm font-medium underline decoration-dotted underline-offset-4" style={{ color: 'var(--text)' }}>{w.nombre}</span>
-                              </button>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px] font-semibold" style={{ color: 'var(--amber)' }}>{w.dias}</span>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px]" style={{ color: 'var(--muted)' }}>{w.horas.toFixed(1)}</span>
-                            </td>
-                            <td className="px-5 py-3">
-                              <span className="num text-[13px] font-bold" style={{ color: 'var(--green)' }}>{formatCLP(w.costo)}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div
-                      className="flex items-center justify-between px-5 py-4"
-                      style={{ borderTop: '1px solid var(--border)', background: 'var(--amber-dim)' }}
-                    >
-                      <p style={{ fontFamily: 'Unbounded', fontSize: 9, letterSpacing: '0.15em', color: 'var(--amber)', textTransform: 'uppercase' }}>
-                        Total período
-                      </p>
-                      <p className="num font-bold text-xl" style={{ color: 'var(--amber)' }}>{formatCLP(totalCostoGeneral)}</p>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* ── TAB: POR OBRA ───────────────────────────────────────── */}
-      {tab === 'por_obra' && (() => {
-        const resumenPorObra = [...obrasActivas]
-          .sort((a, b) => a.nombre.localeCompare(b.nombre))
-          .map(p => {
-            const regs = registrosVista.filter(r => r.project_id === p.id)
-            const cerrados = regs.filter(r => r.costo_total != null)
-            return {
-              ...p,
-              nTrabajadores: new Set(regs.map(r => r.worker_id)).size,
-              horasTotales: cerrados.reduce((s, r) => s + (r.horas_trabajadas ?? 0), 0),
-              costoManoObra: cerrados.reduce((s, r) => s + (r.costo_total ?? 0), 0),
-              registros: regs,
-            }
-          })
-
-        if (loadingVista) {
-          return (
-            <div className="flex justify-center py-10">
-              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--amber)' }} />
-            </div>
-          )
-        }
-
-        return (
-          <div className="space-y-4">
-            {resumenPorObra.map(obra => (
-              <div key={obra.id} className="card overflow-hidden">
-                <div
-                  className="flex items-center justify-between px-5 py-4"
-                  style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}
-                >
-                  <div>
-                    <h2 className="section-title">{obra.nombre}</h2>
-                    <p className="num text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
-                      {obra.nTrabajadores} trabajadores · {obra.horasTotales.toFixed(1)} hrs
-                    </p>
-                  </div>
-                  <p className="num font-bold text-base" style={{ color: 'var(--green)' }}>{formatCLP(obra.costoManoObra)}</p>
-                </div>
-                {obra.registros.length === 0 ? (
-                  <p className="text-center py-8 text-sm" style={{ color: 'var(--muted)' }}>Sin trabajadores este día</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[580px]">
-                      <thead>
-                        <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                          {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
-                            <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {obra.registros.map(r => renderTurnoRow(r, setRegistrosVista))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ))}
-            {resumenPorObra.length === 0 && (
-              <div className="card p-10 text-center">
-                <p className="text-sm" style={{ color: 'var(--muted)' }}>No hay obras activas</p>
-              </div>
-            )}
-          </div>
-        )
-      })()}
-
-      {/* ── TAB: TRABAJADORES ──────────────────────────────────── */}
       {tab === 'trabajadores' && (
         <div className="card overflow-hidden">
           {/* Header */}
