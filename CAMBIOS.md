@@ -532,3 +532,11 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Seguridad: las cifras financieras (Dashboard, EERR, Flujo de Caja, métricas por obra) se podían consultar desde fuera de la app sin iniciar sesión. Ahora solo las ve quien tiene acceso a la empresa, y el Flujo de Caja solo el dueño
 - Cuentas a Pagar: la tarjeta "Próximos" sumaba también los pagos ya vencidos. Ahora muestra solo los que vienen
 - Pendiente: llevar el arreglo a VRION; revisar Flujo de Caja (no incluye mano de obra) y detalles visuales de CxP en móvil
+
+## 2026-11-02 — Ficha del trabajador en Asistencia — EN PRODUCCIÓN (VAION)
+- En Asistencia → Por Fecha, tocar el nombre de un trabajador abre su ficha del período elegido (en el celular sube desde abajo y se cierra deslizando; en el computador abre a la derecha)
+- Muestra días trabajados, total a pagar del período y el detalle por obra (días, total, primera y última fecha). La lista de días va escondida hasta tocar "Ver días"
+- Los turnos sin salida aparecen marcados y no se suman hasta que se cierren
+- La ficha tiene sus propias flechas para ir al mes anterior o siguiente sin cerrarla
+- Si alguien trabajó en dos obras el mismo día, cuenta como 1 día (y se indica cuántos turnos fueron)
+- Pendiente: probarla con un trabajador real comparando con "Resumen por trabajador"; llevarla a VRION (antes hay que aplicar ahí los cambios de base pendientes)
