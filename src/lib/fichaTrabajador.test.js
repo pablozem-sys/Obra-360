@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { moverRango, resumirFicha } from './fichaTrabajador'
+import { moverRango, rangoPara, resumirFicha } from './fichaTrabajador'
 
 const r = (id, fecha, projectId, nombre, costo, salida = true) => ({
   id, fecha, project_id: projectId, projects: { nombre },
@@ -53,5 +53,22 @@ describe('moverRango', () => {
   it('modo rango: se mueve por el mismo largo', () => {
     expect(moverRango({ desde: '2026-10-05', hasta: '2026-10-11', modo: 'rango' }, -1)).toEqual({ desde: '2026-09-28', hasta: '2026-10-04', modo: 'rango' })
     expect(moverRango({ desde: '2026-10-05', hasta: '2026-10-11', modo: 'rango' }, 1)).toEqual({ desde: '2026-10-12', hasta: '2026-10-18', modo: 'rango' })
+  })
+})
+
+describe('rangoPara', () => {
+  it('semana de lunes a domingo (2 nov 2026 es lunes)', () => {
+    expect(rangoPara('semana', '2026-11-02')).toEqual({ desde: '2026-11-02', hasta: '2026-11-08', modo: 'semana' })
+    expect(rangoPara('semana', '2026-11-01')).toEqual({ desde: '2026-10-26', hasta: '2026-11-01', modo: 'semana' })
+  })
+  it('mes calendario', () => {
+    expect(rangoPara('mes', '2026-11-02')).toEqual({ desde: '2026-11-01', hasta: '2026-11-30', modo: 'mes' })
+  })
+  it('30 días que terminan en la fecha', () => {
+    expect(rangoPara('30d', '2026-11-02')).toEqual({ desde: '2026-10-04', hasta: '2026-11-02', modo: '30d' })
+  })
+  it('semana y 30 días se mueven por su largo', () => {
+    expect(moverRango(rangoPara('semana', '2026-11-02'), -1)).toEqual({ desde: '2026-10-26', hasta: '2026-11-01', modo: 'semana' })
+    expect(moverRango(rangoPara('30d', '2026-11-02'), -1)).toEqual({ desde: '2026-09-04', hasta: '2026-10-03', modo: '30d' })
   })
 })

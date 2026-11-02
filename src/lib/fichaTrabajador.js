@@ -50,7 +50,32 @@ export function resumirFicha(registros) {
   }
 }
 
-/** Rango del mes, o del rango libre, desplazado un período hacia atrás (-1) o adelante (+1). */
+/** Hoy en hora local, 'yyyy-MM-dd'. */
+export const hoyLocal = () => toISO(new Date())
+
+/**
+ * Rango de un período que contiene la fecha `ref`:
+ * - 'semana': lunes a domingo
+ * - 'mes': mes calendario
+ * - '30d': los 30 días que terminan en `ref`
+ */
+export function rangoPara(modo, ref) {
+  const d = parse(ref)
+  if (modo === 'semana') {
+    const lunes = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7))
+    const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6)
+    return { desde: toISO(lunes), hasta: toISO(domingo), modo }
+  }
+  if (modo === '30d') {
+    const inicio = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 29)
+    return { desde: toISO(inicio), hasta: ref, modo }
+  }
+  const inicio = new Date(d.getFullYear(), d.getMonth(), 1)
+  const fin = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+  return { desde: toISO(inicio), hasta: toISO(fin), modo: 'mes' }
+}
+
+/** El mismo período, una vez hacia atrás (-1) o adelante (+1). */
 export function moverRango({ desde, hasta, modo }, dir) {
   if (modo === 'mes') {
     const d = parse(desde)

@@ -3,7 +3,13 @@ import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
 import { getWorkerAttendance } from '../lib/supabase'
-import { moverRango, resumirFicha } from '../lib/fichaTrabajador'
+import { hoyLocal, moverRango, rangoPara, resumirFicha } from '../lib/fichaTrabajador'
+
+const PERIODOS = [
+  { modo: 'semana', label: 'Semana' },
+  { modo: 'mes', label: 'Mes' },
+  { modo: '30d', label: '30 días' },
+]
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
@@ -67,6 +73,13 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
 
   const f = resumirFicha(estado.registros)
 
+  // Cambiar de período toma como referencia el final del que se estaba viendo (sin pasar de hoy).
+  const cambiarPeriodo = modo => {
+    if (modo === rango.modo) return
+    const hoy = hoyLocal()
+    setRango(rangoPara(modo, rango.hasta < hoy ? rango.hasta : hoy))
+  }
+
   // Deslizar hacia abajo para cerrar (solo desde la manilla/encabezado, en móvil).
   const onTouchStart = e => {
     inicioY.current = e.touches[0].clientY
@@ -128,8 +141,27 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
             </button>
           </div>
 
+          {/* Período de la ficha: semana, mes o últimos 30 días */}
+          <div className="mt-3 grid grid-cols-3 gap-1 p-1 rounded-xl" role="group" aria-label="Período" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            {PERIODOS.map(p => (
+              <button
+                key={p.modo}
+                onClick={() => cambiarPeriodo(p.modo)}
+                aria-pressed={rango.modo === p.modo}
+                className="rounded-lg text-sm font-semibold"
+                style={{
+                  minHeight: 44,
+                  background: rango.modo === p.modo ? 'var(--amber)' : 'transparent',
+                  color: rango.modo === p.modo ? '#000' : 'var(--muted)',
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           {/* Rango propio de la ficha */}
-          <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <button
               onClick={() => setRango(r => moverRango(r, -1))}
               aria-label="Período anterior"
@@ -138,7 +170,7 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
             >
               <ChevronLeft size={20} />
             </button>
-            <span className="text-sm font-semibold capitalize text-center" style={{ color: 'var(--text)' }} aria-live="polite">
+            <span className="inline-block text-sm font-semibold text-center first-letter:uppercase" style={{ color: 'var(--text)' }} aria-live="polite">
               {etiquetaRango(rango)}
             </span>
             <button
