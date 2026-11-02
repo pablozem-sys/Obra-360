@@ -542,5 +542,13 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - La ficha permite elegir el período: Semana, Mes o últimos 30 días, y sus flechas avanzan o retroceden según el período elegido sin cerrarla (abre en el mes; a comienzos de mes puede salir vacía: usar ◀ o «30 días»)
 - Si alguien trabajó en dos obras el mismo día, cuenta como 1 día (y se indica cuántos turnos fueron)
 - Arreglado el mismo día: al abrir la ficha desde los últimos trabajadores de la lista, aparecía al fondo de la página y no se podía volver a subir. Ahora siempre abre sobre la pantalla
-- Se preparó un PDF de 3 páginas para el cliente explicando estos cambios (con imágenes de ejemplo)
-- Pendiente: revisar la ficha de un trabajador real contra sus registros del mes; llevar todo esto a VRION (antes hay que aplicar ahí los cambios de base pendientes)
+- Se preparó un PDF para el cliente explicando estos cambios (con imágenes de ejemplo); actualizado a 5 páginas con lo de ubicación y marcaje sin internet
+
+## 2026-11-02 (tarde) — Ubicación de la asistencia y marcaje sin internet — EN PRODUCCIÓN (VAION)
+- Registros muestra, bajo la hora de entrada y de salida, si el trabajador marcó en la obra (a menos de 300 m), lejos de ella (con la distancia) o sin ubicación (no activó el GPS). Cada obra resume arriba sus alertas
+- Las obras se ubican en el mapa a partir de su dirección: al crearlas o editarlas, y las activas que no tenían ubicación, al abrir Asistencia. En Editar obra hay un botón «Estoy en la obra: usar mi ubicación» para fijarla exacta
+- No hubo cambios en la base de datos (las obras ya tenían los campos de coordenadas, vacíos)
+- Pantalla de marcaje: sin internet ahora avisa «tu entrada/salida NO quedó registrada» en vez de confirmar. Antes, ME VOY mostraba «Salida registrada» aunque no se hubiera guardado y el turno quedaba abierto
+- Si al abrir no se pudo revisar el turno del día, no deja marcar y ofrece Reintentar
+- El GPS espera 15 segundos (antes 5) mostrando «Buscando ubicación…»; si queda sin ubicación, se le pide al trabajador activar el permiso
+- Pendiente: confirmar que las direcciones reales se ubicaron bien en el mapa (abrir Registros una vez y revisar las obras «sin ubicación»); probar un marcaje real desde un celular; revisar la ficha de un trabajador real contra sus registros del mes; llevar todo esto a VRION (antes hay que aplicar ahí los cambios de base pendientes)
