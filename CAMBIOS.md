@@ -542,4 +542,5 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - La ficha permite elegir el período: Semana, Mes o últimos 30 días, y sus flechas avanzan o retroceden según el período elegido sin cerrarla (abre en el mes; a comienzos de mes puede salir vacía: usar ◀ o «30 días»)
 - Si alguien trabajó en dos obras el mismo día, cuenta como 1 día (y se indica cuántos turnos fueron)
 - Arreglado el mismo día: al abrir la ficha desde los últimos trabajadores de la lista, aparecía al fondo de la página y no se podía volver a subir. Ahora siempre abre sobre la pantalla
-- Pendiente: probarla con un trabajador real comparando con "Resumen por trabajador"; llevarla a VRION (antes hay que aplicar ahí los cambios de base pendientes)
+- Se preparó un PDF de 3 páginas para el cliente explicando estos cambios (con imágenes de ejemplo)
+- Pendiente: revisar la ficha de un trabajador real contra sus registros del mes; llevar todo esto a VRION (antes hay que aplicar ahí los cambios de base pendientes)
