@@ -540,4 +540,5 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Los turnos sin salida aparecen marcados y no se suman hasta que se cierren
 - La ficha tiene sus propias flechas para ir al mes anterior o siguiente sin cerrarla
 - Si alguien trabajó en dos obras el mismo día, cuenta como 1 día (y se indica cuántos turnos fueron)
+- Arreglado el mismo día: al abrir la ficha desde los últimos trabajadores de la lista, aparecía al fondo de la página y no se podía volver a subir. Ahora siempre abre sobre la pantalla
 - Pendiente: probarla con un trabajador real comparando con "Resumen por trabajador"; llevarla a VRION (antes hay que aplicar ahí los cambios de base pendientes)

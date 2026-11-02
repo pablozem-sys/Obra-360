@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
 import { formatCLP } from '../lib/helpers'
 import { getWorkerAttendance } from '../lib/supabase'
@@ -32,6 +33,8 @@ function etiquetaRango({ desde, hasta, modo }) {
  * Ficha de un trabajador para un rango de fechas: totales, desglose por obra y lista de días.
  * Bottom sheet en móvil (se cierra deslizando hacia abajo), panel lateral en escritorio.
  * Sus flechas ◀ ▶ mueven el rango de la ficha sin cerrarla.
+ * Se dibuja en document.body (portal): el contenedor de la página tiene una animación con transform
+ * (.page-enter) que, si no, anclaría el `position: fixed` a la página y no a la pantalla.
  */
 export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
   const [rango, setRango] = useState(rangoInicial)
@@ -82,7 +85,7 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
     if (cerrar) onClose()
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end" role="dialog" aria-modal="true" aria-label={`Ficha de ${worker.nombre}`}>
       <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose} />
 
@@ -247,6 +250,7 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
