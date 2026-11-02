@@ -8,6 +8,7 @@ import {
 import Badge from '../components/ui/Badge'
 import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
+import { geocodificarDireccion, ubicacionActual } from '../lib/geo'
 import {
   getObraById, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
@@ -67,6 +68,7 @@ export default function DetalleObra() {
   const [editForm,  setEditForm]  = useState(null)
   const [saving,    setSaving]    = useState(false)
   const [editError, setEditError] = useState('')
+  const [gpsMsg,    setGpsMsg]    = useState('')
 
   // Búsqueda / filtro de gastos y abonos
   const [movBusqueda,   setMovBusqueda]   = useState('')
@@ -128,7 +130,11 @@ export default function DetalleObra() {
       fecha_termino: obra.fecha_termino ?? '',
       presupuesto:   obra.presupuesto ?? '',
       descripcion:   obra.descripcion ?? '',
+      lat:           obra.lat ?? null,
+      lng:           obra.lng ?? null,
+      gpsManual:     false,
     })
+    setGpsMsg('')
     setEditError('')
     setShowEdit(true)
   }
@@ -138,7 +144,16 @@ export default function DetalleObra() {
     setSaving(true)
     setEditError('')
     try {
+      // Ubicación para cruzar con la asistencia: la fijada en terreno manda;
+      // si no, se busca la dirección cuando cambió o la obra no tiene coordenadas.
+      const direccion = editForm.direccion.trim() || null
+      let pos = editForm.lat != null ? { lat: editForm.lat, lng: editForm.lng } : null
+      if (!editForm.gpsManual && (direccion !== (obra.direccion ?? null) || pos == null)) {
+        pos = direccion ? await geocodificarDireccion(direccion) : null
+      }
       const updated = await updateObra(id, {
+        lat:           pos?.lat ?? null,
+        lng:           pos?.lng ?? null,
         nombre:        editForm.nombre.trim(),
         direccion:     editForm.direccion.trim() || null,
         tipo:          editForm.tipo,
@@ -984,6 +999,24 @@ export default function DetalleObra() {
               <label className="label">Dirección</label>
               <input className="input" value={editForm.direccion}
                 onChange={e => setEditForm(p => ({ ...p, direccion: e.target.value }))} />
+              <div className="flex items-center justify-between gap-3 flex-wrap mt-2">
+                <p className="text-[11px]" style={{ color: editForm.lat != null ? 'var(--green)' : 'var(--muted)' }}>
+                  {gpsMsg || (editForm.lat != null
+                    ? 'Ubicación en el mapa lista: se usa para revisar la asistencia'
+                    : 'Al guardar se busca la dirección en el mapa')}
+                </p>
+                <button type="button" className="btn-secondary text-xs" style={{ minHeight: 44 }}
+                  onClick={async () => {
+                    setGpsMsg('Obteniendo ubicación…')
+                    try {
+                      const pos = await ubicacionActual()
+                      setEditForm(p => ({ ...p, ...pos, gpsManual: true }))
+                      setGpsMsg('Ubicación tomada desde aquí: guarda para aplicarla')
+                    } catch (err) { setGpsMsg(err.message) }
+                  }}>
+                  Estoy en la obra: usar mi ubicación
+                </button>
+              </div>
             </div>
             <div>
               <label className="label">Tipo de obra</label>

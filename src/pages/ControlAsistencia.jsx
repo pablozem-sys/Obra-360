@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
-import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search } from 'lucide-react'
+import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search, MapPin } from 'lucide-react'
 import { formatCLP, horasBaseJornada } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import FichaTrabajador from '../components/FichaTrabajador'
+import { estadoUbicacion, formatDistancia, geocodificarDireccion, RADIO_OBRA_M } from '../lib/geo'
 import {
   getAllWorkers,
   createWorker,
@@ -18,6 +19,7 @@ import {
   deleteAttendance,
   getRegistrosAbiertosAnteriores,
   localDateString,
+  setObraUbicacion,
 } from '../lib/supabase'
 
 /* ── Time Picker ─────────────────────────────────────────────── */
@@ -120,13 +122,38 @@ function initials(nombre = '') {
   return nombre.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase()
 }
 
+/* ── Ubicación del marcaje vs. la obra ─────────────────────────── */
+const GPS_ESTILO = {
+  ok:      { color: 'var(--green)', texto: () => 'En obra' },
+  lejos:   { color: 'var(--red)',   texto: g => `A ${formatDistancia(g.distancia)}` },
+  sin_gps: { color: 'var(--amber)', texto: () => 'Sin ubicación' },
+}
+const GPS_TITULO = {
+  ok:      `Marcó a menos de ${RADIO_OBRA_M} m de la obra`,
+  lejos:   'Marcó lejos de la obra',
+  sin_gps: 'No activó la ubicación al marcar',
+}
+
+function GpsChip({ geo }) {
+  const e = GPS_ESTILO[geo.estado]
+  if (!e) return null // obra sin ubicación: no hay con qué comparar
+  return (
+    <span title={GPS_TITULO[geo.estado]} className="flex items-center gap-1 mt-0.5 text-[10.5px] font-semibold whitespace-nowrap" style={{ color: e.color }}>
+      {geo.estado === 'ok' ? <MapPin size={10} /> : <AlertTriangle size={10} />}
+      {e.texto(geo)}
+    </span>
+  )
+}
+
 /* ── Fila de turno (reusada en Registros, Por Obra, Hora Entrada/Salida) ── */
 function TurnoRow({
   r, isEditing, editEntrada, editSalida, editBono, editObra, obrasReasignables, editSaving, editError,
   onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onChangeObra, onGuardar,
-  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra, onClickWorker, sinObra, sinFecha,
+  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra, onClickWorker, sinObra, sinFecha, obraGeo,
 }) {
   const abierto = !r.salida
+  const gpsEntrada = estadoUbicacion(r.lat_entrada, r.lng_entrada, obraGeo)
+  const gpsSalida  = abierto ? null : estadoUbicacion(r.lat_salida, r.lng_salida, obraGeo)
   const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < horasBaseJornada(r.entrada)
 
   return (
@@ -183,6 +210,7 @@ function TurnoRow({
         )}
         <td className="px-4 py-3.5">
           <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
+          <GpsChip geo={gpsEntrada} />
         </td>
         <td className="px-4 py-3.5">
           {abierto ? (
@@ -191,7 +219,10 @@ function TurnoRow({
               EN OBRA
             </span>
           ) : (
-            <span className="num text-[13px] font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--muted)' }}>{formatHora(r.salida)}</span>
+            <>
+              <span className="num text-[13px] font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--muted)' }}>{formatHora(r.salida)}</span>
+              <GpsChip geo={gpsSalida} />
+            </>
           )}
         </td>
         <td className="px-4 py-3.5">
@@ -314,6 +345,8 @@ function TurnoRow({
 }
 
 const HOY = localDateString()
+// Obras ya intentadas en esta sesión (para no repetir la búsqueda si no aparece)
+const geocodificadas = new Set()
 
 export default function ControlAsistencia() {
   const { rol } = useAuth()
@@ -423,6 +456,31 @@ export default function ControlAsistencia() {
     ]).finally(() => { clearTimeout(timeout); setLoading(false) })
     return () => clearTimeout(timeout)
   }, [])
+
+  // Obras con dirección pero sin coordenadas: se ubican en el mapa una vez
+  // (OpenStreetMap pide ≤1 consulta por segundo) y se guardan en la obra.
+  useEffect(() => {
+    const pendientes = projects.filter(o => o.direccion && o.lat == null && !geocodificadas.has(o.id))
+    if (!pendientes.length) return
+    let cancelado = false
+    ;(async () => {
+      for (const o of pendientes) {
+        if (cancelado) return
+        geocodificadas.add(o.id)
+        const pos = await geocodificarDireccion(o.direccion)
+        if (pos && !cancelado) {
+          try {
+            await setObraUbicacion(o.id, pos)
+            setProjects(prev => prev.map(p => (p.id === o.id ? { ...p, ...pos } : p)))
+          } catch { /* sin permiso o sin red: queda sin ubicación */ }
+        }
+        await new Promise(res => setTimeout(res, 1100))
+      }
+    })()
+    return () => { cancelado = true }
+  }, [projects])
+
+  const obraGeoPorId = Object.fromEntries(projects.map(o => [o.id, o]))
 
   const verAbiertosAnteriores = () => {
     setFiltroFecha('')
@@ -576,6 +634,7 @@ export default function ControlAsistencia() {
       onClickObra={onClickObra}
       sinObra={opts.sinObra}
       sinFecha={opts.sinFecha}
+      obraGeo={obraGeoPorId[r.project_id] ?? r.projects}
       onClickWorker={rec => setFichaWorker({ id: rec.worker_id, nombre: rec.workers?.nombre ?? '—', avatar: rec.workers?.avatar })}
       r={r}
       isEditing={editingRecord === r.id}
@@ -1000,6 +1059,19 @@ export default function ControlAsistencia() {
                 </tr>
               </thead>
             )
+            // Alertas de ubicación del grupo: marcajes lejos de la obra y sin GPS
+            const alertasGps = regs => {
+              const obra = obraGeoPorId[regs[0]?.project_id] ?? regs[0]?.projects
+              const estados = regs.flatMap(r => [
+                estadoUbicacion(r.lat_entrada, r.lng_entrada, obra).estado,
+                ...(r.salida ? [estadoUbicacion(r.lat_salida, r.lng_salida, obra).estado] : []),
+              ])
+              return {
+                obraSinUbicacion: obra?.lat == null,
+                lejos: estados.filter(e => e === 'lejos').length,
+                sinGps: estados.filter(e => e === 'sin_gps').length,
+              }
+            }
             // Agrupar por obra: primero las que tienen gente en obra ahora, luego por nombre
             const grupos = Object.values(registrosVisibles.reduce((acc, r) => {
               const g = acc[r.project_id] ??= { id: r.project_id, nombre: r.projects?.nombre ?? '—', registros: [] }
@@ -1011,6 +1083,7 @@ export default function ControlAsistencia() {
                 trabajadores: new Set(g.registros.map(r => r.worker_id)).size,
                 enObra: g.registros.filter(r => !r.salida).length,
                 costo: g.registros.reduce((s, r) => s + (r.costo_total ?? 0), 0),
+                ...alertasGps(g.registros),
               }))
               .sort((a, b) => b.enObra - a.enObra || a.nombre.localeCompare(b.nombre))
 
@@ -1045,6 +1118,15 @@ export default function ControlAsistencia() {
                             {g.trabajadores} {g.trabajadores === 1 ? 'trabajador' : 'trabajadores'}
                             {g.enObra > 0 && <span style={{ color: 'var(--amber)', fontWeight: 600 }}> · {g.enObra} en obra ahora</span>}
                           </p>
+                          {(g.lejos > 0 || g.sinGps > 0 || g.obraSinUbicacion) && (
+                            <p className="text-[11px] mt-1 flex items-center gap-1 flex-wrap" style={{ color: 'var(--muted)' }}>
+                              <AlertTriangle size={11} style={{ color: g.lejos ? 'var(--red)' : 'var(--amber)' }} />
+                              {g.lejos > 0 && <span style={{ color: 'var(--red)', fontWeight: 600 }}>{g.lejos} {g.lejos === 1 ? 'marcaje' : 'marcajes'} fuera de la obra</span>}
+                              {g.lejos > 0 && g.sinGps > 0 && <span>·</span>}
+                              {g.sinGps > 0 && <span style={{ color: 'var(--amber)', fontWeight: 600 }}>{g.sinGps} sin ubicación</span>}
+                              {g.obraSinUbicacion && <span>{g.lejos || g.sinGps ? '· ' : ''}Obra sin ubicación en el mapa: revisa su dirección</span>}
+                            </p>
+                          )}
                         </div>
                         <span className="num text-sm font-semibold" style={{ color: 'var(--green)' }}>{formatCLP(g.costo)}</span>
                       </div>

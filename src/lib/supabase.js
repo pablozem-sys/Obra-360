@@ -74,6 +74,12 @@ export async function updateObra(id, updates) {
   return data[0]
 }
 
+// Ubicación de la obra (para cruzar con el GPS de la asistencia)
+export async function setObraUbicacion(id, { lat, lng }) {
+  const { error } = await supabase.from('projects').update({ lat, lng }).eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteObra(id) {
   const { error } = await supabase.rpc('delete_obra', { p_project_id: id })
   if (error) throw error
@@ -454,7 +460,7 @@ export async function updateCuentaCobrar(id, updates) {
 export async function getObrasActivas() {
   let q = supabase
     .from('projects')
-    .select('id, nombre, direccion, estado')
+    .select('id, nombre, direccion, estado, lat, lng')
     .neq('estado', 'finalizada')
     .order('nombre')
   if (currentEmpresaId) q = q.eq('empresa_id', currentEmpresaId)
@@ -735,8 +741,9 @@ export async function getAttendance({ fecha, projectId } = {}) {
     .select(`
       id, worker_id, project_id, fecha, entrada, salida,
       horas_trabajadas, valor_hora, costo_total, bono,
+      lat_entrada, lng_entrada, lat_salida, lng_salida,
       workers ( nombre, avatar ),
-      projects ( nombre )
+      projects ( nombre, lat, lng )
     `)
     .order('entrada', { ascending: false })
   if (fecha)      q = q.eq('fecha', fecha)
@@ -1042,6 +1049,7 @@ getObras = withLog('getObras', getObras)
 getObraById = withLog('getObraById', getObraById)
 createObra = withLog('createObra', createObra)
 updateObra = withLog('updateObra', updateObra)
+setObraUbicacion = withLog('setObraUbicacion', setObraUbicacion)
 deleteObra = withLog('deleteObra', deleteObra)
 deleteWorker = withLog('deleteWorker', deleteWorker)
 getAdditionalSales = withLog('getAdditionalSales', getAdditionalSales)

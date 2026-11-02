@@ -5,6 +5,7 @@ import Badge from '../components/ui/Badge'
 import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
 import { formatCLP, TIPOS_OBRA, ESTADOS_OBRA } from '../lib/helpers'
+import { geocodificarDireccion } from '../lib/geo'
 import { getObras, createObra, deleteObra, uploadDocumento, createDocumento, getObraMetrics } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -105,9 +106,13 @@ export default function Obras() {
     setSaving(true)
     setFormError('')
     try {
+      const direccion = form.direccion.trim() || null
+      const pos = direccion ? await geocodificarDireccion(direccion) : null
       const nueva = await createObra({
         nombre:        form.nombre.trim(),
-        direccion:     form.direccion.trim() || null,
+        direccion,
+        lat:           pos?.lat ?? null,
+        lng:           pos?.lng ?? null,
         tipo:          form.tipo,
         estado:        form.estado,
         fecha_inicio:  form.fecha_inicio || null,
