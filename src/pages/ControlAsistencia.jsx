@@ -3,6 +3,7 @@ import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Load
 import { formatCLP, horasBaseJornada } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import FichaTrabajador from '../components/FichaTrabajador'
 import {
   getAllWorkers,
   createWorker,
@@ -389,6 +390,8 @@ export default function ControlAsistencia() {
   const [rangoObra, setRangoObra]       = useState('all')
   const [registrosFecha, setRegistrosFecha] = useState([])
   const [loadingFecha, setLoadingFecha]     = useState(false)
+  // Ficha de trabajador (se abre tocando su nombre en Por Fecha)
+  const [fichaWorker, setFichaWorker]       = useState(null)
 
 
   // Eliminar trabajador
@@ -439,19 +442,19 @@ export default function ControlAsistencia() {
       .finally(() => setLoadingVista(false))
   }, [vistaFecha])
 
+  // Rango activo de Por Fecha (mes completo o desde–hasta)
+  const rangoActivo = () => {
+    if (rangoMode === 'mes') {
+      const lastDay = new Date(rangoAnio, rangoMes + 1, 0).getDate()
+      return { desde: `${rangoAnio}-${pad2(rangoMes + 1)}-01`, hasta: `${rangoAnio}-${pad2(rangoMes + 1)}-${pad2(lastDay)}`, modo: 'mes' }
+    }
+    return { desde: rangoDesde, hasta: rangoHasta, modo: 'rango' }
+  }
+
   useEffect(() => {
     if (tab !== 'por_fecha') return
-    const pad = n => String(n).padStart(2, '0')
-    let desde, hasta
-    if (rangoMode === 'mes') {
-      desde = `${rangoAnio}-${pad(rangoMes + 1)}-01`
-      const lastDay = new Date(rangoAnio, rangoMes + 1, 0).getDate()
-      hasta = `${rangoAnio}-${pad(rangoMes + 1)}-${pad(lastDay)}`
-    } else {
-      desde = rangoDesde
-      hasta = rangoHasta
-      if (!desde || !hasta) return
-    }
+    const { desde, hasta } = rangoActivo()
+    if (!desde || !hasta) return
     setLoadingFecha(true)
     getAttendanceRange({
       desde,
@@ -1088,6 +1091,7 @@ export default function ControlAsistencia() {
         registrosFecha.forEach(r => {
           const wid = r.worker_id
           if (!resumenMap[wid]) resumenMap[wid] = {
+            id: wid,
             nombre: r.workers?.nombre ?? '—',
             avatar: r.workers?.avatar ?? '?',
             dias: 0, horas: 0, costo: 0,
@@ -1118,6 +1122,14 @@ export default function ControlAsistencia() {
 
         return (
           <div className="space-y-4">
+            {fichaWorker && (
+              <FichaTrabajador
+                key={fichaWorker.id}
+                worker={fichaWorker}
+                rangoInicial={rangoActivo()}
+                onClose={() => setFichaWorker(null)}
+              />
+            )}
             {/* Selectores */}
             <div className="flex gap-3 flex-wrap items-center">
               <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -1227,18 +1239,24 @@ export default function ControlAsistencia() {
                                       className="table-row"
                                       style={alerta ? { background: 'var(--red-dim)' } : {}}
                                     >
-                                      <td className="px-4 py-3">
-                                        <div className="flex items-center gap-2">
+                                      <td className="px-4 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setFichaWorker({ id: r.worker_id, nombre: r.workers?.nombre ?? '—', avatar: r.workers?.avatar })}
+                                          className="flex items-center gap-2 text-left"
+                                          style={{ minHeight: 44 }}
+                                          title="Ver ficha del trabajador"
+                                        >
                                           <div
                                             className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                                             style={{ background: alerta ? 'rgba(255,69,96,0.2)' : 'var(--amber)', color: alerta ? 'var(--red)' : '#000' }}
                                           >
                                             {r.workers?.avatar}
                                           </div>
-                                          <span className="text-sm font-medium" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>
+                                          <span className="text-sm font-medium underline decoration-dotted underline-offset-4" style={{ color: alerta ? 'var(--red)' : 'var(--text)' }}>
                                             {r.workers?.nombre}
                                           </span>
-                                        </div>
+                                        </button>
                                       </td>
                                       <td className="px-4 py-3">
                                         <span className="num text-[12px]" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
@@ -1347,14 +1365,20 @@ export default function ControlAsistencia() {
                       </thead>
                       <tbody>
                         {resumenList.map(w => (
-                          <tr key={w.nombre} className="table-row">
-                            <td className="px-5 py-3">
-                              <div className="flex items-center gap-2.5">
+                          <tr key={w.id} className="table-row">
+                            <td className="px-5 py-1">
+                              <button
+                                type="button"
+                                onClick={() => setFichaWorker({ id: w.id, nombre: w.nombre, avatar: w.avatar })}
+                                className="flex items-center gap-2.5 text-left"
+                                style={{ minHeight: 44 }}
+                                title="Ver ficha del trabajador"
+                              >
                                 <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0" style={{ background: 'var(--amber)', color: '#000' }}>
                                   {w.avatar}
                                 </div>
-                                <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{w.nombre}</span>
-                              </div>
+                                <span className="text-sm font-medium underline decoration-dotted underline-offset-4" style={{ color: 'var(--text)' }}>{w.nombre}</span>
+                              </button>
                             </td>
                             <td className="px-5 py-3">
                               <span className="num text-[13px] font-semibold" style={{ color: 'var(--amber)' }}>{w.dias}</span>

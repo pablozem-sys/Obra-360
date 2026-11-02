@@ -920,6 +920,29 @@ export async function getAttendanceRange({ desde, hasta, projectId } = {}) {
   return data ?? []
 }
 
+// Ficha de trabajador: sus registros en un rango. Además del RLS, filtra explícitamente por la
+// empresa del despliegue (obra y trabajador de currentEmpresaId), para que nunca mezcle empresas.
+export async function getWorkerAttendance({ workerId, desde, hasta }) {
+  if (!currentEmpresaId) throw new Error('Sin empresa activa')
+  const { data, error } = await supabase
+    .from('attendance')
+    .select(`
+      id, worker_id, project_id, fecha, entrada, salida,
+      horas_trabajadas, valor_hora, costo_total, bono,
+      workers!inner ( nombre, avatar, empresa_id ),
+      projects!inner ( nombre, empresa_id )
+    `)
+    .eq('worker_id', workerId)
+    .eq('workers.empresa_id', currentEmpresaId)
+    .eq('projects.empresa_id', currentEmpresaId)
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: false })
+    .order('entrada', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
 export async function getAllTodayAttendance() {
   const today = localDateString()
   const { data, error } = await supabase
