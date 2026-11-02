@@ -124,7 +124,7 @@ function initials(nombre = '') {
 function TurnoRow({
   r, isEditing, editEntrada, editSalida, editBono, editObra, obrasReasignables, editSaving, editError,
   onStartEdit, onCancelEdit, onChangeEntrada, onChangeSalida, onChangeBono, onChangeObra, onGuardar,
-  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra, onClickWorker,
+  confirmDelete, deletingRecord, onRequestDelete, onConfirmDelete, onCancelDelete, onClickObra, onClickWorker, sinObra, sinFecha,
 }) {
   const abierto = !r.salida
   const alerta = !abierto && r.horas_trabajadas != null && r.horas_trabajadas < horasBaseJornada(r.entrada)
@@ -158,25 +158,29 @@ function TurnoRow({
             )}
           </div>
         </td>
-        <td className="px-4 py-3.5">
-          {onClickObra ? (
-            <button
-              onClick={() => onClickObra(r.project_id)}
-              title="Filtrar por esta obra"
-              className="text-[12px] truncate block max-w-[130px] text-left hover:opacity-80"
-              style={{ color: 'var(--muted)', cursor: 'pointer' }}
-              onMouseEnter={e => { e.currentTarget.style.color = 'var(--amber)' }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)' }}
-            >
-              {r.projects?.nombre}
-            </button>
-          ) : (
-            <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
-          )}
-        </td>
-        <td className="px-4 py-3.5">
-          <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
-        </td>
+        {!sinObra && (
+          <td className="px-4 py-3.5">
+            {onClickObra ? (
+              <button
+                onClick={() => onClickObra(r.project_id)}
+                title="Filtrar por esta obra"
+                className="text-[12px] truncate block max-w-[130px] text-left hover:opacity-80"
+                style={{ color: 'var(--muted)', cursor: 'pointer' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--amber)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)' }}
+              >
+                {r.projects?.nombre}
+              </button>
+            ) : (
+              <span className="text-[12px] truncate block max-w-[130px]" style={{ color: 'var(--muted)' }}>{r.projects?.nombre}</span>
+            )}
+          </td>
+        )}
+        {!sinFecha && (
+          <td className="px-4 py-3.5">
+            <span className="num text-[12px]" style={{ color: 'var(--muted)' }}>{formatFecha(r.entrada)}</span>
+          </td>
+        )}
         <td className="px-4 py-3.5">
           <span className="num text-[13px] font-medium" style={{ color: 'var(--green)' }}>{formatHora(r.entrada)}</span>
         </td>
@@ -246,7 +250,7 @@ function TurnoRow({
       </tr>
       {isEditing && (
         <tr style={{ background: 'var(--bg-surface)' }}>
-          <td colSpan={8} className="px-6 py-4">
+          <td colSpan={8 - (sinObra ? 1 : 0) - (sinFecha ? 1 : 0)} className="px-6 py-4">
             <div className="flex items-end gap-4 flex-wrap">
               <p style={{ fontFamily: 'DM Mono', fontSize: 9, letterSpacing: '0.2em', color: 'var(--amber)', textTransform: 'uppercase', flexShrink: 0, marginBottom: 8 }}>
                 // editar turno — {r.workers?.nombre}
@@ -385,6 +389,8 @@ export default function ControlAsistencia() {
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState(null)
   const [deletingRecord, setDeletingRecord] = useState(false)
 
+  // Registros: agrupados por obra (por defecto) o en una sola lista
+  const [vistaRegistros, setVistaRegistros] = useState('obra')
   // Ficha de trabajador (se abre tocando su nombre en Registros)
   const [fichaWorker, setFichaWorker]       = useState(null)
 
@@ -564,10 +570,12 @@ export default function ControlAsistencia() {
     }
   }
 
-  const renderTurnoRow = (r, setList, onClickObra) => (
+  const renderTurnoRow = (r, setList, onClickObra, opts = {}) => (
     <TurnoRow
       key={r.id}
       onClickObra={onClickObra}
+      sinObra={opts.sinObra}
+      sinFecha={opts.sinFecha}
       onClickWorker={rec => setFichaWorker({ id: rec.worker_id, nombre: rec.workers?.nombre ?? '—', avatar: rec.workers?.avatar })}
       r={r}
       isEditing={editingRecord === r.id}
@@ -978,35 +986,93 @@ export default function ControlAsistencia() {
             </div>
           )}
 
-          {/* Records table */}
-          <div className="card overflow-hidden">
-            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-              <h2 className="section-title">Registros ({registrosVisibles.length})</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[580px]">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                    {['Trabajador', 'Obra', 'Fecha', 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
-                      <th key={h} className="px-4 py-3 text-left" style={{ fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {h}
-                      </th>
+          {/* Registros: por obra (por defecto) o lista */}
+          {(() => {
+            const TH = { fontSize: 10, fontFamily: 'Unbounded', fontWeight: 600, color: 'var(--subtle)', letterSpacing: '0.08em', textTransform: 'uppercase' }
+            // Con un día elegido, la fecha se repite en todas las filas: en la vista por obra se omite (cabe la salida en el celular)
+            const sinFecha = !!filtroFecha
+            const encabezado = (conObra, conFecha = true) => (
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                  {['Trabajador', ...(conObra ? ['Obra'] : []), ...(conFecha ? ['Fecha'] : []), 'Entrada', 'Salida', 'Horas', 'Costo', ''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left" style={TH}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+            )
+            // Agrupar por obra: primero las que tienen gente en obra ahora, luego por nombre
+            const grupos = Object.values(registrosVisibles.reduce((acc, r) => {
+              const g = acc[r.project_id] ??= { id: r.project_id, nombre: r.projects?.nombre ?? '—', registros: [] }
+              g.registros.push(r)
+              return acc
+            }, {}))
+              .map(g => ({
+                ...g,
+                trabajadores: new Set(g.registros.map(r => r.worker_id)).size,
+                enObra: g.registros.filter(r => !r.salida).length,
+                costo: g.registros.reduce((s, r) => s + (r.costo_total ?? 0), 0),
+              }))
+              .sort((a, b) => b.enObra - a.enObra || a.nombre.localeCompare(b.nombre))
+
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <h2 className="section-title">Registros ({registrosVisibles.length})</h2>
+                  <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                    {[{ key: 'obra', label: 'Por obra' }, { key: 'lista', label: 'Lista' }].map(v => (
+                      <button
+                        key={v.key}
+                        onClick={() => setVistaRegistros(v.key)}
+                        aria-pressed={vistaRegistros === v.key}
+                        className="px-3 rounded-lg text-xs font-semibold"
+                        style={{ minHeight: 36, background: vistaRegistros === v.key ? 'var(--amber)' : 'transparent', color: vistaRegistros === v.key ? '#000' : 'var(--muted)' }}
+                      >
+                        {v.label}
+                      </button>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {registrosVisibles.map(r => renderTurnoRow(r, setRegistros, setFiltroObra))}
-                  {registrosVisibles.length === 0 && (
-                    <tr>
-                      <td colSpan={8} className="text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>
-                        Sin registros para este filtro
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                  </div>
+                </div>
+
+                {registrosVisibles.length === 0 ? (
+                  <div className="card text-center py-10 text-sm" style={{ color: 'var(--muted)' }}>Sin registros para este filtro</div>
+                ) : vistaRegistros === 'obra' ? (
+                  grupos.map(g => (
+                    <div key={g.id} className="card overflow-hidden">
+                      <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-semibold truncate" style={{ color: 'var(--text)', fontFamily: 'Unbounded' }}>{g.nombre}</h3>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'var(--muted)' }}>
+                            {g.trabajadores} {g.trabajadores === 1 ? 'trabajador' : 'trabajadores'}
+                            {g.enObra > 0 && <span style={{ color: 'var(--amber)', fontWeight: 600 }}> · {g.enObra} en obra ahora</span>}
+                          </p>
+                        </div>
+                        <span className="num text-sm font-semibold" style={{ color: 'var(--green)' }}>{formatCLP(g.costo)}</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className={`w-full ${sinFecha ? 'min-w-[440px]' : 'min-w-[520px]'}`}>
+                          {encabezado(false, !sinFecha)}
+                          <tbody>
+                            {g.registros.map(r => renderTurnoRow(r, setRegistros, setFiltroObra, { sinObra: true, sinFecha }))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="card overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[580px]">
+                        {encabezado(true)}
+                        <tbody>
+                          {registrosVisibles.map(r => renderTurnoRow(r, setRegistros, setFiltroObra))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Costo por obra */}
           {costoPorObra.length > 0 && (

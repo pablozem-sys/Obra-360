@@ -536,6 +536,7 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 ## 2026-11-02 — Ficha del trabajador en Asistencia — EN PRODUCCIÓN (VAION)
 - En Asistencia → Registros, tocar el nombre de un trabajador abre su ficha del mes de la fecha elegida (en el celular sube desde abajo y se cierra deslizando; en el computador abre a la derecha)
 - Asistencia queda solo con las pestañas Registros y Trabajadores (se quitaron Por Fecha y Por Obra, a pedido de quienes la usan)
+- Registros ahora se ve agrupado por obra: cada obra con sus trabajadores, cuántos siguen en obra y el costo del día; primero las obras con gente trabajando. Botón «Lista» para ver todo junto como antes
 - Muestra días trabajados, total a pagar del período y el detalle por obra (días, total, primera y última fecha). La lista de días va escondida hasta tocar "Ver días"
 - Los turnos sin salida aparecen marcados y no se suman hasta que se cierren
 - La ficha permite elegir el período: Semana, Mes o últimos 30 días, y sus flechas avanzan o retroceden según el período elegido sin cerrarla (abre en el mes; a comienzos de mes puede salir vacía: usar ◀ o «30 días»)
