@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Clock, CheckCircle2, Loader2 } from 'lucide-react'
+import { LogOut, Clock, CheckCircle2, Loader2, AlertTriangle, WifiOff, MapPinOff } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
   getTodayOpenAttendance,
@@ -9,6 +9,22 @@ import {
   getWorkerObras,
 } from '../lib/supabase'
 import { BRAND_NAME } from '../lib/helpers'
+
+function useOnline() {
+  const [online, setOnline] = useState(navigator.onLine)
+  useEffect(() => {
+    const on = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
+  }, [])
+  return online
+}
+
+// Falla de red (sin señal) vs. otro error del servidor
+const esErrorDeRed = err =>
+  !navigator.onLine || err instanceof TypeError || /fetch|network|load failed/i.test(err?.message ?? '')
 
 function useClock() {
   const [time, setTime] = useState(new Date())
@@ -19,14 +35,17 @@ function useClock() {
   return time
 }
 
+// Sin internet (o recién encendido) el GPS tarda más en ubicarse: 15 s
+const GEO_TIMEOUT_MS = 15000
+
 function getGeo() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) { resolve(null); return }
-    const timer = setTimeout(() => resolve(null), 5000)
+    const timer = setTimeout(() => resolve(null), GEO_TIMEOUT_MS)
     navigator.geolocation.getCurrentPosition(
       p => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude }) },
       () => { clearTimeout(timer); resolve(null) },
-      { timeout: 5000, enableHighAccuracy: true }
+      { timeout: GEO_TIMEOUT_MS, enableHighAccuracy: true, maximumAge: 60000 }
     )
   })
 }
@@ -57,6 +76,10 @@ export default function Asistencia() {
   const [loading, setLoading]                 = useState(false)
   const [initLoading, setInitLoading]         = useState(true)
   const [lastAction, setLastAction]           = useState(null)
+  const [fase, setFase]                       = useState(null) // 'gps' | 'guardando'
+  const [errorMarcaje, setErrorMarcaje]       = useState('')
+  const [estadoIncierto, setEstadoIncierto]   = useState(false)
+  const online = useOnline()
 
   const [obras, setObras]                   = useState([])
   const [obraSeleccionada, setObraSeleccionada] = useState(null)
@@ -66,17 +89,24 @@ export default function Asistencia() {
       navigate('/trabajador', { replace: true })
       return
     }
-    const t = setTimeout(() => setInitLoading(false), 6000)
+    cargar()
+  }, [user?.id])
 
+  function cargar() {
+    setInitLoading(true)
+    const t = setTimeout(() => setInitLoading(false), 6000)
+    let falloTurno = false
     Promise.all([
-      getTodayOpenAttendance(user.id, user.session_token).catch(() => null),
+      getTodayOpenAttendance(user.id, user.session_token).catch(err => { if (!handleSesionExpirada(err)) falloTurno = true; return null }),
       getWorkerObras(user.id, user.session_token).catch(() => []),
     ]).then(([registro, listaObras]) => {
+      // Sin poder leer el turno de hoy no sabemos si toca LLEGUÉ o ME VOY
+      setEstadoIncierto(falloTurno)
       setRegistroAbierto(registro ?? null)
       setObras(listaObras)
       if (listaObras.length === 1) setObraSeleccionada(listaObras[0])
     }).finally(() => { clearTimeout(t); setInitLoading(false) })
-  }, [user?.id])
+  }
 
   const handleSesionExpirada = (err) => {
     if (err?.code === '28000') {
@@ -97,43 +127,58 @@ export default function Asistencia() {
 
   const handleLlegue = async () => {
     if (!obraSeleccionada) return
+    setErrorMarcaje('')
+    if (!navigator.onLine) { setErrorMarcaje('Sin internet: tu entrada NO quedó registrada. Busca señal e intenta de nuevo.'); return }
     setLoading(true)
+    setFase('gps')
     const geo = await getGeo()
+    setFase('guardando')
     try {
       const [record, address] = await Promise.all([
         registrarEntrada(user.id, obraSeleccionada.id, geo, user.session_token),
         geo ? reverseGeocode(geo.lat, geo.lng) : Promise.resolve(null),
       ])
       setRegistroAbierto({ ...record, projects: obraSeleccionada })
-      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra: obraSeleccionada, address })
+      setLastAction({ tipo: 'entrada', hora: new Date().toISOString(), obra: obraSeleccionada, address, sinGps: !geo })
       setStep('confirmado')
     } catch (err) {
       console.error('registrarEntrada:', err)
-      handleSesionExpirada(err)
+      if (!handleSesionExpirada(err)) {
+        setErrorMarcaje(esErrorDeRed(err)
+          ? 'Sin internet: tu entrada NO quedó registrada. Busca señal e intenta de nuevo.'
+          : 'No se pudo registrar la entrada. Intenta de nuevo o avisa a tu jefe de obra.')
+      }
     } finally {
       setLoading(false)
+      setFase(null)
     }
   }
 
   const handleMeVoy = async () => {
     if (!tieneEntrada) return
+    setErrorMarcaje('')
+    if (!navigator.onLine) { setErrorMarcaje('Sin internet: tu salida NO quedó registrada. Busca señal e intenta de nuevo.'); return }
     setLoading(true)
+    setFase('gps')
     const geo = await getGeo()
-    let horas, costo
+    setFase('guardando')
     try {
       const updated = await registrarSalida(user.id, registroAbierto.id, registroAbierto.entrada, geo, valorHora, user.session_token)
-      horas = updated.horas_trabajadas
-      costo = updated.costo_total
+      setRegistroAbierto(null)
+      setLastAction({ tipo: 'salida', hora: new Date().toISOString(), horas: Number(updated.horas_trabajadas).toFixed(1), costo: updated.costo_total, obra: obraActual, sinGps: !geo })
+      setStep('confirmado')
     } catch (err) {
+      // Antes se mostraba "Salida registrada" aunque no se hubiera guardado
       console.error('registrarSalida:', err)
-      if (handleSesionExpirada(err)) { setLoading(false); return }
-      horas = Math.round(((new Date() - new Date(registroAbierto.entrada)) / 3600000) * 100) / 100
-      costo = Math.round(horas * valorHora)
+      if (!handleSesionExpirada(err)) {
+        setErrorMarcaje(esErrorDeRed(err)
+          ? 'Sin internet: tu salida NO quedó registrada. Busca señal e intenta de nuevo.'
+          : 'No se pudo registrar la salida. Intenta de nuevo o avisa a tu jefe de obra.')
+      }
+    } finally {
+      setLoading(false)
+      setFase(null)
     }
-    setRegistroAbierto(null)
-    setLastAction({ tipo: 'salida', hora: new Date().toISOString(), horas: Number(horas).toFixed(1), costo, obra: obraActual })
-    setStep('confirmado')
-    setLoading(false)
   }
 
   const formatTime = (d) => d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
@@ -190,6 +235,12 @@ export default function Asistencia() {
                 <div className="flex justify-between text-sm gap-3">
                   <span style={{ color: 'var(--muted)', flexShrink: 0 }}>Ubicación</span>
                   <span className="text-right text-xs" style={{ color: 'var(--muted)' }}>{lastAction.address}</span>
+                </div>
+              )}
+              {lastAction.sinGps && (
+                <div className="flex items-start gap-2 text-xs rounded-xl p-2.5" style={{ background: 'var(--amber-dim)', color: 'var(--amber)' }}>
+                  <MapPinOff size={14} className="flex-shrink-0 mt-px" />
+                  <span>Quedó sin ubicación. Activa el permiso de ubicación del navegador para la próxima vez.</span>
                 </div>
               )}
               {!esEntrada && lastAction.horas && (
@@ -258,6 +309,22 @@ export default function Asistencia() {
         </p>
       </div>
 
+      {(!online || errorMarcaje || estadoIncierto) && (
+        <div role="alert" className="mb-5 rounded-2xl p-4 flex items-start gap-3" style={{ background: 'var(--red-dim)', border: '1px solid rgba(255,69,96,0.3)' }}>
+          {!online ? <WifiOff size={20} className="flex-shrink-0" style={{ color: 'var(--red)' }} /> : <AlertTriangle size={20} className="flex-shrink-0" style={{ color: 'var(--red)' }} />}
+          <div className="flex-1 text-sm" style={{ color: 'var(--text)' }}>
+            {errorMarcaje || (!online
+              ? 'Sin internet. Las marcas no se pueden registrar hasta que vuelva la señal.'
+              : 'No pudimos revisar tu turno de hoy. Reintenta antes de marcar.')}
+            {estadoIncierto && online && (
+              <button onClick={() => { setErrorMarcaje(''); cargar() }} className="btn-secondary text-xs mt-3 w-full justify-center" style={{ minHeight: 44 }}>
+                Reintentar
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Si ya tiene entrada → mostrar estado y ME VOY */}
       {tieneEntrada && obraActual ? (
         <>
@@ -292,7 +359,10 @@ export default function Asistencia() {
               onMouseLeave={e => e.currentTarget.style.boxShadow = '0 8px 40px rgba(255,69,96,0.35)'}
             >
               {loading
-                ? <Loader2 size={36} className="mx-auto animate-spin" color="#fff" />
+                ? <>
+                    <Loader2 size={36} className="mx-auto animate-spin" color="#fff" />
+                    <p className="text-sm text-center mt-2" style={{ color: '#fff', opacity: 0.7 }}>{fase === 'gps' ? 'Buscando ubicación…' : 'Guardando…'}</p>
+                  </>
                 : <>
                     <p className="font-display font-black text-white text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>ME VOY</p>
                     <p className="text-white/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar salida</p>
@@ -349,14 +419,17 @@ export default function Asistencia() {
           <div className="flex-1 flex flex-col justify-end">
             <button
               onClick={handleLlegue}
-              disabled={loading || !obraSeleccionada}
+              disabled={loading || !obraSeleccionada || estadoIncierto}
               className="w-full rounded-3xl transition-all duration-200 active:scale-[0.97] disabled:opacity-40"
               style={{ background: 'var(--green)', padding: '32px 24px', boxShadow: obraSeleccionada ? '0 8px 40px rgba(0,196,140,0.35)' : 'none' }}
               onMouseEnter={e => { if (obraSeleccionada) e.currentTarget.style.boxShadow = '0 12px 50px rgba(0,196,140,0.5)' }}
               onMouseLeave={e => { if (obraSeleccionada) e.currentTarget.style.boxShadow = '0 8px 40px rgba(0,196,140,0.35)' }}
             >
               {loading
-                ? <Loader2 size={36} className="mx-auto animate-spin" color="#000" />
+                ? <>
+                    <Loader2 size={36} className="mx-auto animate-spin" color="#000" />
+                    <p className="text-sm text-center mt-2" style={{ color: '#000', opacity: 0.7 }}>{fase === 'gps' ? 'Buscando ubicación…' : 'Guardando…'}</p>
+                  </>
                 : <>
                     <p className="font-display font-black text-black text-center" style={{ fontSize: 32, letterSpacing: '-0.04em' }}>LLEGUÉ</p>
                     <p className="text-black/60 text-sm text-center mt-1" style={{ fontFamily: 'Instrument Sans' }}>Registrar entrada</p>
