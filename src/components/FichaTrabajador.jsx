@@ -261,7 +261,7 @@ export default function FichaTrabajador({ worker, rangoInicial, onClose }) {
                           style={{ borderTop: '1px solid var(--border)', background: r.salida ? undefined : 'var(--amber-dim)' }}
                         >
                           <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-sm capitalize" style={{ color: 'var(--text)' }}>{fechaCorta(r.fecha)}</span>
+                            <span className="inline-block text-sm first-letter:uppercase" style={{ color: 'var(--text)' }}>{fechaCorta(r.fecha)}</span>
                             {r.salida ? (
                               <span className="num text-sm" style={{ color: 'var(--text)' }}>{r.costo_total != null ? formatCLP(r.costo_total) : '—'}</span>
                             ) : (
