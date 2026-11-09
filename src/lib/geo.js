@@ -63,3 +63,38 @@ export function ubicacionActual() {
     )
   })
 }
+
+/**
+ * Link de Google Maps o coordenadas pegadas → { lat, lng }.
+ * Acepta el link largo (/maps/place/...!3d..!4d.., /@lat,lng, ?q=lat,lng)
+ * y el texto "-33.45, -70.66" que copia Google Maps al tocar un punto.
+ * Devuelve { error } si no hay coordenadas (p. ej. el link corto
+ * maps.app.goo.gl, que el navegador no puede abrir por dentro).
+ */
+export function coordsDesdeTexto(texto) {
+  let t = (texto ?? '').trim()
+  try { t = decodeURIComponent(t) } catch { /* % suelto: se usa tal cual */ }
+  if (!t) return { error: 'Pega el link o las coordenadas' }
+  const n = '(-?\\d{1,3}\\.\\d+)'
+  const patrones = [
+    new RegExp(`!3d${n}!4d${n}`), // el pin del lugar (más exacto que el centro de la vista)
+    new RegExp(`[?&](?:q|query|ll|destination|center)=${n},\\s*${n}`),
+    new RegExp(`@${n},${n}`),
+    new RegExp(`^${n}\\s*,\\s*${n}$`),
+  ]
+  for (const re of patrones) {
+    const m = t.match(re)
+    if (!m) continue
+    const lat = Number(m[1])
+    const lng = Number(m[2])
+    // Chile continental e insular; descarta coordenadas invertidas o de otro país
+    if (lat < -56 || lat > -17 || lng < -110 || lng > -66) {
+      return { error: 'Esas coordenadas no están en Chile. Revisa el link.' }
+    }
+    return { lat, lng }
+  }
+  if (/goo\.gl|maps\.app/.test(t)) {
+    return { error: 'Ese es un link corto. Ábrelo y copia la dirección completa de la barra, o toca la obra en Google Maps y copia las coordenadas (-33.45, -70.66).' }
+  }
+  return { error: 'No encontré coordenadas en ese texto. Pega el link de Google Maps de la obra o sus coordenadas.' }
+}

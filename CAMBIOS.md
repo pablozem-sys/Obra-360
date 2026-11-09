@@ -552,3 +552,9 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - Si al abrir no se pudo revisar el turno del día, no deja marcar y ofrece Reintentar
 - El GPS espera 15 segundos (antes 5) mostrando «Buscando ubicación…»; si queda sin ubicación, se le pide al trabajador activar el permiso
 - Pendiente: confirmar que las direcciones reales se ubicaron bien en el mapa (abrir Registros una vez y revisar las obras «sin ubicación»); probar un marcaje real desde un celular; revisar la ficha de un trabajador real contra sus registros del mes; llevar todo esto a VRION (antes hay que aplicar ahí los cambios de base pendientes)
+
+## 2026-11-09 — Ubicar la obra con el link de Google Maps
+- El buscador automático (OpenStreetMap) no encuentra muchas direcciones de Chile (p. ej. «Quillayes 19, La Reina») y a veces ubica la obra en otro lugar; por eso salía «Obra sin ubicación en el mapa» aunque la obra tuviera dirección
+- En Editar obra hay un campo nuevo «Link de Google Maps»: se pega el link de la obra (o sus coordenadas, -33.45, -70.66) y queda ubicada exacta al guardar. El link corto (maps.app.goo.gl) no sirve: se pide abrirlo y copiar el link completo o las coordenadas
+- El aviso «Obra sin ubicación en el mapa» en Asistencia lleva directo a la obra
+- Sin cambios en la base de datos. Pendiente: VRION (antes hay que aplicar ahí los cambios de base pendientes)

@@ -8,7 +8,7 @@ import {
 import Badge from '../components/ui/Badge'
 import FechasObra from '../components/ui/FechasObra'
 import Modal from '../components/ui/Modal'
-import { geocodificarDireccion, ubicacionActual } from '../lib/geo'
+import { coordsDesdeTexto, geocodificarDireccion, ubicacionActual } from '../lib/geo'
 import {
   getObraById, getGastos, getIngresos, getDocumentos,
   updateObra, createIngreso, updateIngreso, deleteIngreso, getAttendanceByProject,
@@ -1017,6 +1017,27 @@ export default function DetalleObra() {
                   Estoy en la obra: usar mi ubicación
                 </button>
               </div>
+              {/* El buscador automático no encuentra muchas direcciones de Chile:
+                  el link de Google Maps da la ubicación exacta sin ir a terreno. */}
+              <label className="label mt-3">Link de Google Maps (opcional)</label>
+              <input className="input" value={editForm.linkMapa ?? ''}
+                placeholder="Pega el link de la obra o sus coordenadas (-33.45, -70.66)"
+                onChange={e => {
+                  const texto = e.target.value
+                  if (!texto.trim()) {
+                    setEditForm(p => ({ ...p, linkMapa: '' }))
+                    setGpsMsg('')
+                    return
+                  }
+                  const r = coordsDesdeTexto(texto)
+                  if (r.error) {
+                    setEditForm(p => ({ ...p, linkMapa: texto }))
+                    setGpsMsg(r.error)
+                  } else {
+                    setEditForm(p => ({ ...p, linkMapa: texto, lat: r.lat, lng: r.lng, gpsManual: true }))
+                    setGpsMsg('Ubicación tomada del link: guarda para aplicarla')
+                  }
+                }} />
             </div>
             <div>
               <label className="label">Tipo de obra</label>

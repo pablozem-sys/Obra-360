@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react'
 import { Users, Clock, DollarSign, Plus, X, Check, ToggleLeft, ToggleRight, Loader2, AlertCircle, AlertTriangle, Pencil, Eye, EyeOff, Trash2, Search, MapPin } from 'lucide-react'
 import { formatCLP, horasBaseJornada } from '../lib/helpers'
 import { supabase } from '../lib/supabase'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import FichaTrabajador from '../components/FichaTrabajador'
 import { estadoUbicacion, formatDistancia, geocodificarDireccion, RADIO_OBRA_M } from '../lib/geo'
@@ -1124,7 +1125,7 @@ export default function ControlAsistencia() {
                               {g.lejos > 0 && <span style={{ color: 'var(--red)', fontWeight: 600 }}>{g.lejos} {g.lejos === 1 ? 'marcaje' : 'marcajes'} fuera de la obra</span>}
                               {g.lejos > 0 && g.sinGps > 0 && <span>·</span>}
                               {g.sinGps > 0 && <span style={{ color: 'var(--amber)', fontWeight: 600 }}>{g.sinGps} sin ubicación</span>}
-                              {g.obraSinUbicacion && <span>{g.lejos || g.sinGps ? '· ' : ''}Obra sin ubicación en el mapa: revisa su dirección</span>}
+                              {g.obraSinUbicacion && <span>{g.lejos || g.sinGps ? '· ' : ''}Obra sin ubicación en el mapa: <Link to={`/obras/${g.id}`} style={{ color: 'var(--blue)', textDecoration: 'underline' }}>pega su link de Google Maps en Editar obra</Link></span>}
                             </p>
                           )}
                         </div>
