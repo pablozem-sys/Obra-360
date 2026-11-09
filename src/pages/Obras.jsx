@@ -235,9 +235,9 @@ export default function Obras() {
                     <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>{o.clients.nombre}</p>
                   )}
                   {o.direccion && (
-                    <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
-                      <MapPin size={11} />
-                      <span className="truncate">{o.direccion}</span>
+                    <div className="flex items-start gap-1.5 text-xs" style={{ color: 'var(--subtle)' }}>
+                      <MapPin size={11} className="shrink-0 mt-0.5" />
+                      <span className="break-words">{o.direccion}</span>
                     </div>
                   )}
                 </div>
