@@ -557,4 +557,7 @@ Pedido del cliente: si un trabajador es derivado a una obra distinta a las que t
 - El buscador automático (OpenStreetMap) no encuentra muchas direcciones de Chile (p. ej. «Quillayes 19, La Reina») y a veces ubica la obra en otro lugar; por eso salía «Obra sin ubicación en el mapa» aunque la obra tuviera dirección
 - En Editar obra hay un campo nuevo «Link de Google Maps»: se pega el link de la obra (o sus coordenadas, -33.45, -70.66) y queda ubicada exacta al guardar. El link corto (maps.app.goo.gl) no sirve: se pide abrirlo y copiar el link completo o las coordenadas
 - El aviso «Obra sin ubicación en el mapa» en Asistencia lleva directo a la obra
-- Sin cambios en la base de datos. Pendiente: VRION (antes hay que aplicar ahí los cambios de base pendientes)
+- La lista de Obras muestra la dirección completa (antes se cortaba)
+- Pedro ubicó las obras con Google Maps; confirmado que quedó bien. Mensaje de WhatsApp al cliente explicando el aviso «Obra sin ubicación»
+- Consulta del cliente: Horas y Costo vacíos en Asistencia = turnos de hoy aún sin salida (se calculan al marcar ME VOY); todos los días cerrados desde el 26-10 tienen horas y costo. Idea ofrecida, no hecha: mostrar «en curso · X h» en turnos abiertos
+- Sin cambios en la base de datos. Pendiente: VRION (antes hay que aplicar ahí los cambios de base pendientes); LO CURRO y LOS BRAVOS 803/807 sin dirección
